@@ -13,3 +13,8 @@ members = ["services/google-transcribe"]
 cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
+google-transcribe = { path = "services/google-transcribe" }
+tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
+
+[workspace.dependencies]
+tokio = { version = "1.41.1", features = ["sync"] }

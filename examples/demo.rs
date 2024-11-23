@@ -8,7 +8,8 @@ use std::{
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{OutputStream, Source};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Get the default host and input device
     let host = cpal::default_host();
     let device = host

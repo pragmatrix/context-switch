@@ -10,3 +10,5 @@ tonic = { version = "0.12.3", default-features = false, features = ["tls-webpki-
 google-cloud-auth = { version = "0.17.1", default-features = false, features = ["rustls-tls"] }
 google-cloud-token = "0.1.2"
 anyhow = "1.0.93"
+tokio = { workspace = true }
+async-stream = { version = "0.3.6" }
