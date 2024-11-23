@@ -1,0 +1,12 @@
+[package]
+name = "context-switch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+# audio input
+cpal = "0.15.3"
+# audio output
+rodio = "0.20.1"
