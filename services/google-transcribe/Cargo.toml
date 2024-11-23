@@ -1,0 +1,12 @@
+[package]
+name = "google-transcribe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+googleapis-tonic-google-cloud-speech-v2 = "0.12.0"
+tonic = { version = "0.12.3", default-features = false, features = ["tls-webpki-roots"] }
+
+google-cloud-auth = { version = "0.17.1", default-features = false, features = ["rustls-tls"] }
+google-cloud-token = "0.1.2"
+anyhow = "1.0.93"
