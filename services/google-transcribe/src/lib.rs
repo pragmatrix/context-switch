@@ -6,13 +6,15 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use async_stream::stream;
+use async_stream::{stream, try_stream};
+use futures::Stream;
 use google_cloud_auth::{project, token::DefaultTokenSourceProvider};
 use google_cloud_token::TokenSourceProvider;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     explicit_decoding_config, recognition_config::DecodingConfig,
     streaming_recognize_request::StreamingRequest, ExplicitDecodingConfig, RecognitionConfig,
-    StreamingRecognitionConfig, StreamingRecognizeRequest,
+    SpeechRecognitionResult, StreamingRecognitionConfig, StreamingRecognizeRequest,
+    StreamingRecognizeResponse,
 };
 use tokio::sync::mpsc;
 use tonic::transport;
@@ -134,7 +136,10 @@ pub fn audio_channel(sample_rate: u32, channels: u16) -> (mpsc::Sender<Vec<f32>>
 }
 
 impl TranscribeClient {
-    pub async fn transcribe(&mut self, mut audio_receiver: AudioReceiver) -> Result<()> {
+    pub async fn transcribe(
+        &mut self,
+        mut audio_receiver: AudioReceiver,
+    ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
         let decoding_config = ExplicitDecodingConfig {
             // We only support 16-bit signed little-endian PCM samples here for now.
             encoding: explicit_decoding_config::AudioEncoding::Linear16.into(),
@@ -187,11 +192,13 @@ impl TranscribeClient {
             .await?
             .into_inner();
 
-        while let Some(message) = iterator.message().await? {
-            println!("message: {:?}", message)
-        }
+        let stream = try_stream! {
+            while let Some(message) = iterator.message().await? {
+                yield message;
+            }
+        };
 
-        Ok(())
+        Ok(stream)
     }
 }
 

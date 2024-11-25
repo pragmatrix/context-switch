@@ -1,12 +1,14 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
 use std::{
+    pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use futures::{pin_mut, StreamExt};
 use google_transcribe::{audio_channel, TranscribeConfig, TranscribeHost};
 use rodio::{OutputStream, Source};
 use tokio::sync::mpsc;
@@ -51,7 +53,11 @@ async fn main() -> Result<()> {
     let transcribe_config = TranscribeConfig::new_eu();
     let host = TranscribeHost::new(transcribe_config).await?;
     let mut client = host.client().await?;
-    client.transcribe(receiver).await?;
+    let stream = client.transcribe(receiver).await?;
+    pin_mut!(stream);
+    while let Some(msg) = stream.next().await {
+        println!("msg: {:?}", msg)
+    }
 
     // Keep the stream running for 5 seconds
     std::thread::sleep(std::time::Duration::from_secs(5));

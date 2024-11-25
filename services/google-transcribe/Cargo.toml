@@ -13,3 +13,4 @@ google-cloud-token = "0.1.2"
 anyhow = { workspace = true }
 tokio = { workspace = true }
 async-stream = { workspace = true }
+futures = { workspace = true }
