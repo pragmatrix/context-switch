@@ -5,11 +5,14 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use google_transcribe::{audio_channel, TranscribeConfig, TranscribeHost};
 use rodio::{OutputStream, Source};
+use tokio::sync::mpsc;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     // Get the default host and input device
     let host = cpal::default_host();
     let device = host
@@ -24,17 +27,16 @@ async fn main() {
     let channels = config.channels();
     let sample_rate = config.sample_rate();
 
-    // Create a buffer to store the audio data
-    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let (sender, receiver) = audio_channel(sample_rate.0, channels);
 
     // Create and run the input stream
-    let buffer_clone = Arc::clone(&buffer);
     let stream = device
         .build_input_stream(
             &config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                let mut buffer = buffer_clone.lock().unwrap();
-                buffer.extend_from_slice(data);
+                if sender.try_send(data.to_vec()).is_err() {
+                    println!("Failed to send audio data")
+                }
             },
             move |err| {
                 eprintln!("Error occurred on stream: {}", err);
@@ -46,21 +48,26 @@ async fn main() {
 
     stream.play().expect("Failed to play stream");
 
+    let transcribe_config = TranscribeConfig::new_eu();
+    let host = TranscribeHost::new(transcribe_config).await?;
+    let mut client = host.client().await?;
+    client.transcribe(receiver).await?;
+
     // Keep the stream running for 5 seconds
     std::thread::sleep(std::time::Duration::from_secs(5));
 
     // Print the captured audio data length
-    let buffer = buffer.lock().unwrap();
-    println!("Captured {} samples", buffer.len());
 
     // Play back the recorded audio data
-    let (_stream, stream_handle) =
-        OutputStream::try_default().expect("Failed to get default output stream");
-    let source = rodio::buffer::SamplesBuffer::new(channels, sample_rate.0, buffer.clone());
-    stream_handle
-        .play_raw(source.convert_samples())
-        .expect("Failed to play back audio");
+    // let (_stream, stream_handle) =
+    //     OutputStream::try_default().expect("Failed to get default output stream");
+    // let source = rodio::buffer::SamplesBuffer::new(channels, sample_rate.0, buffer.clone());
+    // stream_handle
+    //     .play_raw(source.convert_samples())
+    //     .expect("Failed to play back audio");
 
-    // Keep the playback running for the duration of the recorded audio
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    // // Keep the playback running for the duration of the recorded audio
+    // std::thread::sleep(std::time::Duration::from_secs(5));
+
+    Ok(())
 }

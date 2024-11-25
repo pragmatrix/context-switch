@@ -26,11 +26,11 @@ type MyInterceptor =
     Box<dyn FnMut(tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> + Send + Sync>;
 
 #[derive(Default)]
-pub struct Config {
+pub struct TranscribeConfig {
     endpoint: &'static str,
 }
 
-impl Config {
+impl TranscribeConfig {
     pub fn new() -> Self {
         Self {
             endpoint: "https://speech.googleapis.com",
@@ -56,7 +56,7 @@ pub struct TranscribeHost {
 }
 
 impl TranscribeHost {
-    pub async fn new(params: Config) -> Result<Self> {
+    pub async fn new(params: TranscribeConfig) -> Result<Self> {
         let default_token_source_provider = DefaultTokenSourceProvider::new(
             // All speech requests should be fine with authorization of the cloud-platform
             // scope:
@@ -113,11 +113,24 @@ pub struct TranscribeClient {
 
 #[derive(Debug)]
 pub struct AudioReceiver {
-    pub receiver: mpsc::Receiver<Vec<i16>>,
     /// 8000 to 48000 are valid.
     pub sample_rate: u32,
     /// Number of channels.
-    pub channels: u32,
+    pub channels: u16,
+    pub receiver: mpsc::Receiver<Vec<f32>>,
+}
+
+/// Create an unidirection audio channel.
+pub fn audio_channel(sample_rate: u32, channels: u16) -> (mpsc::Sender<Vec<f32>>, AudioReceiver) {
+    let (sender, receiver) = mpsc::channel(256);
+    (
+        sender,
+        AudioReceiver {
+            sample_rate,
+            channels,
+            receiver,
+        },
+    )
 }
 
 impl TranscribeClient {
@@ -146,10 +159,9 @@ impl TranscribeClient {
             streaming_features: None,
         };
 
-        let recognizer = format!(
-            "projects/{}/locations/global/recognizers/_",
-            self.project_id
-        );
+        let recognizer = format!("projects/{}/locations/eu/recognizers/_", self.project_id);
+
+        println!("recognizer: {}", recognizer);
 
         let config_request = StreamingRecognizeRequest {
             recognizer: recognizer.clone(),
@@ -160,7 +172,7 @@ impl TranscribeClient {
             yield config_request;
 
             while let Some(audio) = audio_receiver.receiver.recv().await {
-                for chunk in audio::chunk_8192(audio::convert_le(audio)) {
+                for chunk in audio::chunk_8192(audio::into_le_bytes(audio::into_i16(audio))) {
                     yield StreamingRecognizeRequest {
                         recognizer: recognizer.clone(),
                         streaming_request: StreamingRequest::Audio(chunk).into(),
@@ -185,7 +197,14 @@ impl TranscribeClient {
 
 pub mod audio {
 
-    pub fn convert_le(audio: Vec<i16>) -> Vec<u8> {
+    pub fn into_i16(audio: Vec<f32>) -> Vec<i16> {
+        audio
+            .into_iter()
+            .map(|sample| (sample * i16::MAX as f32) as i16)
+            .collect()
+    }
+
+    pub fn into_le_bytes(audio: Vec<i16>) -> Vec<u8> {
         let mut result = Vec::with_capacity(audio.len() * 2);
         for sample in audio {
             result.extend_from_slice(&sample.to_le_bytes());
