@@ -1,17 +1,11 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{
-    pin,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::time::Duration;
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
 use google_transcribe::{audio_channel, TranscribeConfig, TranscribeHost};
-use rodio::{OutputStream, Source};
-use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
