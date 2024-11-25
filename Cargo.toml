@@ -17,7 +17,10 @@ futures = "0.3.31"
 cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
+
 google-transcribe = { path = "services/google-transcribe" }
+azure-transcribe = { path = "services/azure-transcribe" }
+
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 anyhow = "1.0.93"
 context-switch-core = { workspace = true }

@@ -6,7 +6,7 @@ use anyhow::Result;
 use context_switch_core::audio_channel;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
-use google_transcribe::{TranscribeConfig, TranscribeHost};
+use google_transcribe::{Config, Host};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -45,13 +45,29 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let transcribe_config = TranscribeConfig::new_eu();
-    let host = TranscribeHost::new(transcribe_config).await?;
-    let mut client = host.client().await?;
-    let stream = client.transcribe(receiver).await?;
-    pin_mut!(stream);
-    while let Some(msg) = stream.next().await {
-        println!("msg: {:?}", msg)
+    let language_code = "de-DE";
+
+    // Google
+    // {
+    //     let transcribe_config = google_transcribe::Config::new_eu();
+    //     let host = google_transcribe::Host::new(transcribe_config).await?;
+    //     let mut client = host.client().await?;
+    //     let stream = client.transcribe("long", language_code, receiver).await?;
+    //     pin_mut!(stream);
+    //     while let Some(msg) = stream.next().await {
+    //         println!("msg: {:?}", msg)
+    //     }
+    // }
+
+    // Azure
+    {
+        let host = azure_transcribe::Host::from_env()?;
+        let mut client = host.connect(language_code).await?;
+        let stream = client.transcribe(receiver).await?;
+        pin_mut!(stream);
+        while let Some(msg) = stream.next().await {
+            println!("msg: {:?}", msg)
+        }
     }
 
     // Keep the stream running for 5 seconds

@@ -29,11 +29,11 @@ type MyInterceptor =
     Box<dyn FnMut(tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> + Send + Sync>;
 
 #[derive(Default)]
-pub struct TranscribeConfig {
+pub struct Config {
     endpoint: &'static str,
 }
 
-impl TranscribeConfig {
+impl Config {
     pub fn new() -> Self {
         Self {
             endpoint: "https://speech.googleapis.com",
@@ -52,14 +52,14 @@ impl TranscribeConfig {
 }
 
 #[derive(Clone)]
-pub struct TranscribeHost {
+pub struct Host {
     channel: tonic::transport::Channel,
     token_source: Arc<dyn google_cloud_token::TokenSource>,
     project_id: String,
 }
 
-impl TranscribeHost {
-    pub async fn new(params: TranscribeConfig) -> Result<Self> {
+impl Host {
+    pub async fn new(params: Config) -> Result<Self> {
         let default_token_source_provider = DefaultTokenSourceProvider::new(
             // All speech requests should be fine with authorization of the cloud-platform
             // scope:
@@ -117,6 +117,8 @@ pub struct TranscribeClient {
 impl TranscribeClient {
     pub async fn transcribe(
         &mut self,
+        model: &str,
+        language_code: &str,
         mut audio_receiver: AudioReceiver,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
         let decoding_config = ExplicitDecodingConfig {
@@ -128,8 +130,8 @@ impl TranscribeClient {
 
         let recognition_config = RecognitionConfig {
             // TODO: configure
-            model: "long".into(),
-            language_codes: vec!["de-DE".into()],
+            model: model.into(),
+            language_codes: vec![language_code.into()],
             features: None,
             adaptation: None,
             transcript_normalization: None,

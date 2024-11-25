@@ -12,12 +12,12 @@ use futures::{pin_mut, Stream};
 use hound::WavSpec;
 
 #[derive(Debug)]
-struct TranscribeHost {
+pub struct Host {
     auth: Auth,
 }
 
-impl TranscribeHost {
-    pub fn new_from_env() -> Result<Self> {
+impl Host {
+    pub fn from_env() -> Result<Self> {
         let auth = Auth::from_subscription(
             env::var("AZURE_REGION").map_err(|_| anyhow!("Region not set on AZURE_REGION env"))?,
             env::var("AZURE_SUBSCRIPTION_KEY")
@@ -26,19 +26,27 @@ impl TranscribeHost {
         Ok(Self { auth })
     }
 
-    pub async fn connect(&self, config: recognizer::Config) -> Result<TranscribeClient> {
+    pub async fn connect(&self, language_code: &str) -> Result<Client> {
+        let config = recognizer::Config::default()
+            // Disable profanity filter.
+            .set_profanity(recognizer::Profanity::Raw)
+            // short-circuit language filter.
+            // TODO: may actually use the filter to check for supported languages?
+            .set_language(recognizer::Language::Custom(language_code.into()))
+            .set_output_format(recognizer::OutputFormat::Detailed);
+
         let client = recognizer::Client::connect(self.auth.clone(), config).await?;
-        Ok(TranscribeClient { client })
+        Ok(Client { client })
     }
 }
 
 // #[derive(Debug)]
-struct TranscribeClient {
+pub struct Client {
     client: recognizer::Client,
 }
 
-impl TranscribeClient {
-    pub async fn recognize(
+impl Client {
+    pub async fn transcribe(
         &mut self,
         mut audio_receiver: AudioReceiver,
     ) -> Result<impl Stream<Item = azure_speech::Result<recognizer::Event>> + use<'_>> {
