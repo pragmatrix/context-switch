@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = [ "services/azure-transcribe","services/google-transcribe"]
+members = [ "core", "services/azure-transcribe","services/google-transcribe"]
 
 [dependencies]
 anyhow = "1.0.93"
@@ -20,8 +20,11 @@ rodio = "0.20.1"
 google-transcribe = { path = "services/google-transcribe" }
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 anyhow = "1.0.93"
+context-switch-core = { workspace = true }
 
 [workspace.dependencies]
+context-switch-core = { path = "core" }
+
 anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }
 tokio = { version = "1.41.1", features = ["sync"] }

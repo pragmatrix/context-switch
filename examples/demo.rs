@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use context_switch_core::audio_channel;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
-use google_transcribe::{audio_channel, TranscribeConfig, TranscribeHost};
+use google_transcribe::{TranscribeConfig, TranscribeHost};
 
 #[tokio::main]
 async fn main() -> Result<()> {

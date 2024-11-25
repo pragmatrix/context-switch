@@ -14,3 +14,4 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
+context-switch-core = { workspace = true }

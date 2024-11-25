@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_stream::{stream, try_stream};
+use context_switch_core::{audio, AudioReceiver};
 use futures::Stream;
 use google_cloud_auth::{project, token::DefaultTokenSourceProvider};
 use google_cloud_token::TokenSourceProvider;
@@ -113,28 +114,6 @@ pub struct TranscribeClient {
     project_id: String,
 }
 
-#[derive(Debug)]
-pub struct AudioReceiver {
-    /// 8000 to 48000 are valid.
-    pub sample_rate: u32,
-    /// Number of channels.
-    pub channels: u16,
-    pub receiver: mpsc::Receiver<Vec<f32>>,
-}
-
-/// Create an unidirection audio channel.
-pub fn audio_channel(sample_rate: u32, channels: u16) -> (mpsc::Sender<Vec<f32>>, AudioReceiver) {
-    let (sender, receiver) = mpsc::channel(256);
-    (
-        sender,
-        AudioReceiver {
-            sample_rate,
-            channels,
-            receiver,
-        },
-    )
-}
-
 impl TranscribeClient {
     pub async fn transcribe(
         &mut self,
@@ -199,35 +178,5 @@ impl TranscribeClient {
         };
 
         Ok(stream)
-    }
-}
-
-pub mod audio {
-
-    pub fn into_i16(audio: Vec<f32>) -> Vec<i16> {
-        audio
-            .into_iter()
-            .map(|sample| (sample * i16::MAX as f32) as i16)
-            .collect()
-    }
-
-    pub fn into_le_bytes(audio: Vec<i16>) -> Vec<u8> {
-        let mut result = Vec::with_capacity(audio.len() * 2);
-        for sample in audio {
-            result.extend_from_slice(&sample.to_le_bytes());
-        }
-        result
-    }
-
-    // Max is 15KB, so we do 8192 bytes max, which should also be aligned on a sample.
-    pub fn chunk_8192(audio: Vec<u8>) -> Vec<Vec<u8>> {
-        const MAX_CHUNK_SIZE: usize = 8192;
-        if audio.len() <= MAX_CHUNK_SIZE {
-            return vec![audio];
-        }
-        audio
-            .chunks(MAX_CHUNK_SIZE)
-            .map(|chunk| chunk.to_vec())
-            .collect()
     }
 }
