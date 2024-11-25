@@ -1,0 +1,9 @@
+[package]
+name = "azure-transcribe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+azure-speech = "0.4.0"
+
+anyhow = { workspace = true }

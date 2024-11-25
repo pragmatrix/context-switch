@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = ["services/google-transcribe"]
+members = [ "services/azure-transcribe","services/google-transcribe"]
 
 [dependencies]
+anyhow = "1.0.93"
+uuid = "1.11.0"
+serde_json = "1.0.133"
+futures = "0.3.31"
 
 [dev-dependencies]
 # audio input
@@ -18,4 +22,6 @@ tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 anyhow = "1.0.93"
 
 [workspace.dependencies]
+anyhow = "1.0.93"
+async-stream = { version = "0.3.6" }
 tokio = { version = "1.41.1", features = ["sync"] }
