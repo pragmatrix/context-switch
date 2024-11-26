@@ -14,10 +14,8 @@ use google_cloud_token::TokenSourceProvider;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     explicit_decoding_config, recognition_config::DecodingConfig,
     streaming_recognize_request::StreamingRequest, ExplicitDecodingConfig, RecognitionConfig,
-    SpeechRecognitionResult, StreamingRecognitionConfig, StreamingRecognizeRequest,
-    StreamingRecognizeResponse,
+    StreamingRecognitionConfig, StreamingRecognizeRequest, StreamingRecognizeResponse,
 };
-use tokio::sync::mpsc;
 use tonic::transport;
 
 type Client =

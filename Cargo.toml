@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = [ "core", "services/azure-transcribe","services/google-transcribe"]
+members = [ 
+    "core",
+    "endpoints/azure-transcribe",
+    "endpoints/google-transcribe"]
 
 [dependencies]
 anyhow = "1.0.93"
@@ -18,8 +21,8 @@ cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
 
-google-transcribe = { path = "services/google-transcribe" }
-azure-transcribe = { path = "services/azure-transcribe" }
+google-transcribe = { path = "endpoints/google-transcribe" }
+azure-transcribe = { path = "endpoints/azure-transcribe" }
 
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 anyhow = "1.0.93"

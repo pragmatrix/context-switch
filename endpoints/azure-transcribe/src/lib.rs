@@ -4,11 +4,10 @@ use anyhow::{anyhow, Result};
 use async_stream::stream;
 use azure_speech::{
     recognizer::{self},
-    synthesizer::ssml::audio,
     Auth,
 };
 use context_switch_core::{audio, AudioReceiver};
-use futures::{pin_mut, Stream};
+use futures::Stream;
 use hound::WavSpec;
 
 #[derive(Debug)]

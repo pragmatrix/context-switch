@@ -6,7 +6,6 @@ use anyhow::Result;
 use context_switch_core::audio_channel;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
-use google_transcribe::{Config, Host};
 
 #[tokio::main]
 async fn main() -> Result<()> {
