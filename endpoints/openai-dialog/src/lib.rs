@@ -12,7 +12,7 @@ use futures::{
 use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{ClientEvent, InputAudioBufferAppend},
-    server_event::{ResponseAudioDelta, ServerEvent},
+    server_event::ServerEvent,
     types,
 };
 use tokio::{net::TcpStream, select};
@@ -47,11 +47,6 @@ impl Host {
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-}
-
-enum Driver {
-    Yield(AudioFrame),
-    End,
 }
 
 impl Client {
