@@ -1,6 +1,7 @@
 pub mod audio;
 
 use anyhow::Result;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -72,6 +73,12 @@ pub struct AudioFrame {
 }
 
 impl AudioFrame {
+    pub fn duration(&self) -> Duration {
+        let mono_sample_count = self.samples.len() / self.format.channels as usize;
+        let sample_rate = self.format.sample_rate;
+        Duration::from_secs_f64(mono_sample_count as f64 / sample_rate as f64)
+    }
+
     pub fn into_mono(self) -> AudioFrame {
         let format = self.format;
         if format.channels == 1 {

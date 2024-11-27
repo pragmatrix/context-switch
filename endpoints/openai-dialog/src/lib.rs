@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Result};
 use async_fn_stream::{fn_stream, try_fn_stream};
 use async_stream::{stream, try_stream};
 use base64::prelude::*;
-use context_switch_core::{audio, AudioConsumer, AudioFrame, AudioProducer};
+use context_switch_core::{audio, AudioConsumer, AudioFormat, AudioFrame, AudioProducer};
 use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, Stream, StreamExt,
@@ -15,6 +15,7 @@ use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{ClientEvent, InputAudioBufferAppend},
     server_event::ServerEvent,
+    types,
 };
 use tokio::{net::TcpStream, pin, select};
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
@@ -64,11 +65,62 @@ impl Client {
     ) -> Result<()> {
         // TODO: send a session update with the right
 
+        let expected_format = AudioFormat::new(1, 24000);
+        if consumer.format != expected_format {
+            bail!(
+                "audio consumer audio has the wrong format {:?}, expected: {:?}",
+                consumer.format,
+                expected_format
+            );
+        }
+
+        if producer.format != expected_format {
+            bail!(
+                "audio producer audio has the wrong format {:?}, expected: {:?}",
+                producer.format,
+                expected_format
+            );
+        }
+
+        // Wait for the created event.
+        // TODO: timeout?
+        let message = self.read.next().await;
+        let Some(message) = message else {
+            // TODO: should this be an error.
+            bail!("Failed to receive the initial message received");
+        };
+
+        let Message::Text(message) = message? else {
+            bail!("Failed to receive the initial text message");
+        };
+
+        let initial = serde_json::from_str(&message)?;
+        let ServerEvent::SessionCreated(session_created) = initial else {
+            bail!("Failed to receive the session created event");
+        };
+
+        // PartialEq is not implemented for AudioFormat.
+        let Some(types::AudioFormat::PCM16) = session_created.session.input_audio_format else {
+            bail!(
+                "Unexpected input audio format: {:?}, expected {:?}",
+                session_created.session.input_audio_format,
+                types::AudioFormat::PCM16
+            )
+        };
+
+        let Some(types::AudioFormat::PCM16) = session_created.session.output_audio_format else {
+            bail!(
+                "Unexpected output audio format: {:?}, expected {:?}",
+                session_created.session.output_audio_format,
+                types::AudioFormat::PCM16
+            )
+        };
+
         loop {
             select! {
                 audio_frame = consumer.absorb() => {
                     if let Some(audio_frame) = audio_frame {
-                        println!("sending frame");
+                        println!("sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
                         continue;
                     } else {
