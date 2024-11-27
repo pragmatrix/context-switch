@@ -12,7 +12,7 @@ use futures::{
 use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{ClientEvent, InputAudioBufferAppend},
-    server_event::ServerEvent,
+    server_event::{ResponseAudioDelta, ServerEvent},
     types,
 };
 use tokio::{net::TcpStream, select};
@@ -189,14 +189,22 @@ impl Client {
         match message {
             Message::Text(str) => match serde_json::from_str(&str)? {
                 ServerEvent::Error(e) => {
-                    bail!(format!("{e:?}"));
+                    bail!(format!("{e:?}, raw: {str}"));
+                }
+                ServerEvent::ResponseAudioDelta(audio_delta) => {
+                    let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
+                    let i16 = audio::from_le_bytes(&decoded);
+                    let f32 = audio::from_i16(i16);
+                    producer.produce(f32)?;
                 }
                 response => {
                     println!("response: {:?}", response)
                 }
             },
             Message::Close(_) => return Ok(FlowControl::End),
-            _ => {}
+            msg => {
+                bail!("Unhandled: {:?}", msg)
+            }
         }
 
         Ok(FlowControl::Continue)
