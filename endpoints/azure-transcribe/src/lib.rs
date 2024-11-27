@@ -6,7 +6,7 @@ use azure_speech::{
     recognizer::{self},
     Auth,
 };
-use context_switch_core::{audio, AudioReceiver};
+use context_switch_core::{audio, AudioConsumer};
 use futures::Stream;
 use hound::WavSpec;
 
@@ -47,7 +47,7 @@ pub struct Client {
 impl Client {
     pub async fn transcribe(
         &mut self,
-        mut audio_receiver: AudioReceiver,
+        mut audio_receiver: AudioConsumer,
     ) -> Result<impl Stream<Item = azure_speech::Result<recognizer::Event>> + use<'_>> {
         let audio_stream = stream! {
             while let Some(audio) = audio_receiver.receiver.recv().await {
@@ -61,9 +61,11 @@ impl Client {
         // TODO: do they have an effect?
         let details = recognizer::Details::unknown();
 
+        let format = audio_receiver.format;
+
         let wav_spec = WavSpec {
-            channels: audio_receiver.channels,
-            sample_rate: audio_receiver.sample_rate,
+            channels: format.channels,
+            sample_rate: format.sample_rate,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };

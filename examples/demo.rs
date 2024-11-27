@@ -1,14 +1,16 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::time::Duration;
+use std::{env, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::audio_channel;
+use context_switch_core::{audio_channel, AudioFormat};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv()?;
+
     // Get the default host and input device
     let host = cpal::default_host();
     let device = host
@@ -22,15 +24,16 @@ async fn main() -> Result<()> {
 
     let channels = config.channels();
     let sample_rate = config.sample_rate();
+    let format = AudioFormat::new(channels, sample_rate.0);
 
-    let (sender, receiver) = audio_channel(sample_rate.0, channels);
+    let (producer, consumer) = format.new_channel();
 
     // Create and run the input stream
     let stream = device
         .build_input_stream(
             &config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                if sender.try_send(data.to_vec()).is_err() {
+                if producer.produce(data.to_vec()).is_err() {
                     println!("Failed to send audio data")
                 }
             },
@@ -59,14 +62,28 @@ async fn main() -> Result<()> {
     // }
 
     // Azure
+    // {
+    //     let host = azure_transcribe::Host::from_env()?;
+    //     let mut client = host.connect(language_code).await?;
+    //     let stream = client.transcribe(consumer).await?;
+    //     pin_mut!(stream);
+    //     while let Some(msg) = stream.next().await {
+    //         println!("msg: {:?}", msg)
+    //     }
+    // }
+
+    // OpenAI
     {
-        let host = azure_transcribe::Host::from_env()?;
-        let mut client = host.connect(language_code).await?;
-        let stream = client.transcribe(receiver).await?;
-        pin_mut!(stream);
-        while let Some(msg) = stream.next().await {
-            println!("msg: {:?}", msg)
-        }
+        let host = openai_dialog::Host::new(
+            &env::var("OPENAI_API_KEY").unwrap(),
+            &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
+        );
+
+        let mut client = host.connect().await?;
+
+        let (output_producer, output_consumer) = format.new_channel();
+
+        client.dialog(consumer, output_producer).await?;
     }
 
     // Keep the stream running for 5 seconds

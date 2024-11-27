@@ -7,7 +7,7 @@ edition = "2021"
 members = [ 
     "core",
     "endpoints/azure-transcribe",
-    "endpoints/google-transcribe"]
+    "endpoints/google-transcribe", "endpoints/openai-dialog"]
 
 [dependencies]
 anyhow = "1.0.93"
@@ -21,8 +21,11 @@ cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
 
+dotenv = "0.15.0"
+
 google-transcribe = { path = "endpoints/google-transcribe" }
 azure-transcribe = { path = "endpoints/azure-transcribe" }
+openai-dialog = { path = "endpoints/openai-dialog" }
 
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 anyhow = "1.0.93"
@@ -35,4 +38,6 @@ anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }
 tokio = { version = "1.41.1", features = ["sync"] }
 futures = "0.3.31"
-
+serde_json = "1.0.133"
+base64 = "0.22.1"
+async-fn-stream = "0.2.2"

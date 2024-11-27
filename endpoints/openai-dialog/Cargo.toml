@@ -1,0 +1,19 @@
+[package]
+name = "openai-dialog"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openai-api-rs = "5.2.3"
+
+tokio-tungstenite = { version = "0.24.0", features = ["connect", "native-tls"] }
+
+anyhow = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+serde_json = { workspace = true }
+async-stream = { workspace = true }
+async-fn-stream = { workspace = true }
+base64 = { workspace = true }
+
+context-switch-core = { workspace = true }

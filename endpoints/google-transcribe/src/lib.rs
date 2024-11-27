@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_stream::{stream, try_stream};
-use context_switch_core::{audio, AudioReceiver};
+use context_switch_core::{audio, AudioConsumer};
 use futures::Stream;
 use google_cloud_auth::{project, token::DefaultTokenSourceProvider};
 use google_cloud_token::TokenSourceProvider;
@@ -117,13 +117,13 @@ impl TranscribeClient {
         &mut self,
         model: &str,
         language_code: &str,
-        mut audio_receiver: AudioReceiver,
+        mut audio_consumer: AudioConsumer,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
         let decoding_config = ExplicitDecodingConfig {
             // We only support 16-bit signed little-endian PCM samples here for now.
             encoding: explicit_decoding_config::AudioEncoding::Linear16.into(),
-            sample_rate_hertz: audio_receiver.sample_rate as i32,
-            audio_channel_count: audio_receiver.channels as i32,
+            sample_rate_hertz: audio_consumer.format.sample_rate as i32,
+            audio_channel_count: audio_consumer.format.channels as i32,
         };
 
         let recognition_config = RecognitionConfig {
@@ -155,7 +155,7 @@ impl TranscribeClient {
         let request_stream = stream! {
             yield config_request;
 
-            while let Some(audio) = audio_receiver.receiver.recv().await {
+            while let Some(audio) = audio_consumer.receiver.recv().await {
                 for chunk in audio::chunk_8192(audio::into_le_bytes(audio::into_i16(audio))) {
                     yield StreamingRecognizeRequest {
                         recognizer: recognizer.clone(),
