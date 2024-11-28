@@ -86,10 +86,9 @@ impl Client {
                     if let Some(audio_frame) = audio_frame {
                         println!("sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
-                        continue;
                     } else {
-                        // TODO: somehow end the session here.
-                        println!("No more audio, close the session?");
+                        // No more audio, end the session.
+                        break;
                     }
                 }
 
@@ -98,15 +97,19 @@ impl Client {
                         Some(Ok(message)) => {
                             match Self::process_message(message, &mut producer).await? {
                                 FlowControl::End => { break; }
+                                FlowControl::PongAndContinue(pong) => {
+                                    self.write.send(Message::Pong(pong)).await?;
+                                }
                                 FlowControl::Continue => {}
                             }
                         }
                         Some(Err(e)) => {
                             bail!(e)
                         }
-                        None =>
-                            // end of stream?
-                            return Ok(())
+                        None => {
+                            // End of stream.
+                            break;
+                        }
                     }
                 }
             }
@@ -196,6 +199,9 @@ impl Client {
                     println!("response: {:?}", response)
                 }
             },
+            Message::Ping(data) => {
+                return Ok(FlowControl::PongAndContinue(data));
+            }
             Message::Close(_) => return Ok(FlowControl::End),
             msg => {
                 bail!("Unhandled: {:?}", msg)
@@ -208,5 +214,6 @@ impl Client {
 
 enum FlowControl {
     Continue,
+    PongAndContinue(Vec<u8>),
     End,
 }
