@@ -92,22 +92,6 @@ async fn main() -> Result<()> {
         playback_handle.await?;
     }
 
-    // Keep the stream running for 5 seconds
-    // std::thread::sleep(std::time::Duration::from_secs(5));
-
-    // Print the captured audio data length
-
-    // Play back the recorded audio data
-    // let (_stream, stream_handle) =
-    //     OutputStream::try_default().expect("Failed to get default output stream");
-    // let source = rodio::buffer::SamplesBuffer::new(channels, sample_rate.0, buffer.clone());
-    // stream_handle
-    //     .play_raw(source.convert_samples())
-    //     .expect("Failed to play back audio");
-
-    // // Keep the playback running for the duration of the recorded audio
-    // std::thread::sleep(std::time::Duration::from_secs(5));
-
     Ok(())
 }
 
@@ -189,8 +173,8 @@ async fn setup_audio_playback(
 
     // Create async task to forward frames to the audio thread
     let forward_task = async move {
-        while let Some(frames) = consumer.absorb().await {
-            if cmd_tx.send(AudioCommand::PlayFrame(frames)).is_err() {
+        while let Some(frame) = consumer.absorb().await {
+            if cmd_tx.send(AudioCommand::PlayFrame(frame)).is_err() {
                 break;
             }
         }
