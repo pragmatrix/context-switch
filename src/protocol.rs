@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-enum ClientEvent {
+pub enum ClientEvent {
     ConversationStart {
         id: String,
         /// The processor endpoint to select.
@@ -29,7 +29,7 @@ enum ClientEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-enum ServerEvent {
+pub enum ServerEvent {
     ConversationStarted {
         id: String,
         modalities: Vec<Modality>,
@@ -54,7 +54,7 @@ enum ServerEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-enum Modality {
+pub enum Modality {
     Audio {
         format: AudioFormat,
     },
@@ -65,7 +65,7 @@ enum Modality {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct AudioFormat {
+pub struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,
 }

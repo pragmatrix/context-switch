@@ -10,8 +10,13 @@ members = [
     "endpoints/google-transcribe", "endpoints/openai-dialog"]
 
 [dependencies]
-serde = "1.0.215"
-anyhow = "1.0.93"
+context-switch-core = { workspace = true }
+
+serde = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace =  true }
+async-trait = { workspace = true }
+# todo: is this needed?
 uuid = "1.11.0"
 serde_json = "1.0.133"
 futures = "0.3.31"
@@ -29,16 +34,18 @@ azure-transcribe = { path = "endpoints/azure-transcribe" }
 openai-dialog = { path = "endpoints/openai-dialog" }
 
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
-anyhow = "1.0.93"
 context-switch-core = { workspace = true }
 
 [workspace.dependencies]
 context-switch-core = { path = "core" }
 
+
 anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }
 tokio = { version = "1.41.1", features = ["sync"] }
 futures = "0.3.31"
+serde = "1.0.215"
 serde_json = "1.0.133"
 base64 = "0.22.1"
 async-fn-stream = "0.2.2"
+async-trait = "0.1.83"
