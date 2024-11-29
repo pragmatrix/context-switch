@@ -1,13 +1,13 @@
-/// This is an abstract interface for all endpoints this project supports.
-///
-/// ADR: Input is provided via async functions, not via channels. This makes the implementation here
-/// simpler, but may add additional requirements (like bufferring) to the client.
-///
-/// ADR: Output is provided through a channel. Compared to async streams, this simplifies the
-/// implementation and does not couple the production mechanism to the receiver.
-///
-/// ADR: Stopping is also an async function. While it runs, the output channel may receive further
-/// data, when it ends, the output channel / Sender is dropped.
+//! This is an abstract interface for all endpoints this project supports.
+//!
+//! ADR: Input is provided via async functions, not via channels. This makes the implementation here
+//! simpler, but may add additional requirements (like bufferring) to the client.
+//!
+//! ADR: Output is provided through a channel. Compared to async streams, this simplifies the
+//! implementation and does not couple the production mechanism to the receiver.
+//!
+//! ADR: Stopping is also an async function. While it runs, the output channel may receive further
+//! data, when it ends, the output channel / Sender is dropped.
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
