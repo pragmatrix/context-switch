@@ -55,12 +55,41 @@ enum ServerEvent {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum Modality {
-    Audio { format: AudioFormat },
-    Text { interim: bool },
+    Audio {
+        format: AudioFormat,
+    },
+    Text {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        interim: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Deserialize, Serialize)]
+    struct Test {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[allow(unused)]
+        test: bool,
+    }
+
+    #[test]
+    fn can_deserialize_default() {
+        let _t: Test = serde_json::from_str("{}").unwrap();
+    }
+
+    #[test]
+    fn skips_serializing_default() {
+        let test = Test { test: false };
+        let str = serde_json::to_string(&test).unwrap();
+        assert_eq!(str, "{}")
+    }
 }
