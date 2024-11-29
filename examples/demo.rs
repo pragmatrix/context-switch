@@ -5,6 +5,7 @@ use std::{env, thread, time::Duration};
 use anyhow::Result;
 use context_switch_core::{AudioFormat, AudioFrame, AudioProducer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use futures::{pin_mut, StreamExt};
 use rodio::{OutputStream, Sink, Source};
 
 #[tokio::main]
@@ -62,35 +63,35 @@ async fn main() -> Result<()> {
     // }
 
     // Azure
-    // {
-    //     let host = azure_transcribe::Host::from_env()?;
-    //     let mut client = host.connect(language_code).await?;
-    //     let stream = client.transcribe(consumer).await?;
-    //     pin_mut!(stream);
-    //     while let Some(msg) = stream.next().await {
-    //         println!("msg: {:?}", msg)
-    //     }
-    // }
+    {
+        let host = azure_transcribe::Host::from_env()?;
+        let mut client = host.connect(language_code).await?;
+        let stream = client.transcribe(consumer).await?;
+        pin_mut!(stream);
+        while let Some(msg) = stream.next().await {
+            println!("msg: {:?}", msg)
+        }
+    }
 
     // OpenAI
-    {
-        let host = openai_dialog::Host::new(
-            &env::var("OPENAI_API_KEY").unwrap(),
-            &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
-        );
+    // {
+    //     let host = openai_dialog::Host::new(
+    //         &env::var("OPENAI_API_KEY").unwrap(),
+    //         &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
+    //     );
 
-        let mut client = host.connect().await?;
+    //     let mut client = host.connect().await?;
 
-        let (output_producer, playback_task) = setup_audio_playback(format).await;
+    //     let (output_producer, playback_task) = setup_audio_playback(format).await;
 
-        // Spawn audio playback task
-        let playback_handle = tokio::spawn(playback_task);
+    //     // Spawn audio playback task
+    //     let playback_handle = tokio::spawn(playback_task);
 
-        client.dialog(consumer, output_producer).await?;
+    //     client.dialog(consumer, output_producer).await?;
 
-        // Wait for playback to complete
-        playback_handle.await?;
-    }
+    //     // Wait for playback to complete
+    //     playback_handle.await?;
+    // }
 
     Ok(())
 }

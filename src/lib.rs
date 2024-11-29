@@ -4,6 +4,8 @@ use futures::Stream;
 use serde_json as json;
 use uuid::Uuid;
 
+mod protocol;
+
 // struct BidiChannel<R, S> {}
 
 // struct ConversationEvent {
