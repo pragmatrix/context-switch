@@ -156,7 +156,7 @@ impl TranscribeClient {
             yield config_request;
 
             while let Some(audio) = audio_consumer.receiver.recv().await {
-                for chunk in audio::chunk_8192(audio::into_le_bytes(audio::into_i16(audio))) {
+                for chunk in audio::chunk_8192(audio::into_le_bytes(audio)) {
                     yield StreamingRecognizeRequest {
                         recognizer: recognizer.clone(),
                         streaming_request: StreamingRequest::Audio(chunk).into(),

@@ -1,6 +1,6 @@
 pub mod audio;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -28,11 +28,12 @@ impl AudioFormat {
 #[derive(Debug)]
 pub struct AudioConsumer {
     pub format: AudioFormat,
-    pub receiver: mpsc::Receiver<Vec<f32>>,
+    pub receiver: mpsc::Receiver<Vec<i16>>,
 }
 
 impl AudioConsumer {
-    pub async fn absorb(&mut self) -> Option<AudioFrame> {
+    /// Consumes an audio frame. If none is available, waits until there is one.
+    pub async fn consume(&mut self) -> Option<AudioFrame> {
         self.receiver.recv().await.map(|samples| AudioFrame {
             format: self.format,
             samples,
@@ -43,12 +44,27 @@ impl AudioConsumer {
 #[derive(Debug)]
 pub struct AudioProducer {
     pub format: AudioFormat,
-    pub sender: mpsc::Sender<Vec<f32>>,
+    pub sender: mpsc::Sender<Vec<i16>>,
 }
 
 impl AudioProducer {
-    pub fn produce(&self, samples: impl Into<Vec<f32>>) -> Result<()> {
-        Ok(self.sender.try_send(samples.into())?)
+    // TODO: remove this function.
+    pub fn produce_raw(&self, samples: Vec<i16>) -> Result<()> {
+        self.produce(AudioFrame {
+            format: self.format,
+            samples,
+        })
+    }
+
+    pub fn produce(&self, frame: AudioFrame) -> Result<()> {
+        if frame.format != self.format {
+            bail!(
+                "Audio frame format mismatch (expected: {:?}, received: {:?}",
+                self.format,
+                frame.format
+            );
+        }
+        Ok(self.sender.try_send(frame.samples)?)
     }
 }
 
@@ -70,7 +86,7 @@ pub fn audio_channel(format: AudioFormat) -> (AudioProducer, AudioConsumer) {
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
     pub format: AudioFormat,
-    pub samples: Vec<f32>,
+    pub samples: Vec<i16>,
 }
 
 impl AudioFrame {
@@ -86,14 +102,14 @@ impl AudioFrame {
             return self;
         }
         let samples_per_channel = self.samples.len() / format.channels as usize;
-        let mut mono_samples = vec![0.0; samples_per_channel];
-        let channels_f32 = format.channels as f32;
+        let mut mono_samples = vec![0; samples_per_channel];
+        let channels_i32 = format.channels as i32;
 
         (0..samples_per_channel).for_each(|i| {
-            mono_samples[i] = (0..format.channels)
-                .map(|j| self.samples[i + j as usize * samples_per_channel])
-                .sum::<f32>()
-                / channels_f32;
+            mono_samples[i] = ((0..format.channels)
+                .map(|j| self.samples[i + j as usize * samples_per_channel] as i32)
+                .sum::<i32>()
+                / channels_i32) as i16;
         });
 
         AudioFrame {

@@ -9,8 +9,10 @@ pub enum ClientEvent {
         endpoint: String,
         /// The endpoint parameters.
         params: Option<serde_json::Value>,
-        /// The modalities including the specification of the exact formats a client expects.
-        modalities: Vec<Modality>,
+        /// Input modality.
+        input_modality: InputModality,
+        /// The output modalities including the specification of the exact formats a client expects.
+        output_modalities: Vec<OutputModality>,
     },
     ConversationStop {
         id: String,
@@ -32,7 +34,7 @@ pub enum ClientEvent {
 pub enum ServerEvent {
     ConversationStarted {
         id: String,
-        modalities: Vec<Modality>,
+        modalities: Vec<OutputModality>,
     },
     ConversationStopped {
         id: String,
@@ -54,20 +56,36 @@ pub enum ServerEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum Modality {
-    Audio {
-        format: AudioFormat,
-    },
-    Text {
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        interim: bool,
-    },
+pub enum InputModality {
+    Audio { format: AudioFormat },
+    Text,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum OutputModality {
+    Audio { format: AudioFormat },
+    Text,
+    InterimText,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,
+}
+
+impl From<AudioFormat> for context_switch_core::AudioFormat {
+    fn from(format: AudioFormat) -> Self {
+        let AudioFormat {
+            channels,
+            sample_rate,
+        } = format;
+        context_switch_core::AudioFormat {
+            channels,
+            sample_rate,
+        }
+    }
 }
 
 #[cfg(test)]

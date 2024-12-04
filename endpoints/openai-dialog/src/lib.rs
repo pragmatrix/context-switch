@@ -82,7 +82,7 @@ impl Client {
 
         loop {
             select! {
-                audio_frame = consumer.absorb() => {
+                audio_frame = consumer.consume() => {
                     if let Some(audio_frame) = audio_frame {
                         println!("sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
@@ -165,7 +165,7 @@ impl Client {
     async fn send_frame(&mut self, frame: AudioFrame) -> Result<()> {
         let mono = frame.into_mono();
         let samples = mono.samples;
-        let samples_le = audio::into_le_bytes(audio::into_i16(samples));
+        let samples_le = audio::into_le_bytes(samples);
 
         let event = InputAudioBufferAppend {
             event_id: None,
@@ -192,8 +192,7 @@ impl Client {
                 ServerEvent::ResponseAudioDelta(audio_delta) => {
                     let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                     let i16 = audio::from_le_bytes(&decoded);
-                    let f32 = audio::from_i16(i16);
-                    producer.produce(f32)?;
+                    producer.produce_raw(i16)?;
                 }
                 response => {
                     println!("response: {:?}", response)

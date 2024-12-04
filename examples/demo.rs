@@ -1,9 +1,9 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{env, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::{AudioFormat, AudioFrame, AudioProducer};
+use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
 use rodio::{OutputStream, Sink, Source};
@@ -34,7 +34,9 @@ async fn main() -> Result<()> {
         .build_input_stream(
             &config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                if producer.produce(data.to_vec()).is_err() {
+                let samples = audio::into_i16(data);
+                let frame = AudioFrame { format, samples };
+                if producer.produce(frame).is_err() {
                     println!("Failed to send audio data")
                 }
             },
@@ -158,7 +160,7 @@ async fn setup_audio_playback(
             match cmd {
                 AudioCommand::PlayFrame(frame) => {
                     let source = FrameSource {
-                        frames: frame.samples,
+                        frames: audio::from_i16(frame.samples),
                         position: 0,
                         sample_rate: format.sample_rate,
                         channels: format.channels,
@@ -174,7 +176,7 @@ async fn setup_audio_playback(
 
     // Create async task to forward frames to the audio thread
     let forward_task = async move {
-        while let Some(frame) = consumer.absorb().await {
+        while let Some(frame) = consumer.consume().await {
             if cmd_tx.send(AudioCommand::PlayFrame(frame)).is_err() {
                 break;
             }
