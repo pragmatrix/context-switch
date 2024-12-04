@@ -25,7 +25,15 @@ impl Host {
         Ok(Self { auth })
     }
 
-    pub async fn connect(&self, language_code: &str) -> Result<Client> {
+    pub fn from_subscription(
+        region: impl Into<String>,
+        subscription_key: impl Into<String>,
+    ) -> Result<Self> {
+        let auth = Auth::from_subscription(region, subscription_key);
+        Ok(Self { auth })
+    }
+
+    pub async fn connect(&self, language_code: impl Into<String>) -> Result<Client> {
         let config = recognizer::Config::default()
             // Disable profanity filter.
             .set_profanity(recognizer::Profanity::Raw)
@@ -47,10 +55,10 @@ pub struct Client {
 impl Client {
     pub async fn transcribe(
         &mut self,
-        mut audio_receiver: AudioConsumer,
+        mut input_consumer: AudioConsumer,
     ) -> Result<impl Stream<Item = azure_speech::Result<recognizer::Event>> + use<'_>> {
         let audio_stream = stream! {
-            while let Some(audio) = audio_receiver.receiver.recv().await {
+            while let Some(audio) = input_consumer.receiver.recv().await {
                 yield audio::into_le_bytes(audio::into_i16(audio))
             }
         };
@@ -61,7 +69,7 @@ impl Client {
         // TODO: do they have an effect?
         let details = recognizer::Details::unknown();
 
-        let format = audio_receiver.format;
+        let format = input_consumer.format;
 
         let wav_spec = WavSpec {
             channels: format.channels,

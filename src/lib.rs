@@ -5,5 +5,6 @@ use serde_json as json;
 use uuid::Uuid;
 
 mod endpoint;
+mod endpoints;
 mod protocol;
 mod server;

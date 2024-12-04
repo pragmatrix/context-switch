@@ -8,7 +8,7 @@
 //!
 //! ADR: Stopping is also an async function. While it runs, the output channel may receive further
 //! data, when it ends, the output channel / Sender is dropped.
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
@@ -30,7 +30,11 @@ pub trait Endpoint {
 
 #[async_trait]
 pub trait Conversation {
-    async fn audio(&mut self, samples: &[u8]) -> Result<()>;
-    async fn text(&mut self, text: &str) -> Result<()>;
+    async fn send_audio(&mut self, _samples: &[u8]) -> Result<()> {
+        bail!("This conversion does not support audio input")
+    }
+    async fn send_text(&mut self, _text: &str) -> Result<()> {
+        bail!("This conversation does not support text input")
+    }
     async fn stop(self) -> Result<()>;
 }

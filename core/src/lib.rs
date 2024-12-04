@@ -40,6 +40,7 @@ impl AudioConsumer {
     }
 }
 
+#[derive(Debug)]
 pub struct AudioProducer {
     pub format: AudioFormat,
     pub sender: mpsc::Sender<Vec<f32>>,

@@ -11,6 +11,9 @@ members = [
 
 [dependencies]
 context-switch-core = { workspace = true }
+azure-transcribe = { workspace = true }
+
+azure-speech = { workspace = true }
 
 serde = { workspace = true }
 tokio = { workspace = true }
@@ -30,7 +33,7 @@ rodio = "0.20.1"
 dotenv = "0.15.0"
 
 google-transcribe = { path = "endpoints/google-transcribe" }
-azure-transcribe = { path = "endpoints/azure-transcribe" }
+azure-transcribe = { workspace = true }
 openai-dialog = { path = "endpoints/openai-dialog" }
 
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
@@ -38,7 +41,8 @@ context-switch-core = { workspace = true }
 
 [workspace.dependencies]
 context-switch-core = { path = "core" }
-
+azure-transcribe = { path = "endpoints/azure-transcribe" }
+azure-speech = "0.4.0"
 
 anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }
