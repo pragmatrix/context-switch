@@ -16,13 +16,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::protocol::{InputModality, OutputModality};
 
-pub enum Output {
-    Audio { frame: AudioFrame },
-    Text { interim: bool, content: String },
-}
-
 #[async_trait]
-pub trait Endpoint {
+pub trait Endpoint: std::fmt::Debug {
     /// Start a new conversation on this endpoint.
     async fn start_conversation(
         &self,
@@ -30,12 +25,18 @@ pub trait Endpoint {
         input_modality: InputModality,
         output_modalities: Vec<OutputModality>,
         output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation>>;
+    ) -> Result<Box<dyn Conversation + Send>>;
+}
+
+#[derive(Debug)]
+pub enum Output {
+    Audio { frame: AudioFrame },
+    Text { interim: bool, content: String },
 }
 
 #[async_trait]
 pub trait Conversation {
-    async fn send_audio(&mut self, frame: AudioFrame) -> Result<()> {
+    async fn send_audio(&mut self, _frame: AudioFrame) -> Result<()> {
         bail!("This conversion does not support audio input")
     }
     async fn send_text(&mut self, _text: &str) -> Result<()> {

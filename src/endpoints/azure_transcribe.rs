@@ -2,28 +2,27 @@ use anyhow::Result;
 use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use azure_transcribe::Host;
-use context_switch_core::{audio_channel, AudioFormat, AudioFrame, AudioProducer};
+use context_switch_core::{audio_channel, AudioFrame, AudioProducer};
 use futures::{Stream, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 
+use super::transcribe;
 use crate::{
     endpoint::{Conversation, Endpoint, Output},
     protocol::{InputModality, OutputModality},
 };
 
-use super::transcribe::{self, require_audio_input};
-
-#[derive(Debug, Deserialize)]
-struct Config {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Config {
     pub region: String,
     pub subscription_key: String,
     pub language_code: String,
 }
 
 #[derive(Debug)]
-struct AzureTranscribe;
+pub struct AzureTranscribe;
 
 #[async_trait]
 impl Endpoint for AzureTranscribe {
@@ -33,7 +32,7 @@ impl Endpoint for AzureTranscribe {
         input_modality: InputModality,
         output_modalities: Vec<OutputModality>,
         output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation>> {
+    ) -> Result<Box<dyn Conversation + Send>> {
         let input_format = transcribe::require_audio_input(input_modality)?;
         transcribe::check_output_modalities(true, &output_modalities)?;
 

@@ -1,4 +1,6 @@
-mod azure_transcribe;
+pub mod azure_transcribe;
+
+pub use azure_transcribe::AzureTranscribe;
 
 mod transcribe {
     use anyhow::{bail, Result};

@@ -1,10 +1,7 @@
-use anyhow::{anyhow, bail, Result};
-use futures::stream;
-use futures::Stream;
-use serde_json as json;
-use uuid::Uuid;
-
 mod endpoint;
-mod endpoints;
+pub mod endpoints;
 mod protocol;
-mod server;
+mod registry;
+
+pub use endpoint::*;
+pub use protocol::*;

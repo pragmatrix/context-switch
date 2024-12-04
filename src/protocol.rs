@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientEvent {
     ConversationStart {
@@ -29,7 +29,7 @@ pub enum ClientEvent {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     ConversationStarted {
@@ -54,14 +54,14 @@ pub enum ServerEvent {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum InputModality {
     Audio { format: AudioFormat },
     Text,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum OutputModality {
     Audio { format: AudioFormat },
@@ -69,21 +69,27 @@ pub enum OutputModality {
     InterimText,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,
 }
 
+// TODO: Use AudioFormat from the core and make core dependent on serde?
 impl From<AudioFormat> for context_switch_core::AudioFormat {
     fn from(format: AudioFormat) -> Self {
-        let AudioFormat {
-            channels,
-            sample_rate,
-        } = format;
-        context_switch_core::AudioFormat {
-            channels,
-            sample_rate,
+        Self {
+            channels: format.channels,
+            sample_rate: format.sample_rate,
+        }
+    }
+}
+
+impl From<context_switch_core::AudioFormat> for AudioFormat {
+    fn from(format: context_switch_core::AudioFormat) -> Self {
+        Self {
+            channels: format.channels,
+            sample_rate: format.sample_rate,
         }
     }
 }

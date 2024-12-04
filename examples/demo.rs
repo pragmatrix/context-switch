@@ -12,7 +12,6 @@ use rodio::{OutputStream, Sink, Source};
 async fn main() -> Result<()> {
     dotenv::dotenv()?;
 
-    // Get the default host and input device
     let host = cpal::default_host();
     let device = host
         .default_input_device()
