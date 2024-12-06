@@ -1,14 +1,12 @@
-use std::{env, thread, time::Duration};
+use std::{env, time::Duration};
 
 use anyhow::Result;
 use context_switch::{
     endpoints::{self, AzureTranscribe},
     Endpoint, InputModality, OutputModality,
 };
-use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
+use context_switch_core::{audio, AudioFormat, AudioFrame};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use futures::{pin_mut, StreamExt};
-use rodio::{OutputStream, Sink, Source};
 use tokio::{select, sync::mpsc::channel};
 
 #[tokio::main]
