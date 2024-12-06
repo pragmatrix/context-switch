@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{endpoint::Endpoint, endpoints};
 
 #[derive(Debug)]
-struct Registry {
+pub struct Registry {
     endpoints: HashMap<&'static str, Box<dyn Endpoint>>,
 }
 

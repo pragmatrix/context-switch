@@ -1,54 +1,73 @@
+use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
+pub struct ConversationId(String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientEvent {
     ConversationStart {
-        id: String,
+        id: ConversationId,
         /// The processor endpoint to select.
         endpoint: String,
         /// The endpoint parameters.
-        params: Option<serde_json::Value>,
+        params: serde_json::Value,
         /// Input modality.
         input_modality: InputModality,
         /// The output modalities including the specification of the exact formats a client expects.
         output_modalities: Vec<OutputModality>,
     },
     ConversationStop {
-        id: String,
+        id: ConversationId,
     },
     Audio {
-        conversation_id: String,
+        conversation_id: ConversationId,
         format: AudioFormat,
         samples: String,
     },
     Text {
-        conversation_id: String,
+        conversation_id: ConversationId,
         interim: bool,
         content: String,
     },
+}
+
+impl ClientEvent {
+    pub fn conversation_id(&self) -> &ConversationId {
+        match self {
+            ClientEvent::ConversationStart { id, .. } => id,
+            ClientEvent::ConversationStop { id } => id,
+            ClientEvent::Audio {
+                conversation_id, ..
+            } => conversation_id,
+            ClientEvent::Text {
+                conversation_id, ..
+            } => conversation_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     ConversationStarted {
-        id: String,
+        id: ConversationId,
         modalities: Vec<OutputModality>,
     },
     ConversationStopped {
-        id: String,
+        id: ConversationId,
     },
     ConversationError {
-        id: String,
+        id: ConversationId,
         message: String,
     },
     Audio {
-        conversation_id: String,
+        conversation_id: ConversationId,
         samples: String,
     },
     Text {
-        conversation_id: String,
+        conversation_id: ConversationId,
         interim: bool,
         content: String,
     },

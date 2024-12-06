@@ -23,6 +23,7 @@ async-trait = { workspace = true }
 uuid = "1.11.0"
 serde_json = "1.0.133"
 futures = "0.3.31"
+derive_more = { version = "1.0.0", features = ["full"] }
 
 [dev-dependencies]
 # audio input

@@ -100,9 +100,10 @@ struct Client {
 
 #[async_trait]
 impl Conversation for Client {
-    async fn send_audio(&mut self, frame: AudioFrame) -> Result<()> {
+    fn post_audio(&mut self, frame: AudioFrame) -> Result<()> {
         self.input_producer.produce(frame)
     }
+
     async fn stop(self) -> Result<()> {
         // Dropping the input producer must end the transcriber.
         drop(self.input_producer);

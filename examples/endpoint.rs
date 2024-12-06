@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
         select! {
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conversation.send_audio(frame).await?;
+                    conversation.post_audio(frame)?;
                 }
                 else {
                     println!("End of input");

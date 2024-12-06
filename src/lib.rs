@@ -1,3 +1,5 @@
+mod api;
+mod conversation_controller;
 mod endpoint;
 pub mod endpoints;
 mod protocol;
