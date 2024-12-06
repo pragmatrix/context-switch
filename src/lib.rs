@@ -1,3 +1,4 @@
+mod api;
 mod endpoint;
 pub mod endpoints;
 mod protocol;

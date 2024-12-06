@@ -1,60 +1,80 @@
+use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
+
+/// Conversation identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
+pub struct ConversationId(String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientEvent {
-    ConversationStart {
-        id: String,
+    Start {
+        id: ConversationId,
         /// The processor endpoint to select.
         endpoint: String,
         /// The endpoint parameters.
-        params: Option<serde_json::Value>,
+        params: serde_json::Value,
         /// Input modality.
         input_modality: InputModality,
         /// The output modalities including the specification of the exact formats a client expects.
         output_modalities: Vec<OutputModality>,
     },
-    ConversationStop {
-        id: String,
+    Stop {
+        id: ConversationId,
     },
     Audio {
-        conversation_id: String,
-        format: AudioFormat,
+        id: ConversationId,
         samples: String,
     },
     Text {
-        conversation_id: String,
-        interim: bool,
+        id: ConversationId,
         content: String,
     },
+}
+
+impl ClientEvent {
+    pub fn conversation_id(&self) -> &ConversationId {
+        match self {
+            ClientEvent::Start { id, .. } => id,
+            ClientEvent::Stop { id } => id,
+            ClientEvent::Audio {
+                id: conversation_id,
+                ..
+            } => conversation_id,
+            ClientEvent::Text {
+                id: conversation_id,
+                ..
+            } => conversation_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
-    ConversationStarted {
-        id: String,
+    Started {
+        id: ConversationId,
         modalities: Vec<OutputModality>,
     },
-    ConversationStopped {
-        id: String,
+    Stopped {
+        id: ConversationId,
     },
-    ConversationError {
-        id: String,
+    Error {
+        id: ConversationId,
         message: String,
     },
     Audio {
-        conversation_id: String,
+        id: ConversationId,
         samples: String,
     },
     Text {
-        conversation_id: String,
+        id: ConversationId,
         interim: bool,
         content: String,
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum InputModality {
     Audio { format: AudioFormat },
@@ -69,7 +89,7 @@ pub enum OutputModality {
     InterimText,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,

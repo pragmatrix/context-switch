@@ -1,14 +1,15 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::Result;
-use context_switch::endpoints::{self, AzureTranscribe};
-use context_switch::{Endpoint, InputModality, OutputModality};
+use context_switch::{
+    endpoints::{self, AzureTranscribe},
+    Endpoint, InputModality, OutputModality,
+};
 use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::{pin_mut, StreamExt};
 use rodio::{OutputStream, Sink, Source};
-use tokio::select;
-use tokio::sync::mpsc::channel;
+use tokio::{select, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,7 +77,7 @@ async fn main() -> Result<()> {
         select! {
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conversation.send_audio(frame).await?;
+                    conversation.post_audio(frame)?;
                 }
                 else {
                     println!("End of input");
