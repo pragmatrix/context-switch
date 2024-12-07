@@ -10,7 +10,7 @@ use rodio::{OutputStream, Sink, Source};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv()?;
+    dotenvy::dotenv()?;
 
     let host = cpal::default_host();
     let device = host

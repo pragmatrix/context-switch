@@ -16,7 +16,7 @@ use tracing::{span, Level};
 use crate::{registry::Registry, ClientEvent, ConversationId, InputModality, Output, ServerEvent};
 
 #[derive(Debug)]
-struct Api {
+pub struct ContextSwitch {
     registry: Arc<Registry>,
     conversations: HashMap<ConversationId, ActiveConversation>,
     output: Sender<ServerEvent>,
@@ -25,10 +25,11 @@ struct Api {
 #[derive(Debug)]
 struct ActiveConversation {
     pub client_sender: Sender<ClientEvent>,
+    // TODO: should we monitor them?
     pub task: JoinHandle<Result<()>>,
 }
 
-impl Api {
+impl ContextSwitch {
     pub fn new(sender: Sender<ServerEvent>) -> Self {
         Self {
             registry: Default::default(),
@@ -37,7 +38,7 @@ impl Api {
         }
     }
 
-    pub async fn process(&mut self, event: ClientEvent) -> Result<()> {
+    pub fn process(&mut self, event: ClientEvent) -> Result<()> {
         match self.conversations.entry(event.conversation_id().clone()) {
             Entry::Occupied(occupied_entry) => {
                 // TODO: What if we don't get rid of the events here?
