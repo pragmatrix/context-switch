@@ -54,7 +54,14 @@ async fn ws_get(ws: WebSocketUpgrade) -> impl IntoResponse {
 
 async fn ws_driver(websocket: WebSocket) {
     if let Err(e) = ws(websocket).await {
-        error!("WebSocket error: {}", &e)
+        let chain = e.chain();
+        let error = chain
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .join(": ");
+
+        error!("WebSocket error: {error}")
     }
 }
 
