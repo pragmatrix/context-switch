@@ -70,9 +70,10 @@ pub enum ServerEvent {
         id: ConversationId,
         samples: Samples,
     },
+    #[serde(rename_all = "camelCase")]
     Text {
         id: ConversationId,
-        interim: bool,
+        is_final: bool,
         content: String,
     },
 }
@@ -86,10 +87,7 @@ pub enum InputModality {
 
 impl InputModality {
     pub fn can_receive_audio(&self, input_format: AudioFormat) -> bool {
-        match self {
-            InputModality::Audio { format } if *format == input_format => true,
-            _ => false,
-        }
+        matches!(self, InputModality::Audio { format } if *format == input_format)
     }
 }
 

@@ -202,9 +202,9 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             id: id.clone(),
             samples: frame.samples.into(),
         },
-        Output::Text { interim, content } => ServerEvent::Text {
+        Output::Text { is_final, content } => ServerEvent::Text {
             id: id.clone(),
-            interim,
+            is_final,
             content,
         },
     }

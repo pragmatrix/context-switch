@@ -37,7 +37,7 @@ pub trait Endpoint: fmt::Debug {
 #[derive(Debug)]
 pub enum Output {
     Audio { frame: AudioFrame },
-    Text { interim: bool, content: String },
+    Text { is_final: bool, content: String },
 }
 
 #[async_trait]

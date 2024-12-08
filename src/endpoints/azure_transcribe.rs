@@ -79,11 +79,11 @@ async fn process_stream(
             | Event::StartDetected(_, _)
             | Event::EndDetected(_, _) => {}
             Event::Recognizing(_, recognized, _, _, _) => output.try_send(Output::Text {
-                interim: true,
+                is_final: false,
                 content: recognized.text,
             })?,
             Event::Recognized(_, recognized, _, _, _) => output.try_send(Output::Text {
-                interim: false,
+                is_final: true,
                 content: recognized.text,
             })?,
             Event::UnMatch(_, _, _, _) => {}

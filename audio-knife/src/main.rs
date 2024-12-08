@@ -137,7 +137,6 @@ fn process_request(
                 format: DEFAULT_FORMAT,
                 samples: audio::from_le_bytes(samples),
             };
-            debug!("Received audio frame: {:?}", frame.duration());
             context_switch.broadcast_audio(frame)?;
             Ok(())
         }
@@ -202,5 +201,6 @@ async fn dispatch_server_event(
     }
     let json_event = JsonEvent::from(event)?;
     let json = serde_json::to_string(&json_event)?;
+    debug!("Sending server event: {json}");
     Ok(socket.send(Message::Text(json)).await?)
 }
