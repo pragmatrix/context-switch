@@ -84,6 +84,15 @@ pub enum InputModality {
     Text,
 }
 
+impl InputModality {
+    pub fn can_receive_audio(&self, input_format: AudioFormat) -> bool {
+        match self {
+            InputModality::Audio { format } if *format == input_format => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum OutputModality {
@@ -92,7 +101,7 @@ pub enum OutputModality {
     InterimText,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioFormat {
     pub channels: u16,

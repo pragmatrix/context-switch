@@ -22,12 +22,6 @@ impl JsonEvent {
     }
 }
 
-pub fn process_audio(audio: Vec<u8>) -> Result<()> {
-    // We need a list of all active conversations here that expect audio.
-    todo!("process audio input");
-    Ok(())
-}
-
 pub async fn dispatch_audio(
     socket: &mut SplitSink<WebSocket, Message>,
     id: ConversationId,

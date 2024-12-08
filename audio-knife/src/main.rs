@@ -14,9 +14,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-use mod_audio_fork::JsonEvent;
 use tokio::{
     net::TcpListener,
     pin, select,
@@ -24,7 +22,16 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
+use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
+use context_switch_core::{audio, AudioFormat, AudioFrame};
+use mod_audio_fork::JsonEvent;
+
 const DEFAULT_PORT: u16 = 8123;
+/// For now we always assume only 1 channel (mono) and 16khz sent from mod_audio_fork.
+const DEFAULT_FORMAT: AudioFormat = AudioFormat {
+    channels: 1,
+    sample_rate: 16000,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -111,8 +118,6 @@ async fn ws(websocket: WebSocket) -> Result<()> {
             }
         }
     }
-
-    Ok(())
 }
 
 fn process_request(
@@ -124,11 +129,16 @@ fn process_request(
         Message::Text(msg) => {
             debug!("Received text message: `{msg}`");
             let event: ClientEvent =
-                serde_json::from_str(&msg).context("Deserialization of client event")?;
+                serde_json::from_str(&msg).context("Deserializing client event")?;
             context_switch.process(event)
         }
         Message::Binary(samples) => {
-            mod_audio_fork::process_audio(samples)?;
+            let frame = AudioFrame {
+                format: DEFAULT_FORMAT,
+                samples: audio::from_le_bytes(samples),
+            };
+            debug!("Received audio frame: {:?}", frame.duration());
+            context_switch.broadcast_audio(frame)?;
             Ok(())
         }
         Message::Ping(payload) => {

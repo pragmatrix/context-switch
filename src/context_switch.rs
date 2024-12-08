@@ -4,8 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use base64::{prelude::BASE64_STANDARD, Engine};
-use context_switch_core::{audio, AudioFormat, AudioFrame};
+use context_switch_core::AudioFrame;
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
@@ -24,6 +23,7 @@ pub struct ContextSwitch {
 
 #[derive(Debug)]
 struct ActiveConversation {
+    pub input_modality: InputModality,
     pub client_sender: Sender<ClientEvent>,
     // TODO: should we monitor them?
     pub task: JoinHandle<Result<()>>,
@@ -41,10 +41,16 @@ impl ContextSwitch {
     pub fn process(&mut self, event: ClientEvent) -> Result<()> {
         match self.conversations.entry(event.conversation_id().clone()) {
             Entry::Occupied(occupied_entry) => {
-                // TODO: What if we don't get rid of the events here?
+                // TODO: What if we can't post the event here?
                 occupied_entry.get().client_sender.try_send(event)?
             }
             Entry::Vacant(vacant_entry) => {
+                // A new conversation must be Start event, and we must store the input modality to
+                // support audio broadcasting on multiple backends.
+                let ClientEvent::Start { input_modality, .. } = event else {
+                    bail!("Expected start event for a new conversation id");
+                };
+
                 // TODO: define this number example (there may be a log of audio frames coming)
                 let (sender, receiver) = channel(256);
                 let task = tokio::spawn(Self::process_conversation(
@@ -54,12 +60,33 @@ impl ContextSwitch {
                     self.output.clone(),
                 ));
                 vacant_entry.insert(ActiveConversation {
+                    input_modality,
                     client_sender: sender,
                     task,
                 });
             }
         }
 
+        Ok(())
+    }
+
+    /// Broadcast audio to all active conversations which match the audio format in their input
+    /// modality.
+    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
+        for (id, conversation) in &self.conversations {
+            if conversation
+                .input_modality
+                .can_receive_audio(frame.format.into())
+            {
+                // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
+                conversation.client_sender.try_send(ClientEvent::Audio {
+                    id: id.clone(),
+                    // TODO: If there is only one conversation that accepts this frame, we should
+                    // move it into the event.
+                    samples: frame.samples.clone().into(),
+                })?;
+            }
+        }
         Ok(())
     }
 
