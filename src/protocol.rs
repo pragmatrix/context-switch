@@ -10,6 +10,7 @@ pub struct ConversationId(String);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ClientEvent {
+    #[serde(rename_all = "camelCase")]
     Start {
         id: ConversationId,
         /// The processor endpoint to select.
@@ -77,7 +78,7 @@ pub enum ServerEvent {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum InputModality {
     Audio { format: AudioFormat },
     Text,
