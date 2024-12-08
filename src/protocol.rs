@@ -7,6 +7,7 @@ pub struct ConversationId(String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[serde(rename = "camelCase")]
 pub enum ClientEvent {
     Start {
         id: ConversationId,
@@ -51,6 +52,7 @@ impl ClientEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[serde(rename = "camelCase")]
 pub enum ServerEvent {
     Started {
         id: ConversationId,
