@@ -59,7 +59,7 @@ impl Client {
     ) -> Result<impl Stream<Item = azure_speech::Result<recognizer::Event>> + use<'_>> {
         let audio_stream = stream! {
             while let Some(audio) = input_consumer.receiver.recv().await {
-                yield audio::into_le_bytes(audio)
+                yield audio::to_le_bytes(audio)
             }
         };
 

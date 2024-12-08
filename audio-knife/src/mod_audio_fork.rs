@@ -31,7 +31,7 @@ pub fn process_audio(audio: Vec<u8>) -> Result<()> {
 pub async fn dispatch_audio(
     socket: &mut SplitSink<WebSocket, Message>,
     id: ConversationId,
-    samples: String,
+    samples: Vec<i16>,
 ) -> Result<()> {
     // TODO: do some audio mixing.
     // For mixing audio we do need some kind of timestamps I guess.

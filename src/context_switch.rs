@@ -131,7 +131,7 @@ impl ContextSwitch {
                             },
                             ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
-                                    let frame = samples_to_audio_frame(format.into(), &samples)?;
+                                    let frame = AudioFrame { format: format.into(), samples: samples.into() };
                                     conversation.post_audio(frame)?;
                                 } else {
                                     bail!("Received unexpected Audio");
@@ -169,22 +169,12 @@ impl ContextSwitch {
     }
 }
 
-fn samples_to_audio_frame(format: AudioFormat, samples: &str) -> Result<AudioFrame> {
-    let bytes = BASE64_STANDARD.decode(samples)?;
-    let samples = audio::from_le_bytes(&bytes);
-    Ok(AudioFrame { format, samples })
-}
-
 fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
     match output {
-        Output::Audio { frame } => {
-            let le_bytes = audio::into_le_bytes(frame.samples);
-            let base64 = BASE64_STANDARD.encode(le_bytes);
-            ServerEvent::Audio {
-                id: id.clone(),
-                samples: base64,
-            }
-        }
+        Output::Audio { frame } => ServerEvent::Audio {
+            id: id.clone(),
+            samples: frame.samples.into(),
+        },
         Output::Text { interim, content } => ServerEvent::Text {
             id: id.clone(),
             interim,

@@ -181,7 +181,7 @@ async fn dispatch_server_event(
 ) -> Result<()> {
     // Everything besides Audio gets pushed to FreeSWITCH via the json type.
     if let ServerEvent::Audio { id, samples } = event {
-        return mod_audio_fork::dispatch_audio(socket, id, samples).await;
+        return mod_audio_fork::dispatch_audio(socket, id, samples.into()).await;
     }
     let json_event = JsonEvent::from(event)?;
     let json = serde_json::to_string(&json_event)?;

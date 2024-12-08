@@ -165,7 +165,7 @@ impl Client {
     async fn send_frame(&mut self, frame: AudioFrame) -> Result<()> {
         let mono = frame.into_mono();
         let samples = mono.samples;
-        let samples_le = audio::into_le_bytes(samples);
+        let samples_le = audio::to_le_bytes(samples);
 
         let event = InputAudioBufferAppend {
             event_id: None,
