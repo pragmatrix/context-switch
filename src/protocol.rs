@@ -8,8 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct ConversationId(String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ClientEvent {
     Start {
         id: ConversationId,
@@ -53,8 +52,7 @@ impl ClientEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ServerEvent {
     Started {
         id: ConversationId,
@@ -86,7 +84,7 @@ pub enum InputModality {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum OutputModality {
     Audio { format: AudioFormat },
     Text,
@@ -94,6 +92,7 @@ pub enum OutputModality {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioFormat {
     pub channels: u16,
     pub sample_rate: u32,

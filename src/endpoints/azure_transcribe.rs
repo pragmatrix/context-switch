@@ -15,6 +15,7 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Config {
     pub region: String,
     pub subscription_key: String,
