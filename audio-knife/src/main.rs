@@ -122,7 +122,7 @@ fn process_request(
 ) -> Result<()> {
     match msg {
         Message::Text(msg) => {
-            debug!("Received text message: {msg}");
+            debug!("Received text message: `{msg}`");
             let event: ClientEvent =
                 serde_json::from_str(&msg).context("Deserialization of client event")?;
             context_switch.process(event)
