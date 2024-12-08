@@ -64,6 +64,8 @@ struct Pong(Vec<u8>);
 async fn ws(websocket: WebSocket) -> Result<()> {
     let (ws_sender, mut ws_receiver) = websocket.split();
 
+    info!("New client connected");
+
     // TODO: clearly define what happens when the buffers overlow and how much buffering we support
     // and why.
     let (cs_sender, cs_receiver) = channel(32);

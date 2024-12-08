@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = [ "audio-knife", 
+members = [ 
+    "audio-knife", 
     "core",
     "endpoints/azure-transcribe",
-    "endpoints/google-transcribe", "endpoints/openai-dialog"]
+    "endpoints/google-transcribe", 
+    "endpoints/openai-dialog"
+]
 
 [dependencies]
 context-switch-core = { workspace = true }
