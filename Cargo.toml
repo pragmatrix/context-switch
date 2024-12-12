@@ -63,4 +63,5 @@ async-fn-stream = "0.2.2"
 async-trait = "0.1.83"
 tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
+url = { version = "2.5.4" }
 

@@ -11,3 +11,4 @@ anyhow = { workspace = true }
 futures = { workspace = true }
 context-switch-core = { workspace = true }
 async-stream = { workspace = true }
+url = { workspace = true }

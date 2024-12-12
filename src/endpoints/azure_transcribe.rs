@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use azure_transcribe::Host;
@@ -17,7 +17,8 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    pub region: String,
+    pub host: Option<String>,
+    pub region: Option<String>,
     pub subscription_key: String,
     pub language_code: String,
 }
@@ -39,7 +40,17 @@ impl Endpoint for AzureTranscribe {
 
         let config: Config = serde_json::from_value(params)?;
         // Host / Auth is lightweight, so we can create this every time.
-        let host = Host::from_subscription(config.region, config.subscription_key)?;
+
+        let host = {
+            if let Some(host) = config.host {
+                Host::from_host(host, config.subscription_key)?
+            } else if let Some(region) = config.region {
+                Host::from_subscription(region, config.subscription_key)?
+            } else {
+                bail!("Neither host nor region defined in params");
+            }
+        };
+
         let mut client = host.connect(config.language_code).await?;
 
         // TODO: make the audio format adjustable.
