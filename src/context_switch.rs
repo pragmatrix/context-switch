@@ -109,10 +109,15 @@ impl ContextSwitch {
                 .context(format!("Conversation: `{id}`"))
             {
                 Ok(r) => r,
-                Err(e) => ServerEvent::Error {
-                    id,
-                    message: e.to_string(),
-                },
+                Err(e) => {
+                    let chain = e.chain();
+                    let error = chain
+                        .into_iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<String>>()
+                        .join(": ");
+                    ServerEvent::Error { id, message: error }
+                }
             };
         Ok(output.try_send(final_event)?)
     }
