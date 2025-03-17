@@ -23,9 +23,9 @@ impl JsonEvent {
 }
 
 pub async fn dispatch_audio(
-    socket: &mut SplitSink<WebSocket, Message>,
-    id: ConversationId,
-    samples: Vec<i16>,
+    _socket: &mut SplitSink<WebSocket, Message>,
+    _id: ConversationId,
+    _samples: Vec<i16>,
 ) -> Result<()> {
     // TODO: do some audio mixing.
     // For mixing audio we do need some kind of timestamps I guess.
