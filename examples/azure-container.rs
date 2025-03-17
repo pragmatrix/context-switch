@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language_code = "de-DE";
+    let language_code = "en-US";
 
     // Azure
     {
