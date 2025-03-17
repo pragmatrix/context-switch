@@ -25,7 +25,8 @@ pub struct ContextSwitch {
 struct ActiveConversation {
     pub input_modality: InputModality,
     pub client_sender: Sender<ClientEvent>,
-    // TODO: should we monitor them?
+    // TODO: Need some clarity if we should abort on Drop or leave it running, so that it can send
+    // out the final event?
     pub task: JoinHandle<Result<()>>,
 }
 
@@ -45,13 +46,13 @@ impl ContextSwitch {
                 occupied_entry.get().client_sender.try_send(event)?
             }
             Entry::Vacant(vacant_entry) => {
-                // A new conversation must be Start event, and we must store the input modality to
-                // support audio broadcasting on multiple backends.
+                // A new conversation must be initiated with a Start event. Store the input modality
+                // to support audio broadcasting on multiple backends.
                 let ClientEvent::Start { input_modality, .. } = event else {
                     bail!("Expected start event for a new conversation id");
                 };
 
-                // TODO: define this number example (there may be a log of audio frames coming)
+                // TODO: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
                 let task = tokio::spawn(Self::process_conversation(
                     self.registry.clone(),
