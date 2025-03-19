@@ -84,7 +84,7 @@ impl Client {
             select! {
                 audio_frame = consumer.consume() => {
                     if let Some(audio_frame) = audio_frame {
-                        println!("sending frame: {:?}", audio_frame.duration());
+                        // println!("sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
                     } else {
                         // No more audio, end the session.
@@ -165,7 +165,7 @@ impl Client {
     async fn send_frame(&mut self, frame: AudioFrame) -> Result<()> {
         let mono = frame.into_mono();
         let samples = mono.samples;
-        let samples_le = audio::into_le_bytes(samples);
+        let samples_le = audio::to_le_bytes(samples);
 
         let event = InputAudioBufferAppend {
             event_id: None,

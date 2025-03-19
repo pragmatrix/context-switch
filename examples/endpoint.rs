@@ -52,7 +52,8 @@ async fn main() -> Result<()> {
 
     // TODO: clarify how to access configurations.
     let config = endpoints::azure_transcribe::Config {
-        region: env::var("AZURE_REGION").unwrap(),
+        host: None,
+        region: Some(env::var("AZURE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
         language_code: language_code.into(),
     };

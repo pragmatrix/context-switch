@@ -1,0 +1,4 @@
+[submodule "azure-speech-sdk-rs"]
+	path = azure-speech-sdk-rs
+	url = ../azure-speech-sdk-rs.git
+	branch = context-switch

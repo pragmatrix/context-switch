@@ -15,7 +15,7 @@ pub fn from_i16(audio: impl AsRef<[i16]>) -> Vec<f32> {
         .collect()
 }
 
-pub fn into_le_bytes(audio: impl AsRef<[i16]>) -> Vec<u8> {
+pub fn to_le_bytes(audio: impl AsRef<[i16]>) -> Vec<u8> {
     let audio = audio.as_ref();
     let mut result = Vec::with_capacity(audio.len() * 2);
     for sample in audio {

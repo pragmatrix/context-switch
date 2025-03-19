@@ -1,6 +1,6 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{thread, time::Duration};
+use std::{env, thread, time::Duration};
 
 use anyhow::Result;
 use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
@@ -10,7 +10,7 @@ use rodio::{OutputStream, Sink, Source};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv()?;
+    dotenvy::dotenv()?;
 
     let host = cpal::default_host();
     let device = host
@@ -51,48 +51,24 @@ async fn main() -> Result<()> {
 
     let language_code = "de-DE";
 
-    // Google
-    // {
-    //     let transcribe_config = google_transcribe::Config::new_eu();
-    //     let host = google_transcribe::Host::new(transcribe_config).await?;
-    //     let mut client = host.client().await?;
-    //     let stream = client.transcribe("long", language_code, receiver).await?;
-    //     pin_mut!(stream);
-    //     while let Some(msg) = stream.next().await {
-    //         println!("msg: {:?}", msg)
-    //     }
-    // }
-
-    // Azure
     {
-        let host = azure_transcribe::Host::from_env()?;
-        let mut client = host.connect(language_code).await?;
-        let stream = client.transcribe(consumer).await?;
-        pin_mut!(stream);
-        while let Some(msg) = stream.next().await {
-            println!("msg: {:?}", msg)
-        }
+        let host = openai_dialog::Host::new(
+            &env::var("OPENAI_API_KEY").unwrap(),
+            &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
+        );
+
+        let mut client = host.connect().await?;
+
+        let (output_producer, playback_task) = setup_audio_playback(format).await;
+
+        // Spawn audio playback task
+        let playback_handle = tokio::spawn(playback_task);
+
+        client.dialog(consumer, output_producer).await?;
+
+        // Wait for playback to complete
+        playback_handle.await?;
     }
-
-    // OpenAI
-    // {
-    //     let host = openai_dialog::Host::new(
-    //         &env::var("OPENAI_API_KEY").unwrap(),
-    //         &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
-    //     );
-
-    //     let mut client = host.connect().await?;
-
-    //     let (output_producer, playback_task) = setup_audio_playback(format).await;
-
-    //     // Spawn audio playback task
-    //     let playback_handle = tokio::spawn(playback_task);
-
-    //     client.dialog(consumer, output_producer).await?;
-
-    //     // Wait for playback to complete
-    //     playback_handle.await?;
-    // }
 
     Ok(())
 }

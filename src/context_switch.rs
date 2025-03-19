@@ -4,8 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use base64::{prelude::BASE64_STANDARD, Engine};
-use context_switch_core::{audio, AudioFormat, AudioFrame};
+use context_switch_core::AudioFrame;
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
@@ -16,7 +15,7 @@ use tracing::{span, Level};
 use crate::{registry::Registry, ClientEvent, ConversationId, InputModality, Output, ServerEvent};
 
 #[derive(Debug)]
-struct Api {
+pub struct ContextSwitch {
     registry: Arc<Registry>,
     conversations: HashMap<ConversationId, ActiveConversation>,
     output: Sender<ServerEvent>,
@@ -24,11 +23,14 @@ struct Api {
 
 #[derive(Debug)]
 struct ActiveConversation {
+    pub input_modality: InputModality,
     pub client_sender: Sender<ClientEvent>,
+    // TODO: Need some clarity if we should abort on Drop or leave it running, so that it can send
+    // out the final event?
     pub task: JoinHandle<Result<()>>,
 }
 
-impl Api {
+impl ContextSwitch {
     pub fn new(sender: Sender<ServerEvent>) -> Self {
         Self {
             registry: Default::default(),
@@ -37,14 +39,20 @@ impl Api {
         }
     }
 
-    pub async fn process(&mut self, event: ClientEvent) -> Result<()> {
+    pub fn process(&mut self, event: ClientEvent) -> Result<()> {
         match self.conversations.entry(event.conversation_id().clone()) {
             Entry::Occupied(occupied_entry) => {
-                // TODO: What if we don't get rid of the events here?
+                // TODO: What if we can't post the event here?
                 occupied_entry.get().client_sender.try_send(event)?
             }
             Entry::Vacant(vacant_entry) => {
-                // TODO: define this number example (there may be a log of audio frames coming)
+                // A new conversation must be initiated with a Start event. Store the input modality
+                // to support audio broadcasting on multiple backends.
+                let ClientEvent::Start { input_modality, .. } = event else {
+                    bail!("Expected start event for a new conversation id");
+                };
+
+                // TODO: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
                 let task = tokio::spawn(Self::process_conversation(
                     self.registry.clone(),
@@ -53,12 +61,33 @@ impl Api {
                     self.output.clone(),
                 ));
                 vacant_entry.insert(ActiveConversation {
+                    input_modality,
                     client_sender: sender,
                     task,
                 });
             }
         }
 
+        Ok(())
+    }
+
+    /// Broadcast audio to all active conversations which match the audio format in their input
+    /// modality.
+    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
+        for (id, conversation) in &self.conversations {
+            if conversation
+                .input_modality
+                .can_receive_audio(frame.format.into())
+            {
+                // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
+                conversation.client_sender.try_send(ClientEvent::Audio {
+                    id: id.clone(),
+                    // TODO: If there is only one conversation that accepts this frame, we should
+                    // move it into the event.
+                    samples: frame.samples.clone().into(),
+                })?;
+            }
+        }
         Ok(())
     }
 
@@ -81,10 +110,15 @@ impl Api {
                 .context(format!("Conversation: `{id}`"))
             {
                 Ok(r) => r,
-                Err(e) => ServerEvent::Error {
-                    id,
-                    message: e.to_string(),
-                },
+                Err(e) => {
+                    let chain = e.chain();
+                    let error = chain
+                        .into_iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<String>>()
+                        .join(": ");
+                    ServerEvent::Error { id, message: error }
+                }
             };
         Ok(output.try_send(final_event)?)
     }
@@ -130,7 +164,7 @@ impl Api {
                             },
                             ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
-                                    let frame = samples_to_audio_frame(format.into(), &samples)?;
+                                    let frame = AudioFrame { format: format.into(), samples: samples.into() };
                                     conversation.post_audio(frame)?;
                                 } else {
                                     bail!("Received unexpected Audio");
@@ -168,25 +202,15 @@ impl Api {
     }
 }
 
-fn samples_to_audio_frame(format: AudioFormat, samples: &str) -> Result<AudioFrame> {
-    let bytes = BASE64_STANDARD.decode(samples)?;
-    let samples = audio::from_le_bytes(&bytes);
-    Ok(AudioFrame { format, samples })
-}
-
 fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
     match output {
-        Output::Audio { frame } => {
-            let le_bytes = audio::into_le_bytes(frame.samples);
-            let base64 = BASE64_STANDARD.encode(le_bytes);
-            ServerEvent::Audio {
-                id: id.clone(),
-                samples: base64,
-            }
-        }
-        Output::Text { interim, content } => ServerEvent::Text {
+        Output::Audio { frame } => ServerEvent::Audio {
             id: id.clone(),
-            interim,
+            samples: frame.samples.into(),
+        },
+        Output::Text { is_final, content } => ServerEvent::Text {
+            id: id.clone(),
+            is_final,
             content,
         },
     }

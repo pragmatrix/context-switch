@@ -9,6 +9,7 @@ use azure_speech::{
 use context_switch_core::{audio, AudioConsumer};
 use futures::Stream;
 use hound::WavSpec;
+use url::Url;
 
 #[derive(Debug)]
 pub struct Host {
@@ -22,6 +23,11 @@ impl Host {
             env::var("AZURE_SUBSCRIPTION_KEY")
                 .map_err(|_| anyhow!("Subscription not set on AZURE_SUBSCRIPTION_KEY env"))?,
         );
+        Ok(Self { auth })
+    }
+
+    pub fn from_host(host: impl Into<String>, subscription_key: impl Into<String>) -> Result<Self> {
+        let auth = Auth::from_host(Url::parse(&host.into())?, subscription_key);
         Ok(Self { auth })
     }
 
@@ -59,7 +65,7 @@ impl Client {
     ) -> Result<impl Stream<Item = azure_speech::Result<recognizer::Event>> + use<'_>> {
         let audio_stream = stream! {
             while let Some(audio) = input_consumer.receiver.recv().await {
-                yield audio::into_le_bytes(audio)
+                yield audio::to_le_bytes(audio)
             }
         };
 
