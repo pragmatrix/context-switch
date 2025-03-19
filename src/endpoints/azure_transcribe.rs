@@ -3,14 +3,13 @@ use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use azure_transcribe::Host;
 use context_switch_core::{
-    audio_channel, AudioFrame, AudioProducer, Conversation, Endpoint, Output,
+    audio_channel, transcribe, AudioFrame, AudioProducer, Conversation, Endpoint, Output,
 };
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 
-use super::transcribe;
 use crate::protocol::{InputModality, OutputModality};
 
 #[derive(Debug, Serialize, Deserialize)]

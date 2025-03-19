@@ -1,6 +1,7 @@
 pub mod audio;
 mod endpoint;
 pub mod protocol;
+pub mod transcribe;
 
 use anyhow::{bail, Result};
 
