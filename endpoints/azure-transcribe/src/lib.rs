@@ -13,11 +13,11 @@ use context_switch_core::{
 };
 use futures::{Stream, StreamExt};
 use hound::WavSpec;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 use url::Url;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub host: Option<String>,
@@ -35,7 +35,7 @@ impl Endpoint for AzureTranscribe {
 
     async fn start_conversation(
         &self,
-        params: Self::Params,
+        params: Params,
         input_modality: InputModality,
         output_modalities: Vec<OutputModality>,
         output: Sender<Output>,
