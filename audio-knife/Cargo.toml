@@ -1,7 +1,7 @@
 [package]
 name = "audio-knife"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

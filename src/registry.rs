@@ -13,7 +13,7 @@ impl Default for Registry {
         Self {
             endpoints: [(
                 "azure-transcribe",
-                Box::new(azure_transcribe::AzureTranscribe) as Box<dyn Endpoint + Send + Sync>,
+                Box::new(azure_transcribe::AzureTranscribe) as _,
             )]
             .into(),
         }
