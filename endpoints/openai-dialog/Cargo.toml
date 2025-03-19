@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# openai-api-rs = "5.2.3"
-openai-api-rs = { path = "../../../openai-api-rs" }
+openai-api-rs = { workspace = true }
 
 tokio-tungstenite = { version = "0.24.0", features = ["connect", "native-tls"] }
 

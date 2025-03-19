@@ -27,7 +27,7 @@ struct ActiveConversation {
     pub client_sender: Sender<ClientEvent>,
     // TODO: Need some clarity if we should abort on Drop or leave it running, so that it can send
     // out the final event?
-    pub task: JoinHandle<Result<()>>,
+    pub _task: JoinHandle<Result<()>>,
 }
 
 impl ContextSwitch {
@@ -63,7 +63,7 @@ impl ContextSwitch {
                 vacant_entry.insert(ActiveConversation {
                     input_modality,
                     client_sender: sender,
-                    task,
+                    _task: task,
                 });
             }
         }

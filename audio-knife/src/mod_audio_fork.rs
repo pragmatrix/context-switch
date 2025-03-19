@@ -30,5 +30,4 @@ pub async fn dispatch_audio(
     // TODO: do some audio mixing.
     // For mixing audio we do need some kind of timestamps I guess.
     todo!("dispatch audio output");
-    Ok(())
 }

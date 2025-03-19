@@ -50,7 +50,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 [workspace.dependencies]
 context-switch-core = { path = "core" }
 azure-transcribe = { path = "endpoints/azure-transcribe" }
-azure-speech = { path = "azure-speech-sdk-rs" }
 
 anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }
@@ -65,3 +64,8 @@ tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
 url = { version = "2.5.4" }
 
+# external dependencies.
+
+azure-speech = { path = "external/azure-speech-sdk-rs" }
+# openai-api-rs = "5.2.3"
+openai-api-rs = { path = "external/openai-api-rs" }

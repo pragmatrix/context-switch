@@ -5,7 +5,6 @@ use std::{env, thread, time::Duration};
 use anyhow::Result;
 use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use futures::{pin_mut, StreamExt};
 use rodio::{OutputStream, Sink, Source};
 
 #[tokio::main]
@@ -49,7 +48,7 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language_code = "de-DE";
+    let _language_code = "de-DE";
 
     {
         let host = openai_dialog::Host::new(

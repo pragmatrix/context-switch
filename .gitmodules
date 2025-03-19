@@ -1,4 +1,8 @@
-[submodule "azure-speech-sdk-rs"]
-	path = azure-speech-sdk-rs
+[submodule "external/azure-speech-sdk-rs"]
+	path = external/azure-speech-sdk-rs
 	url = ../azure-speech-sdk-rs.git
+	branch = context-switch
+[submodule "external/openai-api-rs"]
+	path = external/openai-api-rs
+	url = ../openai-api-rs.git
 	branch = context-switch
