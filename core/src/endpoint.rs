@@ -14,19 +14,21 @@
 //! data, when it ends, the output channel / Sender is dropped.
 use std::fmt;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
-use serde_json::Value;
+use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::Sender;
 
 use crate::{AudioFrame, InputModality, OutputModality};
 
 #[async_trait]
 pub trait Endpoint: fmt::Debug {
+    type Params: DeserializeOwned;
+
     /// Start a new conversation on this endpoint.
     async fn start_conversation(
         &self,
-        params: Value,
+        params: Self::Params,
         input_modality: InputModality,
         output_modalities: Vec<OutputModality>,
         output: Sender<Output>,

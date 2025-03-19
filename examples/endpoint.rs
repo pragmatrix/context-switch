@@ -1,8 +1,8 @@
 use std::{env, time::Duration};
 
 use anyhow::Result;
-use context_switch::{endpoints::AzureTranscribe, InputModality, OutputModality};
-use context_switch_core::{audio, AudioFormat, AudioFrame, Endpoint};
+use context_switch::{InputModality, OutputModality, endpoints::AzureTranscribe};
+use context_switch_core::{AudioFormat, AudioFrame, Endpoint, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     let language_code = "de-DE";
 
     // TODO: clarify how to access configurations.
-    let config = azure_transcribe::Config {
+    let params = azure_transcribe::Params {
         host: None,
         region: Some(env::var("AZURE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
     let azure = AzureTranscribe;
     let mut conversation = azure
         .start_conversation(
-            serde_json::to_value(config)?,
+            params,
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText].into(),
             output_producer,

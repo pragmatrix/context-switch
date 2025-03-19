@@ -1,26 +1,25 @@
 use std::env;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use async_stream::stream;
 use async_trait::async_trait;
 use azure_speech::{
-    recognizer::{self, Event},
     Auth,
+    recognizer::{self, Event},
 };
-use context_switch_core::{audio, AudioConsumer, InputModality, OutputModality};
+use context_switch_core::{AudioConsumer, InputModality, OutputModality, audio};
 use context_switch_core::{
-    audio_channel, transcribe, AudioFrame, AudioProducer, Conversation, Endpoint, Output,
+    AudioFrame, AudioProducer, Conversation, Endpoint, Output, audio_channel, transcribe,
 };
 use futures::{Stream, StreamExt};
 use hound::WavSpec;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 use url::Url;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Config {
+pub struct Params {
     pub host: Option<String>,
     pub region: Option<String>,
     pub subscription_key: String,
@@ -32,9 +31,11 @@ pub struct AzureTranscribe;
 
 #[async_trait]
 impl Endpoint for AzureTranscribe {
+    type Params = Params;
+
     async fn start_conversation(
         &self,
-        params: Value,
+        params: Self::Params,
         input_modality: InputModality,
         output_modalities: Vec<OutputModality>,
         output: Sender<Output>,
@@ -42,20 +43,19 @@ impl Endpoint for AzureTranscribe {
         let input_format = transcribe::require_audio_input(input_modality)?;
         transcribe::check_output_modalities(true, &output_modalities)?;
 
-        let config: Config = serde_json::from_value(params)?;
         // Host / Auth is lightweight, so we can create this every time.
 
         let host = {
-            if let Some(host) = config.host {
-                Host::from_host(host, config.subscription_key)?
-            } else if let Some(region) = config.region {
-                Host::from_subscription(region, config.subscription_key)?
+            if let Some(host) = params.host {
+                Host::from_host(host, params.subscription_key)?
+            } else if let Some(region) = params.region {
+                Host::from_subscription(region, params.subscription_key)?
             } else {
                 bail!("Neither host nor region defined in params");
             }
         };
 
-        let mut client = host.connect(config.language_code).await?;
+        let mut client = host.connect(params.language_code).await?;
 
         // TODO: make the audio format adjustable.
         let (input_producer, input_consumer) = audio_channel(input_format);
