@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
+use context_switch_core::Endpoint;
 
-use crate::{endpoint::Endpoint, endpoints};
+use crate::endpoints;
 
 #[derive(Debug)]
 pub struct Registry {

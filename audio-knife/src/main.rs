@@ -14,17 +14,16 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
+use context_switch_core::{audio, protocol::AudioFormat, AudioFrame};
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use mod_audio_fork::JsonEvent;
 use tokio::{
     net::TcpListener,
     pin, select,
     sync::mpsc::{channel, Receiver, Sender},
 };
 use tracing::{debug, error, info};
-
-use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
-use context_switch_core::{audio, AudioFormat, AudioFrame};
-use mod_audio_fork::JsonEvent;
 
 const DEFAULT_PORT: u16 = 8123;
 /// For now we always assume only 1 channel (mono) and 16khz sent from mod_audio_fork.

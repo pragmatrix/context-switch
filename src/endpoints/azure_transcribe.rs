@@ -2,17 +2,16 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use azure_transcribe::Host;
-use context_switch_core::{audio_channel, AudioFrame, AudioProducer};
+use context_switch_core::{
+    audio_channel, AudioFrame, AudioProducer, Conversation, Endpoint, Output,
+};
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 
 use super::transcribe;
-use crate::{
-    endpoint::{Conversation, Endpoint, Output},
-    protocol::{InputModality, OutputModality},
-};
+use crate::protocol::{InputModality, OutputModality};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +53,7 @@ impl Endpoint for AzureTranscribe {
         let mut client = host.connect(config.language_code).await?;
 
         // TODO: make the audio format adjustable.
-        let (input_producer, input_consumer) = audio_channel(input_format.into());
+        let (input_producer, input_consumer) = audio_channel(input_format);
 
         // We start the transcribe here and just spawn the stream processer it returns.
 

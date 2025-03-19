@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use context_switch_core::AudioFrame;
+use context_switch_core::{AudioFrame, Output};
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
@@ -12,7 +12,7 @@ use tokio::{
 };
 use tracing::{span, Level};
 
-use crate::{registry::Registry, ClientEvent, ConversationId, InputModality, Output, ServerEvent};
+use crate::{registry::Registry, ClientEvent, ConversationId, InputModality, ServerEvent};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -75,10 +75,7 @@ impl ContextSwitch {
     /// modality.
     pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
         for (id, conversation) in &self.conversations {
-            if conversation
-                .input_modality
-                .can_receive_audio(frame.format.into())
-            {
+            if conversation.input_modality.can_receive_audio(frame.format) {
                 // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
                 conversation.client_sender.try_send(ClientEvent::Audio {
                     id: id.clone(),
@@ -164,7 +161,7 @@ impl ContextSwitch {
                             },
                             ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
-                                    let frame = AudioFrame { format: format.into(), samples: samples.into() };
+                                    let frame = AudioFrame { format, samples: samples.into() };
                                     conversation.post_audio(frame)?;
                                 } else {
                                     bail!("Received unexpected Audio");

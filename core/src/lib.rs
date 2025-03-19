@@ -1,29 +1,14 @@
 pub mod audio;
+mod endpoint;
+pub mod protocol;
 
 use anyhow::{bail, Result};
+
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct AudioFormat {
-    pub channels: u16,
-    /// 8000 to 48000 are valid (TODO: This is a Google requirement).
-    /// Number of channels.
-    pub sample_rate: u32,
-}
-
-impl AudioFormat {
-    pub fn new(channels: u16, sample_rate: u32) -> Self {
-        Self {
-            channels,
-            sample_rate,
-        }
-    }
-
-    pub fn new_channel(&self) -> (AudioProducer, AudioConsumer) {
-        audio_channel(*self)
-    }
-}
+pub use endpoint::*;
+pub use protocol::*;
 
 #[derive(Debug)]
 pub struct AudioConsumer {

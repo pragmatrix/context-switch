@@ -3,9 +3,9 @@ use std::{env, time::Duration};
 use anyhow::Result;
 use context_switch::{
     endpoints::{self, AzureTranscribe},
-    Endpoint, InputModality, OutputModality,
+    InputModality, OutputModality,
 };
-use context_switch_core::{audio, AudioFormat, AudioFrame};
+use context_switch_core::{audio, AudioFormat, AudioFrame, Endpoint};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
@@ -64,9 +64,7 @@ async fn main() -> Result<()> {
     let mut conversation = azure
         .start_conversation(
             serde_json::to_value(config)?,
-            InputModality::Audio {
-                format: format.into(),
-            },
+            InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText].into(),
             output_producer,
         )
