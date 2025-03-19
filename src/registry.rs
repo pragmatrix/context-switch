@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use context_switch_core::Endpoint;
 
-use crate::endpoints;
-
 #[derive(Debug)]
 pub struct Registry {
     endpoints: HashMap<&'static str, Box<dyn Endpoint + Send + Sync>>,
@@ -15,7 +13,7 @@ impl Default for Registry {
         Self {
             endpoints: [(
                 "azure-transcribe",
-                Box::new(endpoints::AzureTranscribe) as Box<dyn Endpoint + Send + Sync>,
+                Box::new(azure_transcribe::AzureTranscribe) as Box<dyn Endpoint + Send + Sync>,
             )]
             .into(),
         }
