@@ -16,11 +16,10 @@ use std::fmt;
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use context_switch_core::AudioFrame;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
 
-use crate::protocol::{InputModality, OutputModality};
+use crate::{AudioFrame, InputModality, OutputModality};
 
 #[async_trait]
 pub trait Endpoint: fmt::Debug {
