@@ -40,7 +40,6 @@ impl Endpoint for AzureTranscribe {
         transcribe::check_output_modalities(true, &output_modalities)?;
 
         // Host / Auth is lightweight, so we can create this every time.
-
         let host = {
             if let Some(host) = params.host {
                 Host::from_host(host, params.subscription_key)?
@@ -104,6 +103,21 @@ async fn process_stream(
     Ok(())
 }
 
+impl Host {
+    pub async fn connect_recognizer(&self, language_code: impl Into<String>) -> Result<Client> {
+        let config = recognizer::Config::default()
+            // Disable profanity filter.
+            .set_profanity(recognizer::Profanity::Raw)
+            // short-circuit language filter.
+            // TODO: may actually use the filter to check for supported languages?
+            .set_language(recognizer::Language::Custom(language_code.into()))
+            .set_output_format(recognizer::OutputFormat::Detailed);
+
+        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
+        Ok(Client { client })
+    }
+}
+
 #[derive(Debug)]
 struct Transcriber {
     input_producer: AudioProducer,
@@ -161,20 +175,5 @@ impl Client {
             .client
             .recognize(audio_stream, content_type, details)
             .await?)
-    }
-}
-
-impl Host {
-    pub async fn connect_recognizer(&self, language_code: impl Into<String>) -> Result<Client> {
-        let config = recognizer::Config::default()
-            // Disable profanity filter.
-            .set_profanity(recognizer::Profanity::Raw)
-            // short-circuit language filter.
-            // TODO: may actually use the filter to check for supported languages?
-            .set_language(recognizer::Language::Custom(language_code.into()))
-            .set_output_format(recognizer::OutputFormat::Detailed);
-
-        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
-        Ok(Client { client })
     }
 }
