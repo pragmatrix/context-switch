@@ -15,11 +15,7 @@ pub struct Registry {
 impl Default for Registry {
     fn default() -> Self {
         Self {
-            endpoints: [(
-                "azure-transcribe",
-                Box::new(azure_transcribe::AzureTranscribe) as _,
-            )]
-            .into(),
+            endpoints: [("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _)].into(),
         }
     }
 }
