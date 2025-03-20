@@ -1,12 +1,7 @@
-use std::env;
-
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::{
-    Auth,
-    recognizer::{self, Event},
-};
+use azure_speech::recognizer::{self, Event};
 use context_switch_core::{AudioConsumer, InputModality, OutputModality, audio};
 use context_switch_core::{
     AudioFrame, AudioProducer, Conversation, Endpoint, Output, audio_channel, transcribe,
@@ -15,7 +10,8 @@ use futures::{Stream, StreamExt};
 use hound::WavSpec;
 use serde::Deserialize;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
-use url::Url;
+
+use crate::Host;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +51,7 @@ impl Endpoint for AzureTranscribe {
             }
         };
 
-        let mut client = host.connect(params.language_code).await?;
+        let mut client = host.connect_recognizer(params.language_code).await?;
 
         // TODO: make the audio format adjustable.
         let (input_producer, input_consumer) = audio_channel(input_format);
@@ -128,48 +124,6 @@ impl Conversation for Transcriber {
     }
 }
 
-#[derive(Debug)]
-pub struct Host {
-    auth: Auth,
-}
-
-impl Host {
-    pub fn from_env() -> Result<Self> {
-        let auth = Auth::from_subscription(
-            env::var("AZURE_REGION").map_err(|_| anyhow!("Region not set on AZURE_REGION env"))?,
-            env::var("AZURE_SUBSCRIPTION_KEY")
-                .map_err(|_| anyhow!("Subscription not set on AZURE_SUBSCRIPTION_KEY env"))?,
-        );
-        Ok(Self { auth })
-    }
-
-    pub fn from_host(host: impl Into<String>, subscription_key: impl Into<String>) -> Result<Self> {
-        let auth = Auth::from_host(Url::parse(&host.into())?, subscription_key);
-        Ok(Self { auth })
-    }
-
-    pub fn from_subscription(
-        region: impl Into<String>,
-        subscription_key: impl Into<String>,
-    ) -> Result<Self> {
-        let auth = Auth::from_subscription(region, subscription_key);
-        Ok(Self { auth })
-    }
-
-    pub async fn connect(&self, language_code: impl Into<String>) -> Result<Client> {
-        let config = recognizer::Config::default()
-            // Disable profanity filter.
-            .set_profanity(recognizer::Profanity::Raw)
-            // short-circuit language filter.
-            // TODO: may actually use the filter to check for supported languages?
-            .set_language(recognizer::Language::Custom(language_code.into()))
-            .set_output_format(recognizer::OutputFormat::Detailed);
-
-        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
-        Ok(Client { client })
-    }
-}
-
 // #[derive(Debug)]
 pub struct Client {
     client: recognizer::Client,
@@ -207,5 +161,20 @@ impl Client {
             .client
             .recognize(audio_stream, content_type, details)
             .await?)
+    }
+}
+
+impl Host {
+    pub async fn connect_recognizer(&self, language_code: impl Into<String>) -> Result<Client> {
+        let config = recognizer::Config::default()
+            // Disable profanity filter.
+            .set_profanity(recognizer::Profanity::Raw)
+            // short-circuit language filter.
+            // TODO: may actually use the filter to check for supported languages?
+            .set_language(recognizer::Language::Custom(language_code.into()))
+            .set_output_format(recognizer::OutputFormat::Detailed);
+
+        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
+        Ok(Client { client })
     }
 }
