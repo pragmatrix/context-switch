@@ -3,7 +3,7 @@ mod endpoint;
 pub mod protocol;
 pub mod transcribe;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use std::time::Duration;
 use tokio::sync::mpsc;

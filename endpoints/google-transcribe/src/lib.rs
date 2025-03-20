@@ -5,16 +5,16 @@
 
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_stream::{stream, try_stream};
-use context_switch_core::{audio, AudioConsumer};
+use context_switch_core::{AudioConsumer, audio};
 use futures::Stream;
 use google_cloud_auth::{project, token::DefaultTokenSourceProvider};
 use google_cloud_token::TokenSourceProvider;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    explicit_decoding_config, recognition_config::DecodingConfig,
-    streaming_recognize_request::StreamingRequest, ExplicitDecodingConfig, RecognitionConfig,
-    StreamingRecognitionConfig, StreamingRecognizeRequest, StreamingRecognizeResponse,
+    ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
+    StreamingRecognizeRequest, StreamingRecognizeResponse, explicit_decoding_config,
+    recognition_config::DecodingConfig, streaming_recognize_request::StreamingRequest,
 };
 use tonic::transport;
 

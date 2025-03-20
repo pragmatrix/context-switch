@@ -31,9 +31,9 @@
 use std::{env, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::{audio, AudioFormat, AudioFrame};
+use context_switch_core::{AudioFormat, AudioFrame, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use futures::{pin_mut, StreamExt};
+use futures::{StreamExt, pin_mut};
 
 #[tokio::main]
 async fn main() -> Result<()> {

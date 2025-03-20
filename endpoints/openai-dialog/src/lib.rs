@@ -2,12 +2,12 @@
 //!
 //! Based on <https://github.com/dongri/openai-api-rs/blob/main/examples/realtime/src/main.rs>
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use base64::prelude::*;
-use context_switch_core::{audio, AudioConsumer, AudioFormat, AudioFrame, AudioProducer};
+use context_switch_core::{AudioConsumer, AudioFormat, AudioFrame, AudioProducer, audio};
 use futures::{
-    stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
 };
 use openai_api_rs::realtime::{
     api::RealtimeClient,
@@ -16,7 +16,7 @@ use openai_api_rs::realtime::{
     types,
 };
 use tokio::{net::TcpStream, select};
-use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
 
 pub struct Host {
     client: RealtimeClient,

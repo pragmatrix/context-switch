@@ -1,18 +1,18 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::Arc,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use context_switch_core::{AudioFrame, Output};
 use tokio::{
     select,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
     task::JoinHandle,
 };
-use tracing::{span, Level};
+use tracing::{Level, span};
 
-use crate::{registry::Registry, ClientEvent, ConversationId, InputModality, ServerEvent};
+use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
 
 #[derive(Debug)]
 pub struct ContextSwitch {

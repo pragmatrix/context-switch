@@ -3,7 +3,7 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::{audio, AudioFormat, AudioFrame, AudioProducer};
+use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{OutputStream, Sink, Source};
 

@@ -5,23 +5,23 @@ mod mod_audio_fork;
 
 use std::{env, net::SocketAddr};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use axum::{
     extract::{
-        ws::{Message, WebSocket},
         WebSocketUpgrade,
+        ws::{Message, WebSocket},
     },
     response::IntoResponse,
     routing::get,
 };
 use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
-use context_switch_core::{audio, protocol::AudioFormat, AudioFrame};
-use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use mod_audio_fork::JsonEvent;
 use tokio::{
     net::TcpListener,
     pin, select,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 use tracing::{debug, error, info};
 
