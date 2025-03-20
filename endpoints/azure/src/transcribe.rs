@@ -58,7 +58,7 @@ impl Endpoint for AzureTranscribe {
         // We start the transcribe here and just spawn the stream processer it returns.
 
         let transcriber = tokio::spawn(async move {
-            // Errprs of transcribe will be recognized only when audio data is sent (and the
+            // Errors of transcribe will be recognized only when audio data is sent (and the
             // input_consumer is gone).
             //
             // TODO: How can we move this out, so that we can separate the stream processor (which

@@ -16,7 +16,7 @@ pub fn check_output_modalities(interim: bool, output_modalities: &[OutputModalit
             OutputModality::Text => {}
             OutputModality::InterimText => {
                 if !interim {
-                    bail!("transcribe: interim text unsupported")
+                    bail!("transcribe: Interim text unsupported")
                 }
             }
         }
