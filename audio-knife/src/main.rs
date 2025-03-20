@@ -35,13 +35,13 @@ const DEFAULT_FORMAT: AudioFormat = AudioFormat {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let env_path = dotenvy::dotenv_override();
+    let env_path = dotenvy::dotenv_override();
 
     tracing_subscriber::fmt::init();
 
-    // if let Ok(env_path) = env_path {
-    //     info!("Environment variables loaded from {env_path:?}");
-    // }
+    if let Ok(env_path) = env_path {
+        info!("Environment variables loaded from {env_path:?}");
+    }
 
     let addr = {
         match env::var("AUDIO_KNIFE_ADDRESS") {
