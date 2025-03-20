@@ -15,6 +15,7 @@ context-switch = { path = ".." }
 context-switch-core = { workspace = true }
 
 axum = { version = "0.7.9", features = ["ws"] }
+reqwest = { version = "0.12.5" }
 
 tracing-subscriber = { version = "0.3.19" }
 futures-util = { version = "0.3.31" }

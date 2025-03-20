@@ -18,6 +18,7 @@ use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
 use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use mod_audio_fork::JsonEvent;
+use reqwest::StatusCode;
 use tokio::{
     net::TcpListener,
     pin, select,
@@ -43,6 +44,17 @@ async fn main() -> Result<()> {
             Err(_) => SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT)),
         }
     };
+
+    {
+        let args = env::args();
+        let args: Vec<String> = args.collect();
+        if args.len() == 2 && args[1] == "check-health" {
+            return check_health(addr).await;
+        }
+        if args.len() != 1 {
+            bail!("No arguments except `check-health` are expected")
+        }
+    }
 
     let app = axum::Router::new().route("/", get(ws_get));
 
@@ -202,4 +214,18 @@ async fn dispatch_server_event(
     let json = serde_json::to_string(&json_event)?;
     debug!("Sending server event: {json}");
     Ok(socket.send(Message::Text(json)).await?)
+}
+
+/// We implement the healthcheck directly in the executable for two reasons:
+///
+/// - Pulling in `curl` increases the image size too much
+/// - The semantics of a health check should be defined by the application and not in the
+///   `Dockerfile`.
+async fn check_health(address: SocketAddr) -> Result<()> {
+    let uri = format!("http://{address}");
+    let status = reqwest::get(uri).await?.status();
+    if status != StatusCode::OK {
+        bail!("Healthcheck failed with status code {}", status)
+    }
+    Ok(())
 }
