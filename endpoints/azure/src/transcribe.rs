@@ -1,13 +1,12 @@
 use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::recognizer::{self, Event};
+use azure_speech::recognizer::{self, Event, WavType};
 use context_switch_core::{AudioConsumer, InputModality, OutputModality, audio};
 use context_switch_core::{
     AudioFrame, AudioProducer, Conversation, Endpoint, Output, audio_channel, transcribe,
 };
 use futures::{Stream, StreamExt};
-use hound::WavSpec;
 use serde::Deserialize;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
 
@@ -158,22 +157,20 @@ impl Client {
         let audio_stream = Box::pin(audio_stream);
 
         // TODO: do they have an effect?
-        let details = recognizer::Details::unknown();
+        let device = recognizer::AudioDevice::unknown();
 
         let format = input_consumer.format;
 
-        let wav_spec = WavSpec {
-            channels: format.channels,
+        let audio_format = recognizer::AudioFormat::Wav {
             sample_rate: format.sample_rate,
             bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
+            channels: format.channels,
+            wav_type: WavType::Pcm,
         };
-
-        let content_type = recognizer::ContentType::Wav(wav_spec.into_header_for_infinite_file());
 
         Ok(self
             .client
-            .recognize(audio_stream, content_type, details)
+            .recognize(audio_stream, audio_format, device)
             .await?)
     }
 }
