@@ -39,6 +39,7 @@ pub trait Endpoint: fmt::Debug {
 pub enum Output {
     Audio { frame: AudioFrame },
     Text { is_final: bool, content: String },
+    // TODO: Need to add an error output here, see for example the Azure synthesizer.
 }
 
 #[async_trait]
@@ -46,8 +47,20 @@ pub trait Conversation: fmt::Debug {
     fn post_audio(&mut self, _frame: AudioFrame) -> Result<()> {
         bail!("This conversion does not support audio input")
     }
+
     fn post_text(&mut self, _text: String) -> Result<()> {
         bail!("This conversation does not support text input")
     }
+
+    /// The implementation of `stop()` should end _all_ pending tasks, even if they need to be
+    /// aborted, and only return when they are stopped. It should wait for the minimum time
+    /// necessary, and guarantee a return.
+    ///
+    /// The returned result just states if the conversation and all processes needed to maintain
+    /// them are actually stopped when this function returns.
+    ///
+    /// The returned result does not represent any error that happened before or while aborting
+    /// tasks. Even if an error happened or happens while aborting, it _must_ return `Ok(())`` and
+    /// only log the errors.
     async fn stop(self: Box<Self>) -> Result<()>;
 }

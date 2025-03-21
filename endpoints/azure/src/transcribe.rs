@@ -1,12 +1,7 @@
-use std::env;
-
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::{
-    Auth,
-    recognizer::{self, Event},
-};
+use azure_speech::recognizer::{self, Event};
 use context_switch_core::{AudioConsumer, InputModality, OutputModality, audio};
 use context_switch_core::{
     AudioFrame, AudioProducer, Conversation, Endpoint, Output, audio_channel, transcribe,
@@ -15,7 +10,8 @@ use futures::{Stream, StreamExt};
 use hound::WavSpec;
 use serde::Deserialize;
 use tokio::{pin, sync::mpsc::Sender, task::JoinHandle};
-use url::Url;
+
+use crate::Host;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,7 +40,6 @@ impl Endpoint for AzureTranscribe {
         transcribe::check_output_modalities(true, &output_modalities)?;
 
         // Host / Auth is lightweight, so we can create this every time.
-
         let host = {
             if let Some(host) = params.host {
                 Host::from_host(host, params.subscription_key)?
@@ -55,7 +50,7 @@ impl Endpoint for AzureTranscribe {
             }
         };
 
-        let mut client = host.connect(params.language_code).await?;
+        let mut client = host.connect_recognizer(params.language_code).await?;
 
         // TODO: make the audio format adjustable.
         let (input_producer, input_consumer) = audio_channel(input_format);
@@ -63,7 +58,7 @@ impl Endpoint for AzureTranscribe {
         // We start the transcribe here and just spawn the stream processer it returns.
 
         let transcriber = tokio::spawn(async move {
-            // Errprs of transcribe will be recognized only when audio data is sent (and the
+            // Errors of transcribe will be recognized only when audio data is sent (and the
             // input_consumer is gone).
             //
             // TODO: How can we move this out, so that we can separate the stream processor (which
@@ -108,6 +103,21 @@ async fn process_stream(
     Ok(())
 }
 
+impl Host {
+    pub async fn connect_recognizer(&self, language_code: impl Into<String>) -> Result<Client> {
+        let config = recognizer::Config::default()
+            // Disable profanity filter.
+            .set_profanity(recognizer::Profanity::Raw)
+            // short-circuit language filter.
+            // TODO: may actually use the filter to check for supported languages?
+            .set_language(recognizer::Language::Custom(language_code.into()))
+            .set_output_format(recognizer::OutputFormat::Detailed);
+
+        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
+        Ok(Client { client })
+    }
+}
+
 #[derive(Debug)]
 struct Transcriber {
     input_producer: AudioProducer,
@@ -123,50 +133,8 @@ impl Conversation for Transcriber {
     async fn stop(self: Box<Self>) -> Result<()> {
         // Dropping the input producer must end the transcriber.
         drop(self.input_producer);
-        // Wait for the transcriber to end and return its result.
+        // Wait for the transcriber to end and log its result.
         self.transcriber.await?
-    }
-}
-
-#[derive(Debug)]
-pub struct Host {
-    auth: Auth,
-}
-
-impl Host {
-    pub fn from_env() -> Result<Self> {
-        let auth = Auth::from_subscription(
-            env::var("AZURE_REGION").map_err(|_| anyhow!("Region not set on AZURE_REGION env"))?,
-            env::var("AZURE_SUBSCRIPTION_KEY")
-                .map_err(|_| anyhow!("Subscription not set on AZURE_SUBSCRIPTION_KEY env"))?,
-        );
-        Ok(Self { auth })
-    }
-
-    pub fn from_host(host: impl Into<String>, subscription_key: impl Into<String>) -> Result<Self> {
-        let auth = Auth::from_host(Url::parse(&host.into())?, subscription_key);
-        Ok(Self { auth })
-    }
-
-    pub fn from_subscription(
-        region: impl Into<String>,
-        subscription_key: impl Into<String>,
-    ) -> Result<Self> {
-        let auth = Auth::from_subscription(region, subscription_key);
-        Ok(Self { auth })
-    }
-
-    pub async fn connect(&self, language_code: impl Into<String>) -> Result<Client> {
-        let config = recognizer::Config::default()
-            // Disable profanity filter.
-            .set_profanity(recognizer::Profanity::Raw)
-            // short-circuit language filter.
-            // TODO: may actually use the filter to check for supported languages?
-            .set_language(recognizer::Language::Custom(language_code.into()))
-            .set_output_format(recognizer::OutputFormat::Detailed);
-
-        let client = recognizer::Client::connect(self.auth.clone(), config).await?;
-        Ok(Client { client })
     }
 }
 

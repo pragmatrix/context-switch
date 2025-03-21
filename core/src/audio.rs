@@ -24,6 +24,7 @@ pub fn to_le_bytes(audio: impl AsRef<[i16]>) -> Vec<u8> {
     result
 }
 
+// TODO: This may fail! use Result<> here.
 pub fn from_le_bytes(audio: impl AsRef<[u8]>) -> Vec<i16> {
     audio
         .as_ref()

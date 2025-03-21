@@ -7,14 +7,14 @@ edition = "2024"
 members = [ 
     "audio-knife", 
     "core",
-    "endpoints/azure-transcribe",
+    "endpoints/azure",
     "endpoints/google-transcribe", 
     "endpoints/openai-dialog"
 ]
 
 [dependencies]
 context-switch-core = { workspace = true }
-azure-transcribe = { workspace = true }
+cs-azure = { workspace = true }
 
 azure-speech = { workspace = true }
 
@@ -32,6 +32,7 @@ futures = "0.3.31"
 derive_more = { version = "1.0.0", features = ["full"] }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
 context-switch-core = { workspace = true }
 
 dotenvy = { workspace = true }
@@ -41,15 +42,17 @@ cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
 
-azure-transcribe = { workspace = true }
+cs-azure = { workspace = true }
 google-transcribe = { path = "endpoints/google-transcribe" }
 openai-dialog = { path = "endpoints/openai-dialog" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [workspace.dependencies]
+tracing-subscriber = { version = "0.3.19" }
+
 context-switch-core = { path = "core" }
-azure-transcribe = { path = "endpoints/azure-transcribe" }
+cs-azure = { path = "endpoints/azure" }
 
 anyhow = "1.0.93"
 async-stream = { version = "0.3.6" }

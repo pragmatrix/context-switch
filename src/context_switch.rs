@@ -10,7 +10,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
     task::JoinHandle,
 };
-use tracing::{Level, span};
+use tracing::{Level, info, span};
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
 
@@ -48,9 +48,16 @@ impl ContextSwitch {
             Entry::Vacant(vacant_entry) => {
                 // A new conversation must be initiated with a Start event. Store the input modality
                 // to support audio broadcasting on multiple backends.
-                let ClientEvent::Start { input_modality, .. } = event else {
+                let ClientEvent::Start {
+                    ref id,
+                    input_modality,
+                    ..
+                } = event
+                else {
                     bail!("Expected start event for a new conversation id");
                 };
+
+                info!("Conversation starting: {id}");
 
                 // TODO: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
@@ -91,15 +98,19 @@ impl ContextSwitch {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    let chain = e.chain();
-                    let error = chain
-                        .into_iter()
+                    // Build a proper anyhow based error message.
+                    let error = e
+                        .chain()
                         .map(|e| e.to_string())
                         .collect::<Vec<String>>()
                         .join(": ");
-                    ServerEvent::Error { id, message: error }
+                    ServerEvent::Error {
+                        id: id.clone(),
+                        message: error,
+                    }
                 }
             };
+        info!("Conversation ended: {:?}", final_event);
         Ok(output.try_send(final_event)?)
     }
 
@@ -130,8 +141,19 @@ impl ContextSwitch {
         let (output_sender, mut output_receiver) = channel(32);
 
         let mut conversation = endpoint
-            .start_conversation(params, input_modality, output_modalities, output_sender)
+            .start_conversation(
+                params,
+                input_modality,
+                output_modalities.clone(),
+                output_sender,
+            )
             .await?;
+
+        // TODO: We always send the same modalities back, but may need to enable conversations to filter them.
+        server_output.try_send(ServerEvent::Started {
+            id: conversation_id.clone(),
+            modalities: output_modalities,
+        })?;
 
         loop {
             select! {
