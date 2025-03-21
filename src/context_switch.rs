@@ -91,9 +91,9 @@ impl ContextSwitch {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    let chain = e.chain();
-                    let error = chain
-                        .into_iter()
+                    // Build a proper anyhow based error message.
+                    let error = e
+                        .chain()
                         .map(|e| e.to_string())
                         .collect::<Vec<String>>()
                         .join(": ");

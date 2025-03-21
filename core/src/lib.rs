@@ -28,6 +28,10 @@ impl AudioConsumer {
     }
 }
 
+// TODO: This might be overengeneered, we probably are fine with Sender<AudioFrame> and
+// Receiver<AudioFrame> without checking the format for which I guess the receiver is actually
+// responsible, _and_ it might even ok for the receiver to receive different audio formats, e.g. in
+// low QoS situations?
 #[derive(Debug)]
 pub struct AudioProducer {
     pub format: AudioFormat,

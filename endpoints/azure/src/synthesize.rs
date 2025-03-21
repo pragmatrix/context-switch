@@ -6,13 +6,13 @@ use azure_speech::{
     stream::StreamExt,
     synthesizer::{
         self, AudioFormat,
-        ssml::{self, Serialize, SerializeOptions, ToSSML},
+        ssml::{self, SerializeOptions, ToSSML},
     },
 };
 use context_switch_core::{
     AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, synthesize,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
     task::JoinHandle,
@@ -21,7 +21,7 @@ use tracing::{debug, error, warn};
 
 use crate::Host;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub host: Option<String>,
@@ -209,7 +209,7 @@ impl ToSSML for SynthesizeRequest {
     }
 }
 
-fn serialize_to_ssml(speak: &impl Serialize) -> azure_speech::Result<String> {
+fn serialize_to_ssml(speak: &impl ssml::Serialize) -> azure_speech::Result<String> {
     speak
         .serialize_to_string(
             &SerializeOptions::default()
