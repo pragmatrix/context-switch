@@ -33,8 +33,7 @@ impl Registry {
     }
 }
 
-/// We wrap the endpoint to do:
-/// 1. Params deserialization.
+/// We wrap the endpoint to do Params deserialization.
 
 #[async_trait]
 pub trait WrappedEndpoint: fmt::Debug {

@@ -71,23 +71,6 @@ impl ContextSwitch {
         Ok(())
     }
 
-    /// Broadcast audio to all active conversations which match the audio format in their input
-    /// modality.
-    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
-        for (id, conversation) in &self.conversations {
-            if conversation.input_modality.can_receive_audio(frame.format) {
-                // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
-                conversation.client_sender.try_send(ClientEvent::Audio {
-                    id: id.clone(),
-                    // TODO: If there is only one conversation that accepts this frame, we should
-                    // move it into the event.
-                    samples: frame.samples.clone().into(),
-                })?;
-            }
-        }
-        Ok(())
-    }
-
     /// This further wraps the conversation processor to guarantee that there is a final
     /// event sent.
     async fn process_conversation(
@@ -139,6 +122,8 @@ impl ContextSwitch {
             bail!("Initial event must be ConversionStart")
         };
 
+        // Endpoint lookup has to be in the protected part so that clients may receive an error
+        // event in case the endpoint does not exist.
         let endpoint = registry.endpoint(&endpoint)?;
 
         // TODO: clearly define queue length here.
@@ -196,6 +181,23 @@ impl ContextSwitch {
         Ok(ServerEvent::Stopped {
             id: conversation_id,
         })
+    }
+
+    /// Broadcast audio to all active conversations which match the audio format in their input
+    /// modality.
+    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
+        for (id, conversation) in &self.conversations {
+            if conversation.input_modality.can_receive_audio(frame.format) {
+                // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
+                conversation.client_sender.try_send(ClientEvent::Audio {
+                    id: id.clone(),
+                    // TODO: If there is only one conversation that accepts this frame, we should
+                    // move it into the event.
+                    samples: frame.samples.clone().into(),
+                })?;
+            }
+        }
+        Ok(())
     }
 }
 
