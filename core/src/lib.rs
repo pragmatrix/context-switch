@@ -77,6 +77,11 @@ pub struct AudioFrame {
 }
 
 impl AudioFrame {
+    pub fn from_le_bytes(format: AudioFormat, bytes: &[u8]) -> Self {
+        let samples = audio::from_le_bytes(bytes);
+        Self { format, samples }
+    }
+
     pub fn duration(&self) -> Duration {
         let mono_sample_count = self.samples.len() / self.format.channels as usize;
         let sample_rate = self.format.sample_rate;

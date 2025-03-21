@@ -2,16 +2,22 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use azure_speech::synthesizer::{
-    self, AudioFormat,
-    ssml::{self, Serialize, SerializeOptions, ToSSML},
+use azure_speech::{
+    stream::StreamExt,
+    synthesizer::{
+        self, AudioFormat,
+        ssml::{self, Serialize, SerializeOptions, ToSSML},
+    },
 };
 use context_switch_core::{
-    AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, audio_channel,
-    synthesize,
+    AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, synthesize,
 };
 use serde::Deserialize;
-use tokio::sync::mpsc::Sender;
+use tokio::{
+    sync::mpsc::{Receiver, Sender, channel},
+    task::JoinHandle,
+};
+use tracing::{debug, error, warn};
 
 use crate::Host;
 
@@ -43,6 +49,12 @@ impl Endpoint for AzureSynthesize {
         let output_format = synthesize::check_output_modalities(&output_modalities)?;
         let azure_audio_format = import_output_audio_format(output_format)?;
 
+        // Resolve default voice if none is set.
+        let voice = match params.voice {
+            Some(voice) => voice,
+            None => resolve_default_voice(&params.language_code)?.to_string(),
+        };
+
         // Host / Auth is lightweight, so we can create this every time.
         let host = {
             if let Some(host) = params.host {
@@ -60,18 +72,18 @@ impl Endpoint for AzureSynthesize {
             .enable_session_end()
             .with_output_format(azure_audio_format);
 
-        let mut client = synthesizer::Client::connect(host.auth.clone(), config).await?;
+        let client = synthesizer::Client::connect(host.auth.clone(), config).await?;
 
-        let (output_producer, output_consumer) = audio_channel(output_format);
-
-        let synthesizer = Synthesizer { client };
+        let synthesizer =
+            Synthesizer::new(client, params.language_code, voice, output_format, output);
 
         Ok(Box::new(synthesizer))
     }
 }
 
 struct Synthesizer {
-    client: synthesizer::Client,
+    request_tx: Sender<String>,
+    _processor: JoinHandle<Result<()>>,
 }
 
 // This is because `synthesizer::Client` does not implement `Debug`.
@@ -81,13 +93,97 @@ impl fmt::Debug for Synthesizer {
     }
 }
 
+impl Synthesizer {
+    pub fn new(
+        client: synthesizer::Client,
+        language: String,
+        voice: String,
+        output_format: context_switch_core::AudioFormat,
+        output: Sender<Output>,
+    ) -> Self {
+        let (request_tx, request_rx) = channel::<String>(256);
+
+        let task = tokio::spawn(processor(
+            client,
+            language,
+            voice,
+            request_rx,
+            output_format,
+            output,
+        ));
+
+        Self {
+            request_tx,
+            _processor: task,
+        }
+    }
+}
+
+async fn processor(
+    client: synthesizer::Client,
+    language: String,
+    voice: String,
+    mut synthesize_requests: Receiver<String>,
+    output_format: context_switch_core::AudioFormat,
+    output: Sender<Output>,
+) -> Result<()> {
+    loop {
+        let Some(request) = synthesize_requests.recv().await else {
+            debug!("Synthesis request channel closed, exiting processor");
+            break;
+        };
+
+        let request = SynthesizeRequest {
+            language: language.clone(),
+            voice: voice.clone(),
+            text: request,
+        };
+
+        let mut stream = client.synthesize(request).await?;
+        while let Some(event) = stream.next().await {
+            let Ok(event) = event else {
+                // TODO: (planned via Output?)
+                error!("Azure synthesizer: No error handling yet");
+                break;
+            };
+
+            debug!("Received event: {event:?}");
+
+            use synthesizer::Event;
+            match event {
+                Event::SessionStarted(_uuid) => {}
+                Event::SessionEnded(_uuid) => {}
+                Event::AudioMetadata(_uuid, _metadata) => {}
+                Event::Synthesising(_uuid, audio) => {
+                    let frame = AudioFrame::from_le_bytes(output_format, &audio);
+                    output.try_send(Output::Audio { frame })?;
+                }
+                Event::Synthesised(_uuid) => {
+                    // TODO: clients may need to know when a request has finished.
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[async_trait]
 impl Conversation for Synthesizer {
-    fn post_text(&mut self, _text: String) -> Result<()> {
-        todo!("This conversation does not support text input")
+    fn post_text(&mut self, text: String) -> Result<()> {
+        Ok(self.request_tx.try_send(text)?)
     }
+
     async fn stop(self: Box<Self>) -> Result<()> {
-        Ok(self.client.disconnect().await?)
+        if self._processor.is_finished() {
+            if let Err(e) = self._processor.await {
+                warn!("Processor failed early: {e}");
+            }
+        } else {
+            // We must be sure that the task is dead, simply because we don't want to pay fore pending synthesize requests.
+            self._processor.abort();
+        }
+        Ok(())
     }
 }
 
@@ -140,6 +236,18 @@ fn import_output_audio_format(
         _ => bail!(
             "Unsupported sample rate: {}. Supported rates are: 8000, 16000, 22050, 24000, 44100, 48000 Hz",
             audio_format.sample_rate
+        ),
+    }
+}
+
+/// TODO: Support more languages for the default voice.
+fn resolve_default_voice(language: &str) -> Result<&'static str> {
+    match language {
+        "en-US" => Ok("en-US-JennyNeural"),
+        "en-GB" => Ok("en-GB-LibbyNeural"),
+        "de-DE" => Ok("de-DE-KatjaNeural"),
+        _ => bail!(
+            "No default voice for this language defined, select one of from here: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts>"
         ),
     }
 }
