@@ -6,7 +6,7 @@ use azure_speech::{
     stream::StreamExt,
     synthesizer::{
         self, AudioFormat,
-        ssml::{self, SerializeOptions, ToSSML},
+        ssml::{self, ToSSML, ssml::SerializeOptions},
     },
 };
 use context_switch_core::{
@@ -70,7 +70,7 @@ impl Endpoint for AzureSynthesize {
         let config = synthesizer::Config::default()
             .disable_auto_detect_language()
             .enable_session_end()
-            .with_output_format(azure_audio_format);
+            .with_audio_format(azure_audio_format);
 
         let client = synthesizer::Client::connect(host.auth.clone(), config).await?;
 
@@ -198,18 +198,18 @@ impl ToSSML for SynthesizeRequest {
         _language: azure_speech::synthesizer::Language,
         _voice: azure_speech::synthesizer::Voice,
     ) -> azure_speech::Result<String> {
-        serialize_to_ssml(&ssml::speak(
+        serialize_to_ssml(&ssml::ssml::speak(
             Some(self.language.as_str()),
-            [ssml::voice(self.voice.as_str(), [self.text.clone()])],
+            [ssml::ssml::voice(self.voice.as_str(), [self.text.clone()])],
         ))
     }
 }
 
-fn serialize_to_ssml(speak: &impl ssml::Serialize) -> azure_speech::Result<String> {
+fn serialize_to_ssml(speak: &impl ssml::ssml::Serialize) -> azure_speech::Result<String> {
     speak
         .serialize_to_string(
             &SerializeOptions::default()
-                .flavor(ssml::Flavor::MicrosoftAzureCognitiveSpeechServices),
+                .flavor(ssml::ssml::Flavor::MicrosoftAzureCognitiveSpeechServices),
         )
         .map_err(|e| azure_speech::Error::InternalError(e.to_string()))
 }

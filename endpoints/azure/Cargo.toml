@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 context-switch-core = { workspace = true }
 
-hound = "3.5.1"
 azure-speech = { workspace = true }
 
 tracing = { workspace = true }
