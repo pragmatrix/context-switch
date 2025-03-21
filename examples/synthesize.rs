@@ -12,6 +12,8 @@ use tokio::{select, sync::mpsc::channel};
 async fn main() -> Result<()> {
     dotenvy::dotenv()?;
 
+    tracing_subscriber::fmt::init();
+
     let output_format = AudioFormat {
         channels: 1,
         sample_rate: 16000,

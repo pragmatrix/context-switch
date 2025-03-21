@@ -32,6 +32,7 @@ futures = "0.3.31"
 derive_more = { version = "1.0.0", features = ["full"] }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
 context-switch-core = { workspace = true }
 
 dotenvy = { workspace = true }
@@ -48,6 +49,8 @@ openai-dialog = { path = "endpoints/openai-dialog" }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [workspace.dependencies]
+tracing-subscriber = { version = "0.3.19" }
+
 context-switch-core = { path = "core" }
 cs-azure = { path = "endpoints/azure" }
 
