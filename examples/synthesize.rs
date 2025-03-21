@@ -10,7 +10,7 @@ use tokio::{select, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv()?;
+    dotenvy::dotenv_override()?;
 
     tracing_subscriber::fmt::init();
 
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
         select! {
             ev = server_events_rx.recv() => {
                 let Some(ServerEvent::Audio {id, samples}) = ev else {
-                    println!("Unexpected event: {ev:?}");
+                    println!("Unexpected: {ev:?}");
                     break;
                 };
                 assert_eq!(id, conversation_id);
@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
                 output_producer.produce(frame)?;
             },
             _ = &mut playback_handle => {
-                println!("playback completed");
+                println!("Playback completed");
                 break;
             }
         }

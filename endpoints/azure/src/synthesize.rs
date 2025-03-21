@@ -147,21 +147,17 @@ async fn processor(
                 break;
             };
 
-            debug!("Received event: {event:?}");
-
             use synthesizer::Event;
             match event {
-                Event::SessionStarted(_uuid) => {}
-                Event::SessionEnded(_uuid) => {}
-                Event::AudioMetadata(_uuid, _metadata) => {}
                 Event::Synthesising(_uuid, audio) => {
                     let frame = AudioFrame::from_le_bytes(output_format, &audio);
+                    debug!("Received audio: {:?}", frame.duration());
                     output.try_send(Output::Audio { frame })?;
                 }
-                Event::Synthesised(_uuid) => {
-                    // TODO: clients may need to know when a request has finished.
+                event => {
+                    debug!("Received: {event:?}")
                 }
-            }
+            };
         }
     }
 
