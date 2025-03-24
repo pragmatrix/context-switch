@@ -10,7 +10,7 @@ use azure_speech::{
     },
 };
 use context_switch_core::{
-    AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, synthesize,
+    AudioFrame, Conversation, Endpoint, EventId, InputModality, Output, OutputModality, synthesize,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -82,7 +82,7 @@ impl Endpoint for AzureSynthesize {
 }
 
 struct Synthesizer {
-    request_tx: Sender<String>,
+    request_tx: Sender<SynthesizeRequest>,
     _processor: JoinHandle<Result<()>>,
 }
 
@@ -101,7 +101,7 @@ impl Synthesizer {
         output_format: context_switch_core::AudioFormat,
         output: Sender<Output>,
     ) -> Self {
-        let (request_tx, request_rx) = channel::<String>(256);
+        let (request_tx, request_rx) = channel::<SynthesizeRequest>(256);
 
         let task = tokio::spawn(processor(
             client,
@@ -119,11 +119,16 @@ impl Synthesizer {
     }
 }
 
+struct SynthesizeRequest {
+    event_id: Option<EventId>,
+    text: String,
+}
+
 async fn processor(
     client: synthesizer::Client,
     language: String,
     voice: String,
-    mut synthesize_requests: Receiver<String>,
+    mut synthesize_requests: Receiver<SynthesizeRequest>,
     output_format: context_switch_core::AudioFormat,
     output: Sender<Output>,
 ) -> Result<()> {
@@ -133,13 +138,13 @@ async fn processor(
             break;
         };
 
-        let request = SynthesizeRequest {
+        let azure_request = AzureSynthesizeRequest {
             language: language.clone(),
             voice: voice.clone(),
-            text: request,
+            text: request.text,
         };
 
-        let mut stream = client.synthesize(request).await?;
+        let mut stream = client.synthesize(azure_request).await?;
         while let Some(event) = stream.next().await {
             let Ok(event) = event else {
                 // TODO: (planned via Output?)
@@ -154,6 +159,9 @@ async fn processor(
                     debug!("Received audio: {:?}", frame.duration());
                     output.try_send(Output::Audio { frame })?;
                 }
+                Event::Synthesised(_uuid) => output.try_send(Output::Completed {
+                    event_id: request.event_id.clone(),
+                })?,
                 event => {
                     debug!("Received: {event:?}")
                 }
@@ -166,8 +174,10 @@ async fn processor(
 
 #[async_trait]
 impl Conversation for Synthesizer {
-    fn post_text(&mut self, text: String) -> Result<()> {
-        Ok(self.request_tx.try_send(text)?)
+    fn post_text(&mut self, event_id: Option<EventId>, text: String) -> Result<()> {
+        Ok(self
+            .request_tx
+            .try_send(SynthesizeRequest { event_id, text })?)
     }
 
     async fn stop(self: Box<Self>) -> Result<()> {
@@ -186,13 +196,13 @@ impl Conversation for Synthesizer {
 /// This is because we won't want to got through voice and language conversion and therefore we are
 /// forced to use SSML directly.
 #[derive(Debug)]
-struct SynthesizeRequest {
+struct AzureSynthesizeRequest {
     language: String,
     voice: String,
     text: String,
 }
 
-impl ToSSML for SynthesizeRequest {
+impl ToSSML for AzureSynthesizeRequest {
     fn to_ssml(
         &self,
         _language: azure_speech::synthesizer::Language,

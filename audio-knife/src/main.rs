@@ -153,7 +153,7 @@ fn process_request(
                 format: DEFAULT_FORMAT,
                 samples: audio::from_le_bytes(samples),
             };
-            context_switch.broadcast_audio(frame)?;
+            context_switch.broadcast_audio(None, frame)?;
             Ok(())
         }
         Message::Ping(payload) => {

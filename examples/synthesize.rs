@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
 
     context_switch.process(ClientEvent::Text {
         id: conversation_id.clone(),
+        event_id: None,
         content: text.into(),
     })?;
 
