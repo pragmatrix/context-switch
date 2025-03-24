@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
         select! {
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conversation.post_audio(frame)?;
+                    conversation.post_audio(None,frame)?;
                 }
                 else {
                     println!("End of input");

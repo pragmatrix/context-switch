@@ -30,10 +30,14 @@ pub enum ClientEvent {
     },
     Audio {
         id: ConversationId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        event_id: Option<EventId>,
         samples: Samples,
     },
     Text {
         id: ConversationId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        event_id: Option<EventId>,
         content: String,
     },
 }
@@ -78,6 +82,13 @@ pub enum ServerEvent {
         id: ConversationId,
         is_final: bool,
         content: String,
+    },
+    /// A completed even is sent when the client event that triggered Audio or Text responses, has
+    /// the `event_id` set and the event has been fully processed and completed.
+    Completed {
+        id: ConversationId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        event_id: Option<EventId>,
     },
 }
 

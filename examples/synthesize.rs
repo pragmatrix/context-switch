@@ -63,9 +63,9 @@ async fn main() -> Result<()> {
 
     context_switch.process(ClientEvent::Text {
         id: conversation_id.clone(),
+        event_id: None,
         content: text.into(),
     })?;
-
     let (output_producer, playback_task) = setup_audio_playback(output_format).await;
 
     // Spawn audio playback task
@@ -74,13 +74,22 @@ async fn main() -> Result<()> {
     loop {
         select! {
             ev = server_events_rx.recv() => {
-                let Some(ServerEvent::Audio {id, samples}) = ev else {
-                    println!("Unexpected: {ev:?}");
-                    break;
-                };
-                assert_eq!(id, conversation_id);
-                let frame = AudioFrame { format: output_format, samples: samples.into()};
-                output_producer.produce(frame)?;
+                match ev {
+                    Some(ServerEvent::Audio {id, samples}) => {
+                        assert_eq!(id, conversation_id);
+                        let frame = AudioFrame { format: output_format, samples: samples.into()};
+                        output_producer.produce(frame)?;
+                    },
+                    Some(ServerEvent::Completed {..}) => {
+                        println!("Synthesize completed");
+                    }
+                    _ => {
+                        println!("Unexpected: {ev:?}");
+                    }
+
+
+                }
+
             },
             _ = &mut playback_handle => {
                 println!("Playback completed");
