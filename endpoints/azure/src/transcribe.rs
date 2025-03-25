@@ -2,9 +2,9 @@ use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event, WavType};
-use context_switch_core::{AudioConsumer, EventId, InputModality, OutputModality, audio};
 use context_switch_core::{
-    AudioFrame, AudioProducer, Conversation, Endpoint, Output, audio_channel, transcribe,
+    AudioConsumer, AudioFrame, AudioProducer, Conversation, Endpoint, InputModality, Output,
+    OutputModality, audio, audio_channel, transcribe,
 };
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
@@ -125,7 +125,7 @@ struct Transcriber {
 
 #[async_trait]
 impl Conversation for Transcriber {
-    fn post_audio(&mut self, _event_id: Option<EventId>, frame: AudioFrame) -> Result<()> {
+    fn post_audio(&mut self, frame: AudioFrame) -> Result<()> {
         self.input_producer.produce(frame)
     }
 

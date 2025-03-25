@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::Sender;
 
-use crate::{AudioFrame, EventId, InputModality, OutputModality};
+use crate::{AudioFrame, InputModality, OutputModality};
 
 #[async_trait]
 pub trait Endpoint: fmt::Debug {
@@ -39,18 +39,18 @@ pub trait Endpoint: fmt::Debug {
 pub enum Output {
     Audio { frame: AudioFrame },
     Text { is_final: bool, content: String },
-    Completed { event_id: Option<EventId> },
+    Completed,
     // TODO: Need to add an error output here, see for example the Azure synthesizer.
 }
 
 #[async_trait]
 pub trait Conversation: fmt::Debug {
-    fn post_audio(&mut self, event_id: Option<EventId>, _frame: AudioFrame) -> Result<()> {
-        bail!("This conversion does not support audio input (event: {event_id:?})")
+    fn post_audio(&mut self, _frame: AudioFrame) -> Result<()> {
+        bail!("This conversion does not support audio input")
     }
 
-    fn post_text(&mut self, event_id: Option<EventId>, _text: String) -> Result<()> {
-        bail!("This conversation does not support text input (event: {event_id:?}")
+    fn post_text(&mut self, _text: String) -> Result<()> {
+        bail!("This conversation does not support text input")
     }
 
     /// The implementation of `stop()` should end _all_ pending tasks, even if they need to be

@@ -12,7 +12,7 @@ use tokio::{
 };
 use tracing::{Level, info, span};
 
-use crate::{ClientEvent, ConversationId, EventId, InputModality, ServerEvent, registry::Registry};
+use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -166,17 +166,22 @@ impl ContextSwitch {
                             ClientEvent::Stop { .. } => {
                                 break;
                             },
-                            ClientEvent::Audio { samples, event_id, .. } => {
+                            ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
                                     let frame = AudioFrame { format, samples: samples.into() };
-                                    conversation.post_audio(event_id,frame)?;
+                                    conversation.post_audio(frame)?;
                                 } else {
                                     bail!("Received unexpected Audio");
                                 }
                             },
-                            ClientEvent::Text { content, event_id,.. } => {
+                            ClientEvent::Text { content, ..
+
+
+
+
+                            } => {
                                 if let InputModality::Text = input_modality {
-                                    conversation.post_text(event_id,content)?;
+                                    conversation.post_text(content)?;
                                 } else {
                                     bail!("Received unexpected Text");
                                 }
@@ -207,13 +212,12 @@ impl ContextSwitch {
 
     /// Broadcast audio to all active conversations which match the audio format in their input
     /// modality.
-    pub fn broadcast_audio(&self, event_id: Option<EventId>, frame: AudioFrame) -> Result<()> {
+    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
         for (id, conversation) in &self.conversations {
             if conversation.input_modality.can_receive_audio(frame.format) {
                 // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
                 conversation.client_sender.try_send(ClientEvent::Audio {
                     id: id.clone(),
-                    event_id: event_id.clone(),
                     // TODO: If there is only one conversation that accepts this frame, we should
                     // move it into the event.
                     samples: frame.samples.clone().into(),
@@ -235,9 +239,6 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             is_final,
             content,
         },
-        Output::Completed { event_id } => ServerEvent::Completed {
-            id: id.clone(),
-            event_id,
-        },
+        Output::Completed => ServerEvent::Completed { id: id.clone() },
     }
 }
