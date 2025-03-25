@@ -30,14 +30,10 @@ pub enum ClientEvent {
     },
     Audio {
         id: ConversationId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        event_id: Option<EventId>,
         samples: Samples,
     },
     Text {
         id: ConversationId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        event_id: Option<EventId>,
         content: String,
     },
 }
@@ -87,8 +83,6 @@ pub enum ServerEvent {
     /// the `event_id` set and the event has been fully processed and completed.
     Completed {
         id: ConversationId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        event_id: Option<EventId>,
     },
 }
 

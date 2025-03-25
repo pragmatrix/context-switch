@@ -10,7 +10,7 @@ use azure_speech::{
     },
 };
 use context_switch_core::{
-    AudioFrame, Conversation, Endpoint, EventId, InputModality, Output, OutputModality, synthesize,
+    AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, synthesize,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -119,8 +119,8 @@ impl Synthesizer {
     }
 }
 
+#[derive(Debug)]
 struct SynthesizeRequest {
-    event_id: Option<EventId>,
     text: String,
 }
 
@@ -159,9 +159,7 @@ async fn processor(
                     debug!("Received audio: {:?}", frame.duration());
                     output.try_send(Output::Audio { frame })?;
                 }
-                Event::Synthesised(_uuid) => output.try_send(Output::Completed {
-                    event_id: request.event_id.clone(),
-                })?,
+                Event::Synthesised(_uuid) => output.try_send(Output::Completed)?,
                 event => {
                     debug!("Received: {event:?}")
                 }
@@ -174,10 +172,8 @@ async fn processor(
 
 #[async_trait]
 impl Conversation for Synthesizer {
-    fn post_text(&mut self, event_id: Option<EventId>, text: String) -> Result<()> {
-        Ok(self
-            .request_tx
-            .try_send(SynthesizeRequest { event_id, text })?)
+    fn post_text(&mut self, text: String) -> Result<()> {
+        Ok(self.request_tx.try_send(SynthesizeRequest { text })?)
     }
 
     async fn stop(self: Box<Self>) -> Result<()> {

@@ -1,14 +1,9 @@
 //! Low-level serializable types that are used in the context-switch protocol and internal
 //! endpoint interfaces.
 
-use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
 
 use crate::{AudioConsumer, AudioProducer, audio_channel};
-
-/// Event identifier. Used to associate server events with client events.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
-pub struct EventId(String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
