@@ -174,12 +174,7 @@ impl ContextSwitch {
                                     bail!("Received unexpected Audio");
                                 }
                             },
-                            ClientEvent::Text { content, ..
-
-
-
-
-                            } => {
+                            ClientEvent::Text { content, .. } => {
                                 if let InputModality::Text = input_modality {
                                     conversation.post_text(content)?;
                                 } else {
