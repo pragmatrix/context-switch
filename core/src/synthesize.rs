@@ -7,7 +7,7 @@ use crate::{
 
 pub fn require_text_input(input_modality: InputModality) -> Result<()> {
     match input_modality {
-        InputModality::Audio { .. } => bail!("synthesize: No audio input"),
+        InputModality::Audio { .. } => bail!("synthesize: Audio input is not supported"),
         InputModality::Text => Ok(()),
     }
 }
