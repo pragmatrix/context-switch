@@ -3,8 +3,10 @@
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
 use context_switch::ConversationId;
-use futures_util::stream::SplitSink;
+use futures_util::{SinkExt, stream::SplitSink};
 use serde::Serialize;
+
+use crate::audio::to_le_bytes;
 
 #[derive(Serialize)]
 pub struct JsonEvent {
@@ -23,11 +25,16 @@ impl JsonEvent {
 }
 
 pub async fn dispatch_audio(
-    _socket: &mut SplitSink<WebSocket, Message>,
+    socket: &mut SplitSink<WebSocket, Message>,
     _id: ConversationId,
-    _samples: Vec<i16>,
+    samples: Vec<i16>,
 ) -> Result<()> {
-    // TODO: do some audio mixing.
-    // For mixing audio we do need some kind of timestamps I guess.
-    todo!("dispatch audio output");
+    // Use the helper function to convert samples to little-endian bytes
+    let audio_data = to_le_bytes(samples);
+
+    // Send the binary audio data over the WebSocket
+    let message = Message::Binary(audio_data);
+    socket.send(message).await?;
+
+    Ok(())
 }
