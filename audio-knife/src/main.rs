@@ -144,8 +144,6 @@ fn process_request(
 ) -> Result<()> {
     match msg {
         Message::Text(msg) => {
-            debug!("Received text message: `{msg}`");
-
             let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
                 let decoded_bytes = general_purpose::STANDARD
                     .decode(base64_str)
@@ -156,6 +154,8 @@ fn process_request(
             } else {
                 msg
             };
+
+            debug!("Received client event: `{json_str}`");
 
             let event: ClientEvent =
                 serde_json::from_str(&json_str).context("Deserializing client event")?;
