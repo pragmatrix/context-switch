@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
                         let frame = AudioFrame { format: output_format, samples: samples.into()};
                         output_producer.produce(frame)?;
                     },
-                    Some(ServerEvent::Completed {..}) => {
+                    Some(ServerEvent::RequestCompleted {..}) => {
                         println!("Synthesize completed");
                     }
                     _ => {

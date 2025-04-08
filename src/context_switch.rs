@@ -234,6 +234,6 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             is_final,
             content,
         },
-        Output::Completed => ServerEvent::Completed { id: id.clone() },
+        Output::Completed => ServerEvent::RequestCompleted { id: id.clone() },
     }
 }
