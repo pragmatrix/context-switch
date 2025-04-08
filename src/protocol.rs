@@ -81,7 +81,7 @@ pub enum ServerEvent {
     },
     /// A completed event is sent when the client request that triggered Audio or Text responses has
     /// has been fully processed.
-    Completed {
+    RequestCompleted {
         id: ConversationId,
     },
 }
