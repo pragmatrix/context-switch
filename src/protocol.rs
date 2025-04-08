@@ -79,8 +79,8 @@ pub enum ServerEvent {
         is_final: bool,
         content: String,
     },
-    /// A completed even is sent when the client event that triggered Audio or Text responses, has
-    /// the `event_id` set and the event has been fully processed and completed.
+    /// A completed event is sent when the client event that triggered Audio or Text responses has
+    /// has been fully processed.
     Completed {
         id: ConversationId,
     },
