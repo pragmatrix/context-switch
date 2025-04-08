@@ -17,6 +17,7 @@ tracing = { workspace = true }
 dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = "0.22.1"
 
 context-switch = { path = ".." }
 context-switch-core = { workspace = true }

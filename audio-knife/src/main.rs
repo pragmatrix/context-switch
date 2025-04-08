@@ -14,6 +14,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use base64::{Engine as _, engine::general_purpose};
 use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
 use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
@@ -144,8 +145,21 @@ fn process_request(
     match msg {
         Message::Text(msg) => {
             debug!("Received text message: `{msg}`");
+
+            let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
+                let decoded_bytes = general_purpose::STANDARD
+                    .decode(base64_str)
+                    .context("Decoding base64 string")?;
+
+                String::from_utf8(decoded_bytes)
+                    .context("Converting decoded base64 to UTF-8 string")?
+            } else {
+                msg
+            };
+
             let event: ClientEvent =
-                serde_json::from_str(&msg).context("Deserializing client event")?;
+                serde_json::from_str(&json_str).context("Deserializing client event")?;
+
             context_switch.process(event)
         }
         Message::Binary(samples) => {
