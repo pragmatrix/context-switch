@@ -79,6 +79,7 @@ async fn ws_get(ws: WebSocketUpgrade) -> impl IntoResponse {
 }
 
 async fn ws_driver(websocket: WebSocket) {
+    info!("Client connected");
     if let Err(e) = ws(websocket).await {
         let chain = e.chain();
         let error = chain
@@ -89,6 +90,7 @@ async fn ws_driver(websocket: WebSocket) {
 
         error!("WebSocket error: {error}")
     }
+    info!("Client disconnected");
 }
 
 #[derive(Debug)]
@@ -96,8 +98,6 @@ struct Pong(Vec<u8>);
 
 async fn ws(websocket: WebSocket) -> Result<()> {
     let (ws_sender, mut ws_receiver) = websocket.split();
-
-    info!("New client connected");
 
     // Channel from context_switch to event_scheduler
     let (cs_sender, cs_receiver) = channel(32);
