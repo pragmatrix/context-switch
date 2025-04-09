@@ -1,6 +1,7 @@
 //! A context switch websocket server that supports the protocol of mod_audio_fork
 
 mod app_error;
+mod event_scheduler;
 mod mod_audio_fork;
 
 use std::{env, net::SocketAddr};
@@ -15,8 +16,6 @@ use axum::{
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose};
-use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
-use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use mod_audio_fork::JsonEvent;
 use reqwest::StatusCode;
@@ -27,9 +26,12 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
+use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
+use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
+
 const DEFAULT_PORT: u16 = 8123;
 /// For now we always assume only 1 channel (mono) and 16khz sent from mod_audio_fork.
-const DEFAULT_FORMAT: AudioFormat = AudioFormat {
+pub const DEFAULT_FORMAT: AudioFormat = AudioFormat {
     channels: 1,
     sample_rate: 16000,
 };
@@ -97,14 +99,20 @@ async fn ws(websocket: WebSocket) -> Result<()> {
 
     info!("New client connected");
 
-    // TODO: clearly define what happens when the buffers overlow and how much buffering we support
-    // and why.
+    // Channel from context_switch to event_scheduler
     let (cs_sender, cs_receiver) = channel(32);
+
+    // Channel from event_scheduler to websocket dispatcher
+    let (scheduler_sender, scheduler_receiver) = channel(32);
 
     let mut context_switch = ContextSwitch::new(cs_sender);
     let (pong_sender, pong_receiver) = channel(4);
 
-    let dispatcher = dispatch_channel_messages(pong_receiver, cs_receiver, ws_sender);
+    // The event scheduler
+    let scheduler = event_scheduler::event_scheduler(cs_receiver, scheduler_sender);
+    pin!(scheduler);
+
+    let dispatcher = dispatch_channel_messages(pong_receiver, scheduler_receiver, ws_sender);
     pin!(dispatcher);
 
     loop {
@@ -130,6 +138,16 @@ async fn ws(websocket: WebSocket) -> Result<()> {
                 }
                 else {
                     info!("Dispatcher ended");
+                    return Ok(())
+                }
+            }
+            r = &mut scheduler => {
+                if let Err(r) = r {
+                    error!("Scheduler error, ending channel");
+                    bail!(r);
+                }
+                else {
+                    info!("Scheduler ended");
                     return Ok(())
                 }
             }
@@ -194,7 +212,6 @@ fn process_request(
 }
 
 /// Dispatches channel messages to the socket's sink.
-// TODO: this complex socket type sucks.
 async fn dispatch_channel_messages(
     mut pong_receiver: Receiver<Pong>,
     mut event_receiver: Receiver<ServerEvent>,

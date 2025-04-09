@@ -91,6 +91,12 @@ pub enum ServerEvent {
 #[derive(Debug, Clone, Into, From)]
 pub struct Samples(Vec<i16>);
 
+impl Samples {
+    pub fn samples(&self) -> &[i16] {
+        &self.0
+    }
+}
+
 /// Serializer for Samples
 /// (we could perhaps use serde_with, but it does not seem to consider endianess)
 impl Serialize for Samples {
