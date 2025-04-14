@@ -23,6 +23,12 @@ pub struct Host {
 }
 
 impl Host {
+    pub fn new_with_host(host: &str, api_key: &str, model: &str) -> Self {
+        Host {
+            client: RealtimeClient::new_with_endpoint(host.into(), api_key.into(), model.into()),
+        }
+    }
+
     pub fn new(api_key: &str, model: &str) -> Self {
         Host {
             client: RealtimeClient::new_with_endpoint(
