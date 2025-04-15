@@ -192,7 +192,7 @@ impl ContextSwitch {
                         let event = output_to_server_event(&conversation_id, output);
                         server_output.try_send(event)?;
                     } else {
-                        bail!("No more output")
+                        bail!("Service output channel closed.")
                     }
                 }
             }

@@ -2,6 +2,8 @@
 //!
 //! Based on <https://github.com/dongri/openai-api-rs/blob/main/examples/realtime/src/main.rs>
 
+use std::fmt;
+
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use base64::prelude::*;
@@ -19,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
 
-use tracing::debug;
+use tracing::{debug, info};
 
 use context_switch_core::{
     AudioConsumer, AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, AudioProducer,
@@ -29,6 +31,15 @@ use context_switch_core::{
 
 pub struct Host {
     client: RealtimeClient,
+}
+
+impl fmt::Debug for Host {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Host")
+            .field("wss_url", &self.client.wss_url)
+            .field("model", &self.client.model)
+            .finish()
+    }
 }
 
 impl Host {
@@ -71,12 +82,10 @@ impl Client {
         mut consumer: AudioConsumer,
         mut producer: AudioMsgProducer,
     ) -> Result<()> {
-        // TODO: send a session update with the right
-
         let expected_format = AudioFormat::new(1, 24000);
         if consumer.format != expected_format {
             bail!(
-                "audio consumer audio has the wrong format {:?}, expected: {:?}",
+                "Audio consumer has the wrong format {:?}, expected: {:?}",
                 consumer.format,
                 expected_format
             );
@@ -84,7 +93,7 @@ impl Client {
 
         if producer.format() != expected_format {
             bail!(
-                "audio producer audio has the wrong format {:?}, expected: {:?}",
+                "Audio producer has the wrong format {:?}, expected: {:?}",
                 producer.format(),
                 expected_format
             );
@@ -270,7 +279,10 @@ impl Endpoint for OpenAIDialog {
         } else {
             Host::new(&params.api_key, &params.model)
         };
+        info!("Connecting to {host:?}");
         let mut client = host.connect().await?;
+
+        info!("Client connected");
 
         // TODO: implement proper error handling. For example when the forwarder breaks for some
         // reason while the dialog is running.
@@ -287,6 +299,7 @@ impl Endpoint for OpenAIDialog {
                 }
             });
 
+            info!("Starting dialog");
             let r = client.dialog(input_consumer, msg_producer).await;
             debug!("Dialog ended with {r:?}, waiting for forwarder to end");
             forwarder.await?;
