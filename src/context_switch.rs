@@ -235,5 +235,6 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             content,
         },
         Output::Completed => ServerEvent::RequestCompleted { id: id.clone() },
+        Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
     }
 }

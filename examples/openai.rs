@@ -15,14 +15,14 @@ async fn main() -> Result<()> {
     let device = host
         .default_input_device()
         .expect("Failed to get default input device");
-    let config = device
+    let input_config = device
         .default_input_config()
         .expect("Failed to get default input config");
 
-    println!("config: {:?}", config);
+    println!("Audio device input config: {:?}", input_config);
 
-    let channels = config.channels();
-    let sample_rate = config.sample_rate();
+    let channels = input_config.channels();
+    let sample_rate = input_config.sample_rate();
     let format = AudioFormat::new(channels, sample_rate.0);
 
     let (producer, consumer) = format.new_channel();
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     // Create and run the input stream
     let stream = device
         .build_input_stream(
-            &config.into(),
+            &input_config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
                 let frame = AudioFrame { format, samples };

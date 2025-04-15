@@ -3,8 +3,8 @@
 //! Based on <https://github.com/dongri/openai-api-rs/blob/main/examples/realtime/src/main.rs>
 
 use anyhow::{Result, anyhow, bail};
+use async_trait::async_trait;
 use base64::prelude::*;
-use context_switch_core::{AudioConsumer, AudioFormat, AudioFrame, AudioMsgProducer, audio};
 use futures::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
@@ -15,8 +15,16 @@ use openai_api_rs::realtime::{
     server_event::ServerEvent,
     types,
 };
-use tokio::{net::TcpStream, select};
+use serde::{Deserialize, Serialize};
+use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
+
+use context_switch_core::{
+    AudioConsumer, AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, AudioProducer,
+    Conversation, Endpoint, InputModality, Output, OutputModality, audio, audio_channel,
+    audio_msg_channel, dialog,
+};
+use tracing::{debug, info};
 
 pub struct Host {
     client: RealtimeClient,
@@ -222,4 +230,93 @@ enum FlowControl {
     Continue,
     PongAndContinue(Vec<u8>),
     End,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Params {
+    pub api_key: String,
+    pub model: String,
+    pub host: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct OpenAIDialog;
+
+#[async_trait]
+impl Endpoint for OpenAIDialog {
+    type Params = Params;
+
+    async fn start_conversation(
+        &self,
+        params: Params,
+        input_modality: InputModality,
+        output_modalities: Vec<OutputModality>,
+        output: Sender<Output>,
+    ) -> Result<Box<dyn Conversation + Send>> {
+        // Only support audio input and output for now
+        let input_format = dialog::require_audio_input(input_modality)?;
+        let output_format = dialog::check_output_modalities(&output_modalities)?;
+        if input_format != output_format {
+            bail!("Input and output audio formats must match for OpenAI dialog endpoint");
+        }
+
+        let (input_producer, input_consumer) = audio_channel(input_format);
+        let (msg_producer, mut msg_consumer) = audio_msg_channel(output_format);
+
+        let host = if let Some(host) = params.host {
+            Host::new_with_host(&host, &params.api_key, &params.model)
+        } else {
+            Host::new(&params.api_key, &params.model)
+        };
+        let mut client = host.connect().await?;
+
+        // TODO: implement proper error handling. For example when the forwarder breaks for some
+        // reason while the dialog is running.
+        let dialog_processor: JoinHandle<Result<()>> = tokio::spawn(async move {
+            // Forward output audio frames to output channel
+            let forwarder = tokio::spawn(async move {
+                while let Some(msg) = msg_consumer.consume().await {
+                    let output_msg = match msg {
+                        AudioMsg::Frame(frame) => Output::Audio { frame },
+                        AudioMsg::Clear => Output::ClearAudio,
+                    };
+
+                    let _ = output.try_send(output_msg);
+                }
+            });
+
+            let r = client.dialog(input_consumer, msg_producer).await;
+            debug!("Dialog ended with {r:?}, waiting for forwarder to end");
+            forwarder.await?;
+            debug!("Forwarder ended");
+            r
+        });
+
+        Ok(Box::new(DialogConversation {
+            input_producer,
+            dialog_processor,
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct DialogConversation {
+    input_producer: AudioProducer,
+    dialog_processor: JoinHandle<Result<()>>,
+}
+
+#[async_trait]
+impl Conversation for DialogConversation {
+    fn post_audio(&mut self, frame: AudioFrame) -> Result<()> {
+        self.input_producer.produce(frame)
+    }
+
+    async fn stop(self: Box<Self>) -> Result<()> {
+        drop(self.input_producer);
+        debug!("stop: Waiting for dialog processor to end");
+        self.dialog_processor.await??;
+        debug!("stop: Dialog processor ended");
+        Ok(())
+    }
 }
