@@ -41,7 +41,13 @@ impl EventScheduler {
         }
     }
 
-    pub fn schedule_event(&mut self, event: ServerEvent) {
+    pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
+        if let ServerEvent::ClearAudio { .. } = event {
+            self.pending_events
+                .retain(|e| !matches!(classify(e), EventKind::Audio(_)));
+            // All the non-audio event before `ClearAudio` must be sent asap, too.
+            self.audio_finished = now;
+        }
         self.pending_events.push_back(event);
     }
 
@@ -107,19 +113,15 @@ pub async fn event_scheduler(
 ) -> Result<()> {
     let mut scheduler = EventScheduler::new();
 
+    let mut wakeup_delay = Duration::MAX;
     loop {
-        let now = Instant::now();
-
-        let mut wakeup_delay = Duration::MAX;
-        if let Some(wakeup) = scheduler.process(now, &sender)? {
-            wakeup_delay = wakeup;
-        }
-
+        let now;
         select! {
             event = receiver.recv() => {
                 match event {
                     Some(event) => {
-                        scheduler.schedule_event(event);
+                        now = Instant::now();
+                        scheduler.schedule_event(now, event);
                     },
                     None => {
                         // Channel closed, exit
@@ -129,7 +131,14 @@ pub async fn event_scheduler(
                 }
             },
             _ = sleep(wakeup_delay) => {
+                now = Instant::now()
             }
+        }
+
+        if let Some(wakeup) = scheduler.process(now, &sender)? {
+            wakeup_delay = wakeup;
+        } else {
+            wakeup_delay = Duration::MAX;
         }
     }
 }

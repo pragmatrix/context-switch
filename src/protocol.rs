@@ -84,6 +84,12 @@ pub enum ServerEvent {
     RequestCompleted {
         id: ConversationId,
     },
+    /// Clear all buffered audio data on the client. This typically occurs when a dialog is
+    /// interrupted by the client. Upon receiving this event, the client must discard all buffered
+    /// audio and immediately play any subsequent audio samples.
+    ClearAudio {
+        id: ConversationId,
+    },
 }
 
 /// A type that represents samples in Vec<i16> format in memory, but serializes them as a

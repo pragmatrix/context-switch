@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod audio_protocol;
 mod endpoint;
 pub mod protocol;
 pub mod synthesize;
@@ -7,10 +8,82 @@ pub mod transcribe;
 use anyhow::{Result, bail};
 
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use endpoint::*;
 pub use protocol::*;
+
+/// A unidirectional audio message. Useful for implementing an audio transfer channel.
+#[derive(Debug)]
+pub enum AudioMsg {
+    Frame(AudioFrame),
+    Clear,
+}
+
+#[derive(Debug)]
+pub struct AudioMsgConsumer {
+    receiver: UnboundedReceiver<AudioMsg>,
+}
+
+impl AudioMsgConsumer {
+    /// Consumes an audio message. If none is available, waits until there is one.
+    /// Returns None if the channel is closed.
+    pub async fn consume(&mut self) -> Option<AudioMsg> {
+        self.receiver.recv().await
+    }
+
+    /// Tries to consume an audio message without waiting.
+    /// Returns None if no message is available or if the channel is closed.
+    pub fn try_consume(&mut self) -> Option<AudioMsg> {
+        self.receiver.try_recv().ok()
+    }
+}
+
+#[derive(Debug)]
+pub struct AudioMsgProducer {
+    format: AudioFormat,
+    sender: UnboundedSender<AudioMsg>,
+}
+
+impl AudioMsgProducer {
+    /// Sends raw audio samples
+    pub fn send_samples(&self, samples: Vec<i16>) -> Result<()> {
+        self.send_frame(AudioFrame {
+            format: self.format,
+            samples,
+        })
+    }
+
+    /// Sends an audio frame.
+    pub fn send_frame(&self, frame: AudioFrame) -> Result<()> {
+        if frame.format != self.format {
+            bail!(
+                "Audio frame format mismatch (expected: {:?}, received: {:?})",
+                self.format,
+                frame.format
+            );
+        }
+        Ok(self.sender.send(AudioMsg::Frame(frame))?)
+    }
+
+    /// Sends a clear message to remove all pending frames in the channel.
+    pub fn clear(&self) -> Result<()> {
+        Ok(self.sender.send(AudioMsg::Clear)?)
+    }
+
+    pub fn format(&self) -> AudioFormat {
+        self.format
+    }
+}
+
+/// TODO: Actually support AudioMsg::Clear to clear all the pending frames in the channel.
+pub fn audio_msg_channel(format: AudioFormat) -> (AudioMsgProducer, AudioMsgConsumer) {
+    let (sender, receiver) = unbounded_channel();
+    (
+        AudioMsgProducer { format, sender },
+        AudioMsgConsumer { receiver },
+    )
+}
 
 #[derive(Debug)]
 pub struct AudioConsumer {
@@ -28,7 +101,7 @@ impl AudioConsumer {
     }
 }
 
-// TODO: This might be overengeneered, we probably are fine with Sender<AudioFrame> and
+// TODO: This might be overengineered, we probably are fine with Sender<AudioFrame> and
 // Receiver<AudioFrame> without checking the format for which I guess the receiver is actually
 // responsible, _and_ it might even ok for the receiver to receive different audio formats, e.g. in
 // low QoS situations?
@@ -50,7 +123,7 @@ impl AudioProducer {
     pub fn produce(&self, frame: AudioFrame) -> Result<()> {
         if frame.format != self.format {
             bail!(
-                "Audio frame format mismatch (expected: {:?}, received: {:?}",
+                "Audio frame format mismatch (expected: {:?}, received: {:?})",
                 self.format,
                 frame.format
             );

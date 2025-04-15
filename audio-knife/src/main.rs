@@ -17,7 +17,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
-use mod_audio_fork::JsonEvent;
+use mod_audio_fork::AudioForkEvent;
 use reqwest::StatusCode;
 use tokio::{
     net::TcpListener,
@@ -242,14 +242,14 @@ async fn dispatch_server_event(
     socket: &mut SplitSink<WebSocket, Message>,
     event: ServerEvent,
 ) -> Result<()> {
-    // Everything besides Audio gets pushed to FreeSWITCH via the json type.
-    if let ServerEvent::Audio { id, samples } = event {
-        return mod_audio_fork::dispatch_audio(socket, id, samples.into()).await;
+    // Everything besides Audio and ClearAudio gets pushed to FreeSWITCH via the json type.
+    match event {
+        ServerEvent::Audio { samples, .. } => {
+            mod_audio_fork::dispatch_audio(socket, samples.into()).await
+        }
+        ServerEvent::ClearAudio { .. } => mod_audio_fork::dispatch_kill_audio(socket).await,
+        event => mod_audio_fork::dispatch_json(socket, event).await,
     }
-    let json_event = JsonEvent::from(event)?;
-    let json = serde_json::to_string(&json_event)?;
-    debug!("Sending server event: {json}");
-    Ok(socket.send(Message::Text(json)).await?)
 }
 
 /// We implement the healthcheck directly in the executable for two reasons:

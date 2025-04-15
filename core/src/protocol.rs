@@ -3,7 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AudioConsumer, AudioProducer, audio_channel};
+use crate::{
+    AudioConsumer, AudioMsgConsumer, AudioMsgProducer, AudioProducer, audio_channel,
+    audio_msg_channel,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +25,10 @@ impl AudioFormat {
 
     pub fn new_channel(&self) -> (AudioProducer, AudioConsumer) {
         audio_channel(*self)
+    }
+
+    pub fn new_msg_channel(&self) -> (AudioMsgProducer, AudioMsgConsumer) {
+        audio_msg_channel(*self)
     }
 }
 

@@ -9,7 +9,7 @@ members = [
     "core",
     "endpoints/azure",
     "endpoints/google-transcribe", 
-    "endpoints/openai-dialog"
+    "endpoints/openai-dialog", 
 ]
 
 [dependencies]

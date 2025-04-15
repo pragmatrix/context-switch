@@ -4,7 +4,7 @@
 
 use anyhow::{Result, anyhow, bail};
 use base64::prelude::*;
-use context_switch_core::{AudioConsumer, AudioFormat, AudioFrame, AudioProducer, audio};
+use context_switch_core::{AudioConsumer, AudioFormat, AudioFrame, AudioMsgProducer, audio};
 use futures::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
@@ -60,7 +60,7 @@ impl Client {
     pub async fn dialog(
         &mut self,
         mut consumer: AudioConsumer,
-        mut producer: AudioProducer,
+        mut producer: AudioMsgProducer,
     ) -> Result<()> {
         // TODO: send a session update with the right
 
@@ -73,10 +73,10 @@ impl Client {
             );
         }
 
-        if producer.format != expected_format {
+        if producer.format() != expected_format {
             bail!(
                 "audio producer audio has the wrong format {:?}, expected: {:?}",
-                producer.format,
+                producer.format(),
                 expected_format
             );
         }
@@ -188,7 +188,7 @@ impl Client {
 
     async fn process_message(
         message: Message,
-        producer: &mut AudioProducer,
+        producer: &mut AudioMsgProducer,
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => match serde_json::from_str(&str)? {
@@ -198,8 +198,9 @@ impl Client {
                 ServerEvent::ResponseAudioDelta(audio_delta) => {
                     let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                     let i16 = audio::from_le_bytes(&decoded);
-                    producer.produce_raw(i16)?;
+                    producer.send_samples(i16)?;
                 }
+                ServerEvent::InputAudioBufferSpeechStarted(_) => producer.clear()?,
                 response => {
                     println!("response: {:?}", response)
                 }

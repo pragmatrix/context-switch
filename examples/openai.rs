@@ -3,7 +3,7 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, audio};
+use context_switch_core::{AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{OutputStream, Sink, Source};
 
@@ -114,13 +114,14 @@ impl Source for FrameSource {
 
 enum AudioCommand {
     PlayFrame(AudioFrame),
+    Clear,
     Stop,
 }
 
 async fn setup_audio_playback(
     format: AudioFormat,
-) -> (AudioProducer, impl std::future::Future<Output = ()>) {
-    let (producer, mut consumer) = format.new_channel();
+) -> (AudioMsgProducer, impl std::future::Future<Output = ()>) {
+    let (producer, mut consumer) = format.new_msg_channel();
 
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
@@ -141,6 +142,10 @@ async fn setup_audio_playback(
                     };
                     sink.append(source);
                 }
+                AudioCommand::Clear => {
+                    sink.clear();
+                    sink.play();
+                }
                 AudioCommand::Stop => break,
             }
         }
@@ -150,9 +155,18 @@ async fn setup_audio_playback(
 
     // Create async task to forward frames to the audio thread
     let forward_task = async move {
-        while let Some(frame) = consumer.consume().await {
-            if cmd_tx.send(AudioCommand::PlayFrame(frame)).is_err() {
-                break;
+        while let Some(msg) = consumer.consume().await {
+            match msg {
+                AudioMsg::Frame(audio_frame) => {
+                    if cmd_tx.send(AudioCommand::PlayFrame(audio_frame)).is_err() {
+                        break;
+                    }
+                }
+                AudioMsg::Clear => {
+                    if cmd_tx.send(AudioCommand::Clear).is_err() {
+                        break;
+                    }
+                }
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);
