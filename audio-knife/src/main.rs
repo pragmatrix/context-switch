@@ -17,7 +17,6 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
-use mod_audio_fork::AudioForkEvent;
 use reqwest::StatusCode;
 use tokio::{
     net::TcpListener,

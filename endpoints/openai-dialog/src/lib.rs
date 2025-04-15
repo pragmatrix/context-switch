@@ -19,12 +19,13 @@ use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
 
+use tracing::debug;
+
 use context_switch_core::{
     AudioConsumer, AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, AudioProducer,
     Conversation, Endpoint, InputModality, Output, OutputModality, audio, audio_channel,
     audio_msg_channel, dialog,
 };
-use tracing::{debug, info};
 
 pub struct Host {
     client: RealtimeClient,

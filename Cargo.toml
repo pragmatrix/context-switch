@@ -15,6 +15,7 @@ members = [
 [dependencies]
 context-switch-core = { workspace = true }
 cs-azure = { workspace = true }
+openai-dialog = { path = "endpoints/openai-dialog" }
 
 azure-speech = { workspace = true }
 
@@ -44,7 +45,6 @@ rodio = "0.20.1"
 
 cs-azure = { workspace = true }
 google-transcribe = { path = "endpoints/google-transcribe" }
-openai-dialog = { path = "endpoints/openai-dialog" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
