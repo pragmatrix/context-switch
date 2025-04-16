@@ -20,7 +20,6 @@ use openai_api_rs::realtime::{
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
-
 use tracing::{debug, info};
 
 use context_switch_core::{
