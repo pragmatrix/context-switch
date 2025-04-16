@@ -104,11 +104,13 @@ impl Client {
         let message = self.read.next().await;
         Self::verify_session_created_event(message)?;
 
+        debug!("Session created");
+
         loop {
             select! {
                 audio_frame = consumer.consume() => {
                     if let Some(audio_frame) = audio_frame {
-                        // println!("sending frame: {:?}", audio_frame.duration());
+                        debug!("Sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
                     } else {
                         // No more audio, end the session.
@@ -215,12 +217,13 @@ impl Client {
                 }
                 ServerEvent::ResponseAudioDelta(audio_delta) => {
                     let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
-                    let i16 = audio::from_le_bytes(&decoded);
-                    producer.send_samples(i16)?;
+                    let samples = audio::from_le_bytes(&decoded);
+                    debug!("Sending {} samples", samples.len());
+                    producer.send_samples(samples)?;
                 }
                 ServerEvent::InputAudioBufferSpeechStarted(_) => producer.clear()?,
                 response => {
-                    println!("response: {:?}", response)
+                    debug!("Response: {:?}", response)
                 }
             },
             Message::Ping(data) => {

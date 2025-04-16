@@ -25,7 +25,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use context_switch::{ClientEvent, ContextSwitch, ServerEvent};
+use context_switch::{ClientEvent, ContextSwitch, InputModality, ServerEvent};
 use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 
 const DEFAULT_PORT: u16 = 8123;
@@ -104,7 +104,10 @@ async fn ws(websocket: WebSocket) -> Result<()> {
     // Channel from event_scheduler to websocket dispatcher
     let (scheduler_sender, scheduler_receiver) = channel(32);
 
-    let mut context_switch = ContextSwitch::new(cs_sender);
+    let mut state = State {
+        context_switch: ContextSwitch::new(cs_sender),
+        input_audio_format: DEFAULT_FORMAT,
+    };
     let (pong_sender, pong_receiver) = channel(4);
 
     // The event scheduler
@@ -119,7 +122,7 @@ async fn ws(websocket: WebSocket) -> Result<()> {
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(msg)) => {
-                        process_request(&mut context_switch, &pong_sender, msg)?;
+                        state.process_request(&pong_sender, msg)?;
                     }
                     Some(Err(r)) => {
                         bail!(r);
@@ -154,58 +157,73 @@ async fn ws(websocket: WebSocket) -> Result<()> {
     }
 }
 
-fn process_request(
-    context_switch: &mut ContextSwitch,
-    pong_sender: &Sender<Pong>,
-    msg: Message,
-) -> Result<()> {
-    match msg {
-        Message::Text(msg) => {
-            let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
-                let decoded_bytes = general_purpose::STANDARD
-                    .decode(base64_str)
-                    .context("Decoding base64 string")?;
+#[derive(Debug)]
+struct State {
+    context_switch: ContextSwitch,
+    /// The format of the binary messages sent via the websocket from mod_audio_fork.
+    input_audio_format: AudioFormat,
+}
 
-                String::from_utf8(decoded_bytes)
-                    .context("Converting decoded base64 to UTF-8 string")?
-            } else {
-                msg
-            };
+impl State {
+    fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
+        match msg {
+            Message::Text(msg) => {
+                let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
+                    let decoded_bytes = general_purpose::STANDARD
+                        .decode(base64_str)
+                        .context("Decoding base64 string")?;
 
-            debug!("Received client event: `{json_str}`");
+                    String::from_utf8(decoded_bytes)
+                        .context("Converting decoded base64 to UTF-8 string")?
+                } else {
+                    msg
+                };
 
-            let event: ClientEvent =
-                serde_json::from_str(&json_str).context("Deserializing client event")?;
+                debug!("Received client event: `{json_str}`");
 
-            context_switch.process(event)
-        }
-        Message::Binary(samples) => {
-            let frame = AudioFrame {
-                format: DEFAULT_FORMAT,
-                samples: audio::from_le_bytes(samples),
-            };
-            context_switch.broadcast_audio(frame)?;
-            Ok(())
-        }
-        Message::Ping(payload) => {
-            info!("Received ping message: {payload:02X?}");
-            pong_sender.try_send(Pong(payload))?;
-            Ok(())
-        }
-        Message::Pong(msg) => {
-            debug!("Received pong message: {msg:02X?}");
-            Ok(())
-        }
-        Message::Close(msg) => {
-            if let Some(msg) = &msg {
-                debug!(
-                    "Received close message with code {} and message: {}",
-                    msg.code, msg.reason
-                );
-            } else {
-                debug!("Received close message");
+                let event: ClientEvent =
+                    serde_json::from_str(&json_str).context("Deserializing client event")?;
+
+                // If this is a start event. Use the sample rate from the input modalities for
+                // dispatching audio when receiving a binary samples message.
+                if let ClientEvent::Start {
+                    input_modality: InputModality::Audio { format },
+                    ..
+                } = &event
+                {
+                    self.input_audio_format = *format;
+                }
+
+                self.context_switch.process(event)
             }
-            Ok(())
+            Message::Binary(samples) => {
+                let frame = AudioFrame {
+                    format: self.input_audio_format,
+                    samples: audio::from_le_bytes(samples),
+                };
+                self.context_switch.broadcast_audio(frame)?;
+                Ok(())
+            }
+            Message::Ping(payload) => {
+                info!("Received ping message: {payload:02X?}");
+                pong_sender.try_send(Pong(payload))?;
+                Ok(())
+            }
+            Message::Pong(msg) => {
+                debug!("Received pong message: {msg:02X?}");
+                Ok(())
+            }
+            Message::Close(msg) => {
+                if let Some(msg) = &msg {
+                    debug!(
+                        "Received close message with code {} and message: {}",
+                        msg.code, msg.reason
+                    );
+                } else {
+                    debug!("Received close message");
+                }
+                Ok(())
+            }
         }
     }
 }
