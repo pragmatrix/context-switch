@@ -161,9 +161,7 @@ impl AudioFrame {
     }
 
     pub fn duration(&self) -> Duration {
-        let mono_sample_count = self.samples.len() / self.format.channels as usize;
-        let sample_rate = self.format.sample_rate;
-        Duration::from_secs_f64(mono_sample_count as f64 / sample_rate as f64)
+        self.format.duration(self.samples.len())
     }
 
     pub fn into_mono(self) -> AudioFrame {

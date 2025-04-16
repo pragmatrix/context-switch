@@ -1,6 +1,6 @@
 use base64::prelude::*;
 use context_switch_core::audio;
-use derive_more::derive::{Display, From, Into};
+use derive_more::derive::{Deref, Display, From, Into};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Conversation identifier.
@@ -94,14 +94,8 @@ pub enum ServerEvent {
 
 /// A type that represents samples in Vec<i16> format in memory, but serializes them as a
 /// base64 string.
-#[derive(Debug, Clone, Into, From)]
+#[derive(Debug, Clone, Into, From, Deref)]
 pub struct Samples(Vec<i16>);
-
-impl Samples {
-    pub fn samples(&self) -> &[i16] {
-        &self.0
-    }
-}
 
 /// Serializer for Samples
 /// (we could perhaps use serde_with, but it does not seem to consider endianess)

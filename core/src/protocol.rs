@@ -1,6 +1,8 @@
 //! Low-level serializable types that are used in the context-switch protocol and internal
 //! endpoint interfaces.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -21,6 +23,11 @@ impl AudioFormat {
             channels,
             sample_rate,
         }
+    }
+
+    pub fn duration(&self, no_samples: usize) -> Duration {
+        let mono_sample_count = no_samples / self.channels as usize;
+        Duration::from_secs_f64(mono_sample_count as f64 / self.sample_rate as f64)
     }
 
     pub fn new_channel(&self) -> (AudioProducer, AudioConsumer) {
