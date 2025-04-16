@@ -192,7 +192,7 @@ impl ContextSwitch {
                         let event = output_to_server_event(&conversation_id, output);
                         server_output.try_send(event)?;
                     } else {
-                        bail!("No more output")
+                        bail!("Service output channel closed.")
                     }
                 }
             }
@@ -235,5 +235,6 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             content,
         },
         Output::Completed => ServerEvent::RequestCompleted { id: id.clone() },
+        Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
     }
 }

@@ -40,6 +40,7 @@ pub enum Output {
     Audio { frame: AudioFrame },
     Text { is_final: bool, content: String },
     Completed,
+    ClearAudio,
     // TODO: Need to add an error output here, see for example the Azure synthesizer.
 }
 

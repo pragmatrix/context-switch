@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use context_switch_core::{Conversation, InputModality, Output, OutputModality};
+use openai_dialog::OpenAIDialog;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
@@ -18,6 +19,7 @@ impl Default for Registry {
             endpoints: [
                 ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
                 ("azure-synthesize", Box::new(cs_azure::AzureSynthesize) as _),
+                ("openai-dialog", Box::new(OpenAIDialog) as _),
             ]
             .into(),
         }
