@@ -110,7 +110,7 @@ impl Client {
             select! {
                 audio_frame = consumer.consume() => {
                     if let Some(audio_frame) = audio_frame {
-                        debug!("Sending frame: {:?}", audio_frame.duration());
+                        // debug!("Sending frame: {:?}", audio_frame.duration());
                         self.send_frame(audio_frame).await?;
                     } else {
                         // No more audio, end the session.
