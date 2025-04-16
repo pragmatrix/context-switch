@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
@@ -19,8 +19,7 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::DEFAULT_FORMAT;
-use context_switch::ServerEvent;
+use context_switch::{AudioFormat, OutputModality, ServerEvent};
 
 #[derive(Debug)]
 pub struct EventScheduler {
@@ -28,6 +27,8 @@ pub struct EventScheduler {
     audio_finished: Instant,
     /// All pending events.
     pending_events: VecDeque<ServerEvent>,
+    /// Latest audio format seen.
+    audio_format: Option<AudioFormat>,
 }
 
 const MAX_BUFFERED_AUDIO: Duration = Duration::from_secs(5);
@@ -38,13 +39,14 @@ impl EventScheduler {
         Self {
             audio_finished: Instant::now(),
             pending_events: VecDeque::new(),
+            audio_format: None,
         }
     }
 
     pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
         if let ServerEvent::ClearAudio { .. } = event {
             self.pending_events
-                .retain(|e| !matches!(classify(e), EventKind::Audio(_)));
+                .retain(|e| !matches!(e, ServerEvent::Audio { .. }));
             // All the non-audio event before `ClearAudio` must be sent asap, too.
             self.audio_finished = now;
         }
@@ -63,15 +65,22 @@ impl EventScheduler {
             let Some(next_event) = self.pending_events.front() else {
                 return Ok(None);
             };
-            match classify(next_event) {
-                EventKind::Audio(duration) => {
+            match next_event {
+                ServerEvent::Started { modalities, .. } => {
+                    self.audio_format = Some(audio_format_from_output_modalities(modalities)?);
+                }
+                ServerEvent::Audio { samples, .. } => {
+                    let Some(audio_format) = self.audio_format else {
+                        bail!("Received Audio but without a prior Started event")
+                    };
+                    let duration = audio_format.duration(samples.len());
                     if self.audio_finished >= (now + MAX_BUFFERED_AUDIO) {
                         // Audio buffers are full, process again in a second.
                         return Ok(Some(WAKEUP_DELAY_WHEN_BUFFERS_ARE_FULL));
                     }
                     self.audio_finished += duration;
                 }
-                EventKind::ControlOrOther => {
+                _ => {
                     if now < self.audio_finished {
                         // Some audio is pending, call me again if it's played back.
                         return Ok(Some(self.audio_finished - now));
@@ -83,24 +92,22 @@ impl EventScheduler {
     }
 }
 
-#[derive(Debug)]
-enum EventKind {
-    ControlOrOther,
-    Audio(Duration),
-}
+/// Extract the audio format from output modalities. Bails if not exactly one audio format was found.
+fn audio_format_from_output_modalities(modalities: &[OutputModality]) -> Result<AudioFormat> {
+    let mut formats = modalities.iter().filter_map(|modality| match modality {
+        OutputModality::Audio { format } => Some(*format),
+        _ => None,
+    });
 
-fn classify(event: &ServerEvent) -> EventKind {
-    match event {
-        ServerEvent::Audio { samples, .. } => EventKind::Audio(samples_duration(samples.samples())),
-        _ => EventKind::ControlOrOther,
+    let first_format = formats
+        .next()
+        .ok_or_else(|| anyhow!("No audio format found in output modalities"))?;
+
+    if formats.next().is_some() {
+        bail!("Multiple audio formats found in output modalities");
     }
-}
 
-/// Calculates the duration of audio playback from a vector of audio samples
-/// based on the DEFAULT_FORMAT
-pub fn samples_duration(samples: &[i16]) -> Duration {
-    let duration_secs = samples.len() as f64 / DEFAULT_FORMAT.sample_rate as f64;
-    Duration::from_secs_f64(duration_secs)
+    Ok(first_format)
 }
 
 /// Runs an event scheduler that manages the timing of events sent to FreeSWITCH.
