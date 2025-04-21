@@ -221,12 +221,10 @@ impl ContextSwitch {
                 if conversation.input_modality.can_receive_audio(frame.format) {
                     Ok(conversation.client_sender.try_send(ClientEvent::Audio {
                         id: conversation_id.clone(),
-                        // TODO: If there is only one conversation that accepts this frame, we should
-                        // move it into the event.
-                        samples: frame.samples.clone().into(),
+                        samples: frame.samples.into(),
                     })?)
                 } else {
-                    bail!("Conversations input modality does not match format of audio frame");
+                    bail!("Conversation's input modality does not match format of the audio frame");
                 }
             }
             None => bail!("Conversation does not exist"),
