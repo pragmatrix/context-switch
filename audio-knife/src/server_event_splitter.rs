@@ -1,5 +1,5 @@
 //! A component to split server events to multiple conversation targets.
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{Result, anyhow, bail};
 use tokio::sync::mpsc::Sender;
@@ -28,12 +28,13 @@ impl ServerEventSplitter {
         conversation: impl Into<ConversationId>,
         target: Sender<ServerEvent>,
     ) -> Result<()> {
-        if self
-            .conversation_targets
-            .insert(conversation.into(), target)
-            .is_none()
-        {
-            bail!("Conversation already exists")
+        match self.conversation_targets.entry(conversation.into()) {
+            Entry::Occupied(_) => {
+                bail!("Conversation already exists")
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(target);
+            }
         }
 
         Ok(())
