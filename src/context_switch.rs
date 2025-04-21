@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use context_switch_core::{AudioFrame, Output};
+use static_assertions::assert_impl_all;
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender, channel},
@@ -20,6 +21,7 @@ pub struct ContextSwitch {
     conversations: HashMap<ConversationId, ActiveConversation>,
     output: Sender<ServerEvent>,
 }
+assert_impl_all!(ContextSwitch: Send);
 
 #[derive(Debug)]
 struct ActiveConversation {

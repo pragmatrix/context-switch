@@ -3,8 +3,13 @@
 mod app_error;
 mod event_scheduler;
 mod mod_audio_fork;
+mod server_event_splitter;
 
-use std::{env, net::SocketAddr};
+use std::{
+    env,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Context, Result, bail};
 use axum::{
@@ -18,6 +23,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use reqwest::StatusCode;
+use server_event_splitter::ServerEventSplitter;
 use tokio::{
     net::TcpListener,
     pin, select,
@@ -25,7 +31,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use context_switch::{ClientEvent, ContextSwitch, InputModality, ServerEvent};
+use context_switch::{ClientEvent, ContextSwitch, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 
 const DEFAULT_PORT: u16 = 8123;
@@ -63,23 +69,73 @@ async fn main() -> Result<()> {
         }
     }
 
-    let app = axum::Router::new().route("/", get(ws_get));
+    // Channel from context_switch to event_scheduler
+    let (cs_sender, cs_receiver) = channel(32);
+
+    let server_event_splitter = Arc::new(Mutex::new(ServerEventSplitter::default()));
+
+    let state = State {
+        context_switch: Arc::new(Mutex::new(ContextSwitch::new(cs_sender))),
+        server_event_splitter: server_event_splitter.clone(),
+    };
+
+    let app = axum::Router::new()
+        .route("/", get(ws_get))
+        .with_state(state);
 
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on {:?}", addr);
 
-    axum::serve(listener, app).await?;
+    select! {
+        r = axum::serve(listener, app) => {
+            info!("Axum server ended");
+            r?
+        },
+        r = server_event_dispatcher(cs_receiver, server_event_splitter) => {
+            info!("Server event dispatcher ended");
+            r?
+        }
+    };
 
     Ok(())
 }
 
-async fn ws_get(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(ws_driver)
+async fn server_event_dispatcher(
+    mut receiver: Receiver<ServerEvent>,
+    splitter: Arc<Mutex<ServerEventSplitter>>,
+) -> Result<()> {
+    loop {
+        match receiver.recv().await {
+            Some(event) => {
+                if let Err(e) = splitter.lock().expect("poisened").dispatch(event) {
+                    // Because of the asynchronous nature of cross-conversation events, events not
+                    // reaching their conversations may happen.
+                    debug!("Ignored failure to deliver server event: {e}")
+                }
+            }
+            None => {
+                bail!("Receiver dropped");
+            }
+        }
+    }
 }
 
-async fn ws_driver(websocket: WebSocket) {
+#[derive(Debug, Clone)]
+struct State {
+    context_switch: Arc<Mutex<ContextSwitch>>,
+    server_event_splitter: Arc<Mutex<ServerEventSplitter>>,
+}
+
+async fn ws_get(
+    axum::extract::State(state): axum::extract::State<State>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| ws_driver(state.clone(), socket))
+}
+
+async fn ws_driver(state: State, websocket: WebSocket) {
     info!("Client connected");
-    if let Err(e) = ws(websocket).await {
+    if let Err(e) = ws(state, websocket).await {
         let chain = e.chain();
         let error = chain
             .into_iter()
@@ -95,19 +151,32 @@ async fn ws_driver(websocket: WebSocket) {
 #[derive(Debug)]
 struct Pong(Vec<u8>);
 
-async fn ws(websocket: WebSocket) -> Result<()> {
-    let (ws_sender, mut ws_receiver) = websocket.split();
+async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
+    // Wait for the first message event, assuming this is the start event for the conversation.
 
-    // Channel from context_switch to event_scheduler
-    let (cs_sender, cs_receiver) = channel(32);
+    match websocket.recv().await {
+        Some(msg) => {
+            let msg = msg?;
+            let (session_state, cs_receiver) = SessionState::start_session(state, msg)?;
+            ws_session(session_state, cs_receiver, websocket).await
+        }
+        None => {
+            info!("WebSocket closed before first message was received");
+            Ok(())
+        }
+    }
+}
+
+async fn ws_session(
+    mut session_state: SessionState,
+    cs_receiver: Receiver<ServerEvent>,
+    websocket: WebSocket,
+) -> Result<()> {
+    let (ws_sender, mut ws_receiver) = websocket.split();
 
     // Channel from event_scheduler to websocket dispatcher
     let (scheduler_sender, scheduler_receiver) = channel(32);
 
-    let mut state = State {
-        context_switch: ContextSwitch::new(cs_sender),
-        input_audio_format: DEFAULT_FORMAT,
-    };
     let (pong_sender, pong_receiver) = channel(4);
 
     // The event scheduler
@@ -122,7 +191,7 @@ async fn ws(websocket: WebSocket) -> Result<()> {
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(msg)) => {
-                        state.process_request(&pong_sender, msg)?;
+                        session_state.process_request(&pong_sender, msg)?;
                     }
                     Some(Err(r)) => {
                         bail!(r);
@@ -158,50 +227,102 @@ async fn ws(websocket: WebSocket) -> Result<()> {
 }
 
 #[derive(Debug)]
-struct State {
-    context_switch: ContextSwitch,
+struct SessionState {
+    state: State,
+    conversation: ConversationId,
     /// The format of the binary messages sent via the websocket from mod_audio_fork.
-    input_audio_format: AudioFormat,
+    input_audio_format: Option<AudioFormat>,
 }
 
-impl State {
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        if let Ok(mut splitter) = self.state.server_event_splitter.lock() {
+            if splitter
+                .remove_conversation_target(&self.conversation)
+                .is_err()
+            {
+                error!("Internal error: Failed to remove conversation target");
+            }
+        } else {
+            error!("Internal error: Can't lock server event splitter");
+        }
+    }
+}
+
+impl SessionState {
+    fn start_session(state: State, msg: Message) -> Result<(Self, Receiver<ServerEvent>)> {
+        let Message::Text(msg) = msg else {
+            // What about Ping?
+            bail!("Expecting first WebSocket message to be text");
+        };
+        let start_event @ ClientEvent::Start { .. } = Self::decode_client_event(msg)? else {
+            bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
+        };
+
+        let conversation = start_event.conversation_id().clone();
+
+        // If this is a start event. Use the sample rate from the input modalities for
+        // dispatching audio when receiving a binary samples message.
+        let input_audio_format = if let ClientEvent::Start {
+            input_modality: InputModality::Audio { format },
+            ..
+        } = &start_event
+        {
+            Some(*format)
+        } else {
+            None
+        };
+
+        let (se_sender, se_receiver) = channel(32);
+
+        state
+            .server_event_splitter
+            .lock()
+            .expect("Poison error")
+            .add_conversation_target(conversation.clone(), se_sender)?;
+
+        state
+            .context_switch
+            .lock()
+            .expect("Poison error")
+            .process(start_event)?;
+
+        Ok((
+            Self {
+                state,
+                conversation,
+                input_audio_format,
+            },
+            se_receiver,
+        ))
+    }
+
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
         match msg {
             Message::Text(msg) => {
-                let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
-                    let decoded_bytes = general_purpose::STANDARD
-                        .decode(base64_str)
-                        .context("Decoding base64 string")?;
+                let client_event = Self::decode_client_event(msg)?;
+                debug!("Received client event: `{client_event:?}`");
 
-                    String::from_utf8(decoded_bytes)
-                        .context("Converting decoded base64 to UTF-8 string")?
-                } else {
-                    msg
-                };
-
-                debug!("Received client event: `{json_str}`");
-
-                let event: ClientEvent =
-                    serde_json::from_str(&json_str).context("Deserializing client event")?;
-
-                // If this is a start event. Use the sample rate from the input modalities for
-                // dispatching audio when receiving a binary samples message.
-                if let ClientEvent::Start {
-                    input_modality: InputModality::Audio { format },
-                    ..
-                } = &event
-                {
-                    self.input_audio_format = *format;
-                }
-
-                self.context_switch.process(event)
+                self.state
+                    .context_switch
+                    .lock()
+                    .expect("Poison error")
+                    .process(client_event)
             }
             Message::Binary(samples) => {
-                let frame = AudioFrame {
-                    format: self.input_audio_format,
-                    samples: audio::from_le_bytes(samples),
-                };
-                self.context_switch.broadcast_audio(frame)?;
+                if let Some(audio_format) = self.input_audio_format {
+                    let frame = AudioFrame {
+                        format: audio_format,
+                        samples: audio::from_le_bytes(samples),
+                    };
+                    self.state
+                        .context_switch
+                        .lock()
+                        .expect("Poison error")
+                        .broadcast_audio(frame)?;
+                } else {
+                    debug!("Audio input ignored (this conversation has no audio input)")
+                }
                 Ok(())
             }
             Message::Ping(payload) => {
@@ -225,6 +346,20 @@ impl State {
                 Ok(())
             }
         }
+    }
+
+    fn decode_client_event(msg: String) -> Result<ClientEvent> {
+        let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
+            let decoded_bytes = general_purpose::STANDARD
+                .decode(base64_str)
+                .context("Decoding base64 string")?;
+
+            String::from_utf8(decoded_bytes).context("Converting decoded base64 to UTF-8 string")?
+        } else {
+            msg
+        };
+
+        serde_json::from_str(&json_str).context("Deserializing client event")
     }
 }
 
