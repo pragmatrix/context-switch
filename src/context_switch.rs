@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use context_switch_core::{AudioFrame, Output};
 use static_assertions::assert_impl_all;
 use tokio::{
     select,
@@ -14,6 +13,7 @@ use tokio::{
 use tracing::{Level, info, span};
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
+use context_switch_core::{AudioFrame, Output};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -207,8 +207,33 @@ impl ContextSwitch {
         })
     }
 
+    /// Post audio to a conversation.
+    ///
+    /// Returns an error if the conversation does not exist or its input modality does not match the
+    /// format of the audio frame.
+    pub fn post_audio_frame(
+        &self,
+        conversation_id: &ConversationId,
+        frame: AudioFrame,
+    ) -> Result<()> {
+        match self.conversations.get(conversation_id) {
+            Some(conversation) => {
+                if conversation.input_modality.can_receive_audio(frame.format) {
+                    Ok(conversation.client_sender.try_send(ClientEvent::Audio {
+                        id: conversation_id.clone(),
+                        samples: frame.samples.into(),
+                    })?)
+                } else {
+                    bail!("Conversation's input modality does not match format of the audio frame");
+                }
+            }
+            None => bail!("Conversation does not exist"),
+        }
+    }
+
     /// Broadcast audio to all active conversations which match the audio format in their input
     /// modality.
+    #[deprecated(note = "use post_audio_frame")]
     pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
         for (id, conversation) in &self.conversations {
             if conversation.input_modality.can_receive_audio(frame.format) {
