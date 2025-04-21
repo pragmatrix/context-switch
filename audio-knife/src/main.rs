@@ -319,7 +319,7 @@ impl SessionState {
                         .context_switch
                         .lock()
                         .expect("Poison error")
-                        .broadcast_audio(frame)?;
+                        .post_audio_frame(&self.conversation, frame)?;
                 } else {
                     debug!("Audio input ignored (this conversation has no audio input)")
                 }
