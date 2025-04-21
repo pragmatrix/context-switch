@@ -349,7 +349,14 @@ impl SessionState {
     }
 
     fn decode_client_event(msg: String) -> Result<ClientEvent> {
-        let json_str = if let Some(base64_str) = msg.strip_prefix("base64:") {
+        let json_str = Self::msg_to_json(msg)?;
+        serde_json::from_str(&json_str).context("Deserializing client event")
+    }
+
+    /// Because the argument parser of mod_audio_fork may ignore JSON with spaces in it, two formats
+    /// are currently supported: verbatim json and base64: prefixed base64 json.
+    fn msg_to_json(msg: String) -> Result<String> {
+        Ok(if let Some(base64_str) = msg.strip_prefix("base64:") {
             let decoded_bytes = general_purpose::STANDARD
                 .decode(base64_str)
                 .context("Decoding base64 string")?;
@@ -357,9 +364,7 @@ impl SessionState {
             String::from_utf8(decoded_bytes).context("Converting decoded base64 to UTF-8 string")?
         } else {
             msg
-        };
-
-        serde_json::from_str(&json_str).context("Deserializing client event")
+        })
     }
 }
 
