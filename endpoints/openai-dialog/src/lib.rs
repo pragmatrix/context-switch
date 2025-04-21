@@ -19,7 +19,10 @@ use openai_api_rs::realtime::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{Bytes, protocol::Message},
+};
 use tracing::{debug, info};
 
 use context_switch_core::{
@@ -122,8 +125,8 @@ impl Client {
                         Some(Ok(message)) => {
                             match Self::process_message(message, &mut producer).await? {
                                 FlowControl::End => { break; }
-                                FlowControl::PongAndContinue(pong) => {
-                                    self.write.send(Message::Pong(pong)).await?;
+                                FlowControl::PongAndContinue(payload) => {
+                                    self.write.send(Message::Pong(payload)).await?;
                                 }
                                 FlowControl::Continue => {}
                             }
@@ -197,9 +200,9 @@ impl Client {
             audio: BASE64_STANDARD.encode(samples_le),
         };
 
-        let message = Message::Text(serde_json::to_string(
-            &ClientEvent::InputAudioBufferAppend(event),
-        )?);
+        let message = Message::Text(
+            serde_json::to_string(&ClientEvent::InputAudioBufferAppend(event))?.into(),
+        );
 
         self.write.send(message).await?;
         Ok(())
@@ -240,7 +243,7 @@ impl Client {
 
 enum FlowControl {
     Continue,
-    PongAndContinue(Vec<u8>),
+    PongAndContinue(Bytes),
     End,
 }
 
