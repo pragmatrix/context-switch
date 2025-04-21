@@ -92,6 +92,20 @@ pub enum ServerEvent {
     },
 }
 
+impl ServerEvent {
+    pub fn conversation_id(&self) -> &ConversationId {
+        match self {
+            ServerEvent::Started { id, .. }
+            | ServerEvent::Stopped { id }
+            | ServerEvent::Error { id, .. }
+            | ServerEvent::Audio { id, .. }
+            | ServerEvent::Text { id, .. }
+            | ServerEvent::RequestCompleted { id }
+            | ServerEvent::ClearAudio { id } => id,
+        }
+    }
+}
+
 /// A type that represents samples in Vec<i16> format in memory, but serializes them as a
 /// base64 string.
 #[derive(Debug, Clone, Into, From, Deref)]

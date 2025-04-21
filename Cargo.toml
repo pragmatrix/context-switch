@@ -13,24 +13,33 @@ members = [
 ]
 
 [dependencies]
-context-switch-core = { workspace = true }
-cs-azure = { workspace = true }
-openai-dialog = { path = "endpoints/openai-dialog" }
 
+# ours
+
+context-switch-core = { workspace = true }
+
+openai-dialog = { path = "endpoints/openai-dialog" }
+cs-azure = { workspace = true }
 azure-speech = { workspace = true }
 
-serde = { workspace = true }
-tokio = { workspace = true }
+# basic
+
+static_assertions = { workspace = true }
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 base64 = { workspace = true }
 tracing = {workspace = true }
+futures = "0.3.31"
+derive_more = { workspace = true }
+
+# serialization / async runtime
+
+serde = { workspace = true }
+serde_json = "1.0.133"
+tokio = { workspace = true }
+async-trait = { workspace = true }
 
 # todo: is this needed?
 uuid = "1.11.0"
-serde_json = "1.0.133"
-futures = "0.3.31"
-derive_more = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
@@ -56,6 +65,7 @@ cs-azure = { path = "endpoints/azure" }
 
 anyhow = "1.0.93"
 derive_more = { version = "1.0.0", features = ["full"] }
+static_assertions = "1.1.0"
 async-stream = { version = "0.3.6" }
 tokio = { version = "1.41.1", features = ["sync"] }
 futures = "0.3.31"
