@@ -262,11 +262,14 @@ impl SessionState {
         let json = Self::msg_to_json(msg)?;
         // Deserialize to value first so that we parse the JSON only once.
         let json_value: Value = serde_json::from_str(&json).context("Deserializing ClientEvent")?;
-        let start_aux: StartEventAuxiliary = serde_json::from_value(json_value.clone())?;
 
-        let start_event @ ClientEvent::Start { .. } = serde_json::from_value(json_value)? else {
+        let start_event @ ClientEvent::Start { .. } = serde_json::from_value(json_value.clone())?
+        else {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
+
+        // Extract audio-knife specific fields from the start event.
+        let start_aux: StartEventAuxiliary = serde_json::from_value(json_value)?;
 
         let conversation = start_event.conversation_id().clone();
 
