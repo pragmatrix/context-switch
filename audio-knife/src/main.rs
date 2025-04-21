@@ -3,7 +3,7 @@
 mod app_error;
 mod event_scheduler;
 mod mod_audio_fork;
-mod server_event_splitter;
+mod server_event_distributor;
 
 use std::{
     env,
@@ -23,7 +23,9 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use reqwest::StatusCode;
-use server_event_splitter::ServerEventSplitter;
+use serde::Deserialize;
+use serde_json::Value;
+use server_event_distributor::ServerEventDistributor;
 use tokio::{
     net::TcpListener,
     pin, select,
@@ -72,11 +74,11 @@ async fn main() -> Result<()> {
     // Channel from context_switch to event_scheduler
     let (cs_sender, cs_receiver) = channel(32);
 
-    let server_event_splitter = Arc::new(Mutex::new(ServerEventSplitter::default()));
+    let server_event_distributor = Arc::new(Mutex::new(ServerEventDistributor::default()));
 
     let state = State {
         context_switch: Arc::new(Mutex::new(ContextSwitch::new(cs_sender))),
-        server_event_splitter: server_event_splitter.clone(),
+        server_event_distributor: server_event_distributor.clone(),
     };
 
     let app = axum::Router::new()
@@ -91,7 +93,7 @@ async fn main() -> Result<()> {
             info!("Axum server ended");
             r?
         },
-        r = server_event_dispatcher(cs_receiver, server_event_splitter) => {
+        r = server_event_dispatcher(cs_receiver, server_event_distributor) => {
             info!("Server event dispatcher ended");
             r?
         }
@@ -102,12 +104,12 @@ async fn main() -> Result<()> {
 
 async fn server_event_dispatcher(
     mut receiver: Receiver<ServerEvent>,
-    splitter: Arc<Mutex<ServerEventSplitter>>,
+    distributor: Arc<Mutex<ServerEventDistributor>>,
 ) -> Result<()> {
     loop {
         match receiver.recv().await {
             Some(event) => {
-                if let Err(e) = splitter.lock().expect("poisened").dispatch(event) {
+                if let Err(e) = distributor.lock().expect("poisened").dispatch(event) {
                     // Because of the asynchronous nature of cross-conversation events, events not
                     // reaching their conversations may happen.
                     debug!("Ignored failure to deliver server event: {e}")
@@ -123,7 +125,7 @@ async fn server_event_dispatcher(
 #[derive(Debug, Clone)]
 struct State {
     context_switch: Arc<Mutex<ContextSwitch>>,
-    server_event_splitter: Arc<Mutex<ServerEventSplitter>>,
+    server_event_distributor: Arc<Mutex<ServerEventDistributor>>,
 }
 
 async fn ws_get(
@@ -236,15 +238,15 @@ struct SessionState {
 
 impl Drop for SessionState {
     fn drop(&mut self) {
-        if let Ok(mut splitter) = self.state.server_event_splitter.lock() {
-            if splitter
+        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
+            if distributor
                 .remove_conversation_target(&self.conversation)
                 .is_err()
             {
                 error!("Internal error: Failed to remove conversation target");
             }
         } else {
-            error!("Internal error: Can't lock server event splitter");
+            error!("Internal error: Can't lock server event distributor");
         }
     }
 }
@@ -255,7 +257,15 @@ impl SessionState {
             // What about Ping?
             bail!("Expecting first WebSocket message to be text");
         };
-        let start_event @ ClientEvent::Start { .. } = Self::decode_client_event(msg)? else {
+
+        // Our start msg may contain additional information to parameterize output redirection.
+        let json = Self::msg_to_json(msg)?;
+        // Deserialize to value first so that we parse the JSON only once.
+        let json_value: Value =
+            serde_json::from_str(&json).context("Deserializiung ClientEvent")?;
+        let start_aux: StartEventAuxiliary = serde_json::from_value(json_value.clone())?;
+
+        let start_event @ ClientEvent::Start { .. } = serde_json::from_value(json_value)? else {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
 
@@ -276,10 +286,14 @@ impl SessionState {
         let (se_sender, se_receiver) = channel(32);
 
         state
-            .server_event_splitter
+            .server_event_distributor
             .lock()
             .expect("Poison error")
-            .add_conversation_target(conversation.clone(), se_sender)?;
+            .add_conversation_target(
+                conversation.clone(),
+                se_sender,
+                start_aux.redirect_output_to,
+            )?;
 
         state
             .context_switch
@@ -350,7 +364,7 @@ impl SessionState {
 
     fn decode_client_event(msg: String) -> Result<ClientEvent> {
         let json_str = Self::msg_to_json(msg)?;
-        serde_json::from_str(&json_str).context("Deserializing client event")
+        Self::deserialize_client_event(&json_str)
     }
 
     /// Because the argument parser of mod_audio_fork may ignore JSON with spaces in it, two formats
@@ -366,6 +380,17 @@ impl SessionState {
             msg
         })
     }
+
+    fn deserialize_client_event(json: &str) -> Result<ClientEvent> {
+        serde_json::from_str(json).context("Deserializing client event")
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartEventAuxiliary {
+    /// Optional field to specify the conversation ID to which the output should be redirected.
+    pub redirect_output_to: Option<ConversationId>,
 }
 
 /// Dispatches channel messages to the socket's sink.
