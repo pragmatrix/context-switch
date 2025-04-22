@@ -1,2 +1,2 @@
-audio-knife:
+knife:
     cargo run -p audio-knife
