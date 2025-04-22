@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod audio_protocol;
+pub mod conversation;
 pub mod dialog;
 mod endpoint;
 pub mod protocol;

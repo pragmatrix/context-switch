@@ -13,12 +13,11 @@
 //!
 use std::fmt;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
+use crate::conversation::Conversation;
 
 #[async_trait]
 pub trait Service: fmt::Debug {
@@ -43,42 +42,4 @@ pub enum ServiceType {
     SpeechDialog,
     SpeechTranslator,
     Unclassified,
-}
-
-#[derive(Debug)]
-pub struct Conversation {
-    pub input_modality: InputModality,
-    pub output_modalities: Vec<OutputModality>,
-    pub input: Receiver<Input>,
-    pub output: Sender<Output>,
-}
-
-impl Conversation {
-    pub fn require_text_input_only(&self) -> Result<()> {
-        match self.input_modality {
-            InputModality::Audio { .. } => bail!("Audio input is not supported"),
-            InputModality::Text => Ok(()),
-        }
-    }
-
-    pub fn require_single_audio_output(&self) -> Result<AudioFormat> {
-        match self.output_modalities.as_slice() {
-            [OutputModality::Audio { format }] => Ok(*format),
-            _ => bail!("Expect single audio output"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Input {
-    Audio { frame: AudioFrame },
-    Text { text: String },
-}
-
-#[derive(Debug)]
-pub enum Output {
-    Audio { frame: AudioFrame },
-    Text { is_final: bool, content: String },
-    Completed,
-    ClearAudio,
 }
