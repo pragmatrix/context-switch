@@ -17,7 +17,7 @@ impl Default for Registry {
     fn default() -> Self {
         Self {
             services: [
-                // ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
+                ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
                 (
                     "azure-synthesize",
                     Box::new(cs_azure::synthesize::AzureSynthesize) as _,

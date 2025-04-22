@@ -14,7 +14,6 @@ use crate::Host;
 use context_switch_core::{
     AudioFrame, Service,
     conversation::{Conversation, Input},
-    service::ServiceType,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,9 +32,8 @@ pub struct AzureSynthesize;
 #[async_trait]
 impl Service for AzureSynthesize {
     type Params = Params;
-    const TYPE: ServiceType = ServiceType::Synthesizer;
 
-    async fn conversation(&self, params: Params, mut conversation: Conversation) -> Result<()> {
+    async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
         conversation.require_text_input_only()?;
         let output_format = conversation.require_single_audio_output()?;
         let azure_audio_format = import_output_audio_format(output_format)?;
@@ -66,9 +64,10 @@ impl Service for AzureSynthesize {
         let client = synthesizer::Client::connect(host.auth.clone(), config).await?;
 
         let language = params.language_code;
+        let (mut input, output) = conversation.start()?;
 
         loop {
-            let Some(input) = conversation.input().await? else {
+            let Some(input) = input.recv().await else {
                 debug!("No more input, exiting");
                 return Ok(());
             };
@@ -95,9 +94,9 @@ impl Service for AzureSynthesize {
                     Event::Synthesising(_uuid, audio) => {
                         let frame = AudioFrame::from_le_bytes(output_format, &audio);
                         debug!("Received audio: {:?}", frame.duration());
-                        conversation.audio_frame(frame)?;
+                        output.audio_frame(frame)?;
                     }
-                    Event::Synthesised(_uuid) => conversation.request_completed()?,
+                    Event::Synthesised(_uuid) => output.request_completed()?,
                     event => {
                         debug!("Received: {event:?}")
                     }

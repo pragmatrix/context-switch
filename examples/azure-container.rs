@@ -28,12 +28,11 @@
 //! - Microsoft documentation:
 //!   [Azure Speech Container Setup](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-container-stt)
 
-use std::{env, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use context_switch_core::{AudioFormat, AudioFrame, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use futures::{StreamExt, pin_mut};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -53,7 +52,7 @@ async fn main() -> Result<()> {
     let sample_rate = config.sample_rate();
     let format = AudioFormat::new(channels, sample_rate.0);
 
-    let (producer, consumer) = format.new_channel();
+    let (producer, _consumer) = format.new_channel();
 
     // Create and run the input stream
     let stream = device
@@ -76,21 +75,23 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language_code = "en-US";
+    todo!("Port the following code to use the endpoint API");
+
+    //    let language_code = "en-US";
 
     // Azure
-    {
-        let host = env::var("AZURE_HOST").unwrap();
-        let key = env::var("AZURE_SUBSCRIPTION_KEY").unwrap();
+    //{
+    // let host = env::var("AZURE_HOST").unwrap();
+    // let key = env::var("AZURE_SUBSCRIPTION_KEY").unwrap();
 
-        let host = cs_azure::Host::from_host(host, key)?;
-        let mut client = host.connect_recognizer(language_code).await?;
-        let stream = client.transcribe(consumer).await?;
-        pin_mut!(stream);
-        while let Some(msg) = stream.next().await {
-            println!("msg: {:?}", msg)
-        }
-    }
+    // let host = cs_azure::Host::from_host(host, key)?;
+    // let mut client = host.connect_recognizer(language_code).await?;
+    // let stream = client.transcribe(consumer).await?;
+    // pin_mut!(stream);
+    // while let Some(msg) = stream.next().await {
+    //     println!("msg: {:?}", msg)
+    // }
+    //}
 
-    Ok(())
+    // Ok(())
 }

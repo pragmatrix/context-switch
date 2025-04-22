@@ -22,7 +22,7 @@ use crate::conversation::Conversation;
 #[async_trait]
 pub trait Service: fmt::Debug {
     type Params: DeserializeOwned;
-    const TYPE: ServiceType;
+    // const TYPE: ServiceType;
 
     /// Execute a conversation on this service.
     ///
@@ -35,11 +35,11 @@ pub trait Service: fmt::Debug {
     async fn conversation(&self, params: Self::Params, conversation: Conversation) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ServiceType {
-    Synthesizer,
-    Transcriber,
-    SpeechDialog,
-    SpeechTranslator,
-    Unclassified,
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub enum ServiceType {
+//     Synthesizer,
+//     Transcriber,
+//     SpeechDialog,
+//     SpeechTranslator,
+//     Unclassified,
+// }

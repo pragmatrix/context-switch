@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
@@ -9,7 +10,6 @@ pub struct Conversation {
     pub output_modalities: Vec<OutputModality>,
     input: Receiver<Input>,
     output: Sender<Output>,
-    started: bool,
 }
 
 impl Conversation {
@@ -24,7 +24,6 @@ impl Conversation {
             output_modalities,
             input,
             output,
-            started: false,
         }
     }
 
@@ -35,6 +34,13 @@ impl Conversation {
         }
     }
 
+    pub fn require_audio_input(&self) -> Result<AudioFormat> {
+        match self.input_modality {
+            InputModality::Audio { format } => Ok(format),
+            InputModality::Text => bail!("Audio input is required"),
+        }
+    }
+
     pub fn require_single_audio_output(&self) -> Result<AudioFormat> {
         match self.output_modalities.as_slice() {
             [OutputModality::Audio { format }] => Ok(*format),
@@ -42,33 +48,62 @@ impl Conversation {
         }
     }
 
-    pub async fn input(&mut self) -> Result<Option<Input>> {
-        self.ensure_started()?;
-        Ok(self.input.recv().await)
+    pub fn require_text_output(&self, interim: bool) -> Result<()> {
+        for modality in &self.output_modalities {
+            match modality {
+                OutputModality::Audio { .. } => bail!("No audio output expected"),
+                OutputModality::Text => {}
+                OutputModality::InterimText => {
+                    if !interim {
+                        bail!("Interim text is unsupported")
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
-    pub fn audio_frame(&mut self, frame: AudioFrame) -> Result<()> {
-        self.ensure_started()?;
+    /// Start the conversation.
+    pub fn start(self) -> Result<(ConversationInput, ConversationOutput)> {
+        let input = ConversationInput { input: self.input };
+        let output = ConversationOutput {
+            output: self.output,
+        };
+        output.post(Output::ServiceStarted {
+            modalities: self.output_modalities,
+        })?;
+        Ok((input, output))
+    }
+}
+
+#[derive(Debug)]
+pub struct ConversationInput {
+    input: Receiver<Input>,
+}
+
+impl ConversationInput {
+    pub async fn recv(&mut self) -> Option<Input> {
+        self.input.recv().await
+    }
+}
+
+#[derive(Debug)]
+pub struct ConversationOutput {
+    output: Sender<Output>,
+}
+
+impl ConversationOutput {
+    pub fn audio_frame(&self, frame: AudioFrame) -> Result<()> {
         self.post(Output::Audio { frame })
     }
 
-    pub fn text(&mut self, is_final: bool, text: String) -> Result<()> {
+    pub fn text(&self, is_final: bool, text: String) -> Result<()> {
         self.post(Output::Text { is_final, text })
     }
 
-    pub fn request_completed(&mut self) -> Result<()> {
-        self.ensure_started()?;
+    pub fn request_completed(&self) -> Result<()> {
         self.post(Output::RequestCompleted)
-    }
-
-    fn ensure_started(&mut self) -> Result<()> {
-        if !self.started {
-            self.post(Output::ServiceStarted {
-                modalities: self.output_modalities.clone(),
-            })?;
-            self.started = true;
-        }
-        Ok(())
     }
 
     fn post(&self, output: Output) -> Result<()> {
