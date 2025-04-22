@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
@@ -67,11 +67,11 @@ impl EventScheduler {
             };
             match next_event {
                 ServerEvent::Started { modalities, .. } => {
-                    self.audio_format = Some(audio_format_from_output_modalities(modalities)?);
+                    self.audio_format = audio_format_from_output_modalities(modalities)?;
                 }
                 ServerEvent::Audio { samples, .. } => {
                     let Some(audio_format) = self.audio_format else {
-                        bail!("Received Audio but without a prior Started event")
+                        bail!("Received Audio but without a prior Started event or no audio output")
                     };
                     let duration = audio_format.duration(samples.len());
                     if self.audio_finished >= (now + MAX_BUFFERED_AUDIO) {
@@ -92,22 +92,25 @@ impl EventScheduler {
     }
 }
 
-/// Extract the audio format from output modalities. Bails if not exactly one audio format was found.
-fn audio_format_from_output_modalities(modalities: &[OutputModality]) -> Result<AudioFormat> {
-    let mut formats = modalities.iter().filter_map(|modality| match modality {
+/// Extract the audio format from output modalities. Returns None or the format. Bails if more than one audio format was found.
+fn audio_format_from_output_modalities(
+    modalities: &[OutputModality],
+) -> Result<Option<AudioFormat>> {
+    let mut audio_formats = modalities.iter().filter_map(|modality| match modality {
         OutputModality::Audio { format } => Some(*format),
         _ => None,
     });
 
-    let first_format = formats
-        .next()
-        .ok_or_else(|| anyhow!("No audio format found in output modalities"))?;
+    let first_format = audio_formats.next();
+    let Some(single_format) = first_format else {
+        return Ok(None);
+    };
 
-    if formats.next().is_some() {
+    if audio_formats.next().is_some() {
         bail!("Multiple audio formats found in output modalities");
     }
 
-    Ok(first_format)
+    Ok(Some(single_format))
 }
 
 /// Runs an event scheduler that manages the timing of events sent to FreeSWITCH.
