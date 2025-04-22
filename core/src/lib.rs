@@ -14,6 +14,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_chan
 
 pub use endpoint::*;
 pub use protocol::*;
+pub use service::Service;
 
 /// A unidirectional audio message. Useful for implementing an audio transfer channel.
 #[derive(Debug)]

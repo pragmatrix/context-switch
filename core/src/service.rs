@@ -13,24 +13,18 @@
 //!
 use std::fmt;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{AudioFrame, InputModality, OutputModality};
-
-#[derive(Debug)]
-pub struct Conversation {
-    pub input_modality: InputModality,
-    pub output_modalities: Vec<OutputModality>,
-    pub input: Receiver<Input>,
-    pub output: Sender<Output>,
-}
+use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
 
 #[async_trait]
 pub trait Service: fmt::Debug {
     type Params: DeserializeOwned;
+    const TYPE: ServiceType;
+
     /// Execute a conversation on this service.
     ///
     /// The conversation function takes `&self`. If exclusive access to the service implementation
@@ -40,6 +34,39 @@ pub trait Service: fmt::Debug {
     ///
     /// If invalid or unexpected input is received, the function **must** terminate with an error.
     async fn conversation(&self, params: Self::Params, conversation: Conversation) -> Result<()>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ServiceType {
+    Synthesizer,
+    Transcriber,
+    SpeechDialog,
+    SpeechTranslator,
+    Unclassified,
+}
+
+#[derive(Debug)]
+pub struct Conversation {
+    pub input_modality: InputModality,
+    pub output_modalities: Vec<OutputModality>,
+    pub input: Receiver<Input>,
+    pub output: Sender<Output>,
+}
+
+impl Conversation {
+    pub fn require_text_input_only(&self) -> Result<()> {
+        match self.input_modality {
+            InputModality::Audio { .. } => bail!("Audio input is not supported"),
+            InputModality::Text => Ok(()),
+        }
+    }
+
+    pub fn require_single_audio_output(&self) -> Result<AudioFormat> {
+        match self.output_modalities.as_slice() {
+            [OutputModality::Audio { format }] => Ok(*format),
+            _ => bail!("Expect single audio output"),
+        }
+    }
 }
 
 #[derive(Debug)]
