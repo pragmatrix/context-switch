@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use base64::prelude::*;
 use futures::{
@@ -260,7 +260,9 @@ impl Client {
         output: &ConversationOutput,
     ) -> Result<FlowControl> {
         match message {
-            Message::Text(str) => match serde_json::from_str(&str)? {
+            Message::Text(str) => match serde_json::from_str(&str)
+                .with_context(|| format!("Deserialization failed: `{str}`"))?
+            {
                 ServerEvent::Error(e) => {
                     bail!(format!("{e:?}, raw: {str}"));
                 }
