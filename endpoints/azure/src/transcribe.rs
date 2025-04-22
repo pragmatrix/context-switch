@@ -60,7 +60,6 @@ impl Service for AzureTranscribe {
             }
         };
 
-        // pin_mut!(audio_stream);
         let audio_stream = Box::pin(audio_stream);
 
         // TODO: do they have an effect?
