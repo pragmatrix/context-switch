@@ -5,8 +5,6 @@ pub mod dialog;
 mod endpoint;
 pub mod protocol;
 pub mod service;
-pub mod synthesize;
-pub mod transcribe;
 
 use anyhow::{Result, bail};
 
