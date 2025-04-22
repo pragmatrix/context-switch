@@ -50,7 +50,7 @@ impl Service for OpenAIDialog {
         let input_format = conversation.require_audio_input()?;
         let output_format = conversation.require_single_audio_output()?;
         if input_format != output_format {
-            bail!("Input and output audio formats must match for OpenAI dialog endpoint");
+            bail!("Input and output audio formats must match for OpenAI dialog service");
         }
 
         let host = if let Some(host) = params.host {

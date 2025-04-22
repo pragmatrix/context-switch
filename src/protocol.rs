@@ -16,9 +16,9 @@ pub enum ClientEvent {
     #[serde(rename_all = "camelCase")]
     Start {
         id: ConversationId,
-        /// The processor endpoint to select.
+        /// The service to select.
         endpoint: String,
-        /// The endpoint parameters.
+        /// The service parameters.
         params: serde_json::Value,
         /// Input modality.
         input_modality: InputModality,

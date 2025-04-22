@@ -1,5 +1,5 @@
 //! Low-level serializable types that are used in the context-switch protocol and internal
-//! endpoint interfaces.
+//! service interfaces.
 
 use std::time::Duration;
 

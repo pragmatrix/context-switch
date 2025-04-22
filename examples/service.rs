@@ -4,7 +4,7 @@ use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
-use context_switch::{InputModality, OutputModality, endpoints::AzureTranscribe};
+use context_switch::{InputModality, OutputModality, services::AzureTranscribe};
 use context_switch_core::{
     AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input},

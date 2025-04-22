@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    todo!("Port the following code to use the endpoint API");
+    todo!("Port the following code to use the service API");
 
     //    let language_code = "en-US";
 

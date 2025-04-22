@@ -34,7 +34,7 @@ impl Registry {
         self.services
             .get(name)
             .map(|e| e.as_ref())
-            .ok_or_else(|| anyhow!("`{name}`: Unregistered endpoint"))
+            .ok_or_else(|| anyhow!("`{name}`: Unregistered service"))
     }
 }
 

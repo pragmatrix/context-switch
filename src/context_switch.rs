@@ -138,8 +138,8 @@ impl ContextSwitch {
             bail!("Initial client event must be ConversionStart")
         };
 
-        // Endpoint lookup has to be in the protected part so that clients may receive an error
-        // event in case the endpoint does not exist.
+        // Service lookup has to be in the protected part so that clients may receive an error
+        // event in case the service does not exist.
         let service = registry.service(&service)?;
 
         let (output_sender, mut output_receiver) = channel(256);
