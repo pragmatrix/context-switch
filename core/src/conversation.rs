@@ -98,6 +98,10 @@ impl ConversationOutput {
         self.post(Output::Audio { frame })
     }
 
+    pub fn clear_audio(&self) -> Result<()> {
+        self.post(Output::ClearAudio)
+    }
+
     pub fn text(&self, is_final: bool, text: String) -> Result<()> {
         self.post(Output::Text { is_final, text })
     }

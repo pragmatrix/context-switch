@@ -22,7 +22,7 @@ impl Default for Registry {
                     "azure-synthesize",
                     Box::new(cs_azure::synthesize::AzureSynthesize) as _,
                 ),
-                // ("openai-dialog", Box::new(OpenAIDialog) as _),
+                ("openai-dialog", Box::new(OpenAIDialog) as _),
             ]
             .into(),
         }
