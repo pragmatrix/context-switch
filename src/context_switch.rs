@@ -142,9 +142,9 @@ impl ContextSwitch {
         // event in case the endpoint does not exist.
         let service = registry.service(&service)?;
 
-        // TODO: clearly define queue length here.
-        let (output_sender, mut output_receiver) = channel(32);
-        let (input_sender, input_receiver) = channel(32);
+        let (output_sender, mut output_receiver) = channel(256);
+        // We might receive a large number of audio frames before the service can process them.
+        let (input_sender, input_receiver) = channel(256);
 
         let conversation = Conversation::new(
             input_modality,
@@ -176,14 +176,18 @@ impl ContextSwitch {
                             ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
                                     let frame = AudioFrame { format, samples: samples.into() };
-                                    input_sender.try_send(Input::Audio{frame})?;
+                                    input_sender
+                                        .try_send(Input::Audio{frame})
+                                        .context("Sending input audio frame to conversation")?;
                                 } else {
                                     bail!("Received unexpected Audio");
                                 }
                             },
                             ClientEvent::Text { content, .. } => {
                                 if let InputModality::Text = input_modality {
-                                    input_sender.try_send(Input::Text{text:content})?;
+                                    input_sender
+                                        .try_send(Input::Text{text:content})
+                                        .context("Sending input text to conversation")?;
                                 } else {
                                     bail!("Received unexpected Text");
                                 }
