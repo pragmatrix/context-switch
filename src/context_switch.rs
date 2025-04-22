@@ -13,7 +13,10 @@ use tokio::{
 use tracing::{Level, info, span};
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
-use context_switch_core::{AudioFrame, Output};
+use context_switch_core::{
+    AudioFrame,
+    conversation::{Conversation, Input, Output},
+};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -126,39 +129,41 @@ impl ContextSwitch {
     ) -> Result<ServerEvent> {
         let ClientEvent::Start {
             id: conversation_id,
-            endpoint,
+            endpoint: service,
             params,
             input_modality,
             output_modalities,
         } = initial_event
         else {
-            bail!("Initial event must be ConversionStart")
+            bail!("Initial client event must be ConversionStart")
         };
 
-        // Endpoint lookup has to be in the protected part so that clients may receive an error
-        // event in case the endpoint does not exist.
-        let endpoint = registry.endpoint(&endpoint)?;
+        // Service lookup has to be in the protected part so that clients may receive an error
+        // event in case the service does not exist.
+        let service = registry.service(&service)?;
 
-        // TODO: clearly define queue length here.
-        let (output_sender, mut output_receiver) = channel(32);
+        let (output_sender, mut output_receiver) = channel(256);
+        // We might receive a large number of audio frames before the service can process them.
+        let (input_sender, input_receiver) = channel(256);
 
-        let mut conversation = endpoint
-            .start_conversation(
-                params,
-                input_modality,
-                output_modalities.clone(),
-                output_sender,
-            )
-            .await?;
+        let conversation = Conversation::new(
+            input_modality,
+            output_modalities.clone(),
+            input_receiver,
+            output_sender,
+        );
 
-        // TODO: We always send the same modalities back, but may need to enable conversations to filter them.
-        server_output.try_send(ServerEvent::Started {
-            id: conversation_id.clone(),
-            modalities: output_modalities,
-        })?;
+        let mut conversation = service.converse(params, conversation);
 
         loop {
             select! {
+                // Drive the conversation.
+                result = &mut conversation => {
+                    result?;
+                    break;
+                }
+
+                // Process input events.
                 input = input.recv() => {
                     if let Some(input) = input {
                         match input {
@@ -171,14 +176,18 @@ impl ContextSwitch {
                             ClientEvent::Audio { samples, .. } => {
                                 if let InputModality::Audio { format } = input_modality {
                                     let frame = AudioFrame { format, samples: samples.into() };
-                                    conversation.post_audio(frame)?;
+                                    input_sender
+                                        .try_send(Input::Audio{frame})
+                                        .context("Sending input audio frame to conversation")?;
                                 } else {
                                     bail!("Received unexpected Audio");
                                 }
                             },
                             ClientEvent::Text { content, .. } => {
                                 if let InputModality::Text = input_modality {
-                                    conversation.post_text(content)?;
+                                    input_sender
+                                        .try_send(Input::Text{text:content})
+                                        .context("Sending input text to conversation")?;
                                 } else {
                                     bail!("Received unexpected Text");
                                 }
@@ -189,6 +198,7 @@ impl ContextSwitch {
                     }
                 }
 
+                // Process output events
                 output = output_receiver.recv() => {
                     if let Some(output) = output {
                         let event = output_to_server_event(&conversation_id, output);
@@ -199,8 +209,6 @@ impl ContextSwitch {
                 }
             }
         }
-
-        conversation.stop().await?;
 
         Ok(ServerEvent::Stopped {
             id: conversation_id,
@@ -252,16 +260,20 @@ impl ContextSwitch {
 
 fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
     match output {
+        Output::ServiceStarted { modalities } => ServerEvent::Started {
+            id: id.clone(),
+            modalities,
+        },
         Output::Audio { frame } => ServerEvent::Audio {
             id: id.clone(),
             samples: frame.samples.into(),
         },
-        Output::Text { is_final, content } => ServerEvent::Text {
+        Output::Text { is_final, text } => ServerEvent::Text {
             id: id.clone(),
             is_final,
-            content,
+            content: text,
         },
-        Output::Completed => ServerEvent::RequestCompleted { id: id.clone() },
+        Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
         Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
     }
 }

@@ -2,23 +2,26 @@ use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use context_switch_core::{Conversation, InputModality, Output, OutputModality};
-use openai_dialog::OpenAIDialog;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::sync::mpsc::Sender;
+
+use context_switch_core::conversation::Conversation;
+use openai_dialog::OpenAIDialog;
 
 #[derive(Debug)]
 pub struct Registry {
-    endpoints: HashMap<&'static str, Box<dyn WrappedEndpoint + Send + Sync>>,
+    services: HashMap<&'static str, Box<dyn WrappedService + Send + Sync>>,
 }
 
 impl Default for Registry {
     fn default() -> Self {
         Self {
-            endpoints: [
+            services: [
                 ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
-                ("azure-synthesize", Box::new(cs_azure::AzureSynthesize) as _),
+                (
+                    "azure-synthesize",
+                    Box::new(cs_azure::synthesize::AzureSynthesize) as _,
+                ),
                 ("openai-dialog", Box::new(OpenAIDialog) as _),
             ]
             .into(),
@@ -27,41 +30,27 @@ impl Default for Registry {
 }
 
 impl Registry {
-    pub fn endpoint(&self, name: &str) -> Result<&(dyn WrappedEndpoint + Send + Sync)> {
-        self.endpoints
+    pub fn service(&self, name: &str) -> Result<&(dyn WrappedService + Send + Sync)> {
+        self.services
             .get(name)
             .map(|e| e.as_ref())
-            .ok_or_else(|| anyhow!("`{name}`: Unregistered endpoint"))
+            .ok_or_else(|| anyhow!("`{name}`: Unregistered service"))
     }
 }
 
-/// We wrap the endpoint to do Params deserialization.
-
+/// We wrap the service to able to do Params deserialization.
 #[async_trait]
-pub trait WrappedEndpoint: fmt::Debug {
-    /// Start a new conversation on this endpoint.
-    async fn start_conversation(
-        &self,
-        params: Value,
-        input_modality: InputModality,
-        output_modalities: Vec<OutputModality>,
-        output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation + Send>>;
+pub trait WrappedService: fmt::Debug {
+    async fn converse(&self, params: Value, conversation: Conversation) -> Result<()>;
 }
 
 #[async_trait]
-impl<T: Sync, P: DeserializeOwned> WrappedEndpoint for T
+impl<T: Sync, P: DeserializeOwned> WrappedService for T
 where
-    T: context_switch_core::Endpoint<Params = P>,
+    T: context_switch_core::Service<Params = P>,
 {
-    async fn start_conversation(
-        &self,
-        params: Value,
-        input_modality: InputModality,
-        output_modalities: Vec<OutputModality>,
-        output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation + Send>> {
+    async fn converse(&self, params: Value, conversation: Conversation) -> Result<()> {
         let params = serde_json::from_value(params)?;
-        T::start_conversation(self, params, input_modality, output_modalities, output).await
+        T::conversation(self, params, conversation).await
     }
 }

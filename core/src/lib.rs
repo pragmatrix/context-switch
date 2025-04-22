@@ -1,18 +1,15 @@
 pub mod audio;
-pub mod audio_protocol;
-pub mod dialog;
-mod endpoint;
+pub mod conversation;
 pub mod protocol;
-pub mod synthesize;
-pub mod transcribe;
+pub mod service;
 
 use anyhow::{Result, bail};
 
 use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-pub use endpoint::*;
 pub use protocol::*;
+pub use service::Service;
 
 /// A unidirectional audio message. Useful for implementing an audio transfer channel.
 #[derive(Debug)]
@@ -158,6 +155,10 @@ impl AudioFrame {
     pub fn from_le_bytes(format: AudioFormat, bytes: &[u8]) -> Self {
         let samples = audio::from_le_bytes(bytes);
         Self { format, samples }
+    }
+
+    pub fn to_le_bytes(self) -> Vec<u8> {
+        audio::to_le_bytes(&self.samples)
     }
 
     pub fn duration(&self) -> Duration {

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use base64::prelude::*;
 use futures::{
@@ -18,7 +18,7 @@ use openai_api_rs::realtime::{
     types,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpStream, select, sync::mpsc::Sender, task::JoinHandle};
+use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
@@ -26,10 +26,52 @@ use tokio_tungstenite::{
 use tracing::{debug, info};
 
 use context_switch_core::{
-    AudioConsumer, AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, AudioProducer,
-    Conversation, Endpoint, InputModality, Output, OutputModality, audio, audio_channel,
-    audio_msg_channel, dialog,
+    AudioFormat, AudioFrame, Service, audio,
+    conversation::{Conversation, ConversationInput, ConversationOutput, Input},
 };
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Params {
+    pub api_key: String,
+    pub model: String,
+    pub host: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct OpenAIDialog;
+
+#[async_trait]
+impl Service for OpenAIDialog {
+    type Params = Params;
+
+    async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
+        // Only support audio input and output for now
+        let input_format = conversation.require_audio_input()?;
+        let output_format = conversation.require_single_audio_output()?;
+        if input_format != output_format {
+            bail!("Input and output audio formats must match for OpenAI dialog service");
+        }
+
+        let host = if let Some(host) = params.host {
+            Host::new_with_host(&host, &params.api_key, &params.model)
+        } else {
+            Host::new(&params.api_key, &params.model)
+        };
+        info!("Connecting to {host:?}");
+        let mut client = host.connect().await?;
+
+        info!("Client connected");
+
+        let (input, output) = conversation.start()?;
+
+        client
+            .dialog(input_format, output_format, input, output)
+            .await?;
+
+        Ok(())
+    }
+}
 
 pub struct Host {
     client: RealtimeClient,
@@ -81,28 +123,30 @@ impl Client {
     /// Run an audio dialog.
     pub async fn dialog(
         &mut self,
-        mut consumer: AudioConsumer,
-        mut producer: AudioMsgProducer,
+        input_format: AudioFormat,
+        output_format: AudioFormat,
+        mut input: ConversationInput,
+        output: ConversationOutput,
     ) -> Result<()> {
         let expected_format = AudioFormat::new(1, 24000);
-        if consumer.format != expected_format {
+        if input_format != expected_format {
             bail!(
-                "Audio consumer has the wrong format {:?}, expected: {:?}",
-                consumer.format,
+                "Audio input has the wrong format {:?}, expected: {:?}",
+                input_format,
                 expected_format
             );
         }
 
-        if producer.format() != expected_format {
+        if output_format != expected_format {
             bail!(
-                "Audio producer has the wrong format {:?}, expected: {:?}",
-                producer.format(),
+                "Audio output has the wrong format {:?}, expected: {:?}",
+                output_format,
                 expected_format
             );
         }
 
         // Wait for the created event.
-        // TODO: timeout?
+        // TODO: Add a timeout here?
         let message = self.read.next().await;
         Self::verify_session_created_event(message)?;
 
@@ -110,10 +154,12 @@ impl Client {
 
         loop {
             select! {
-                audio_frame = consumer.consume() => {
-                    if let Some(audio_frame) = audio_frame {
-                        // debug!("Sending frame: {:?}", audio_frame.duration());
-                        self.send_frame(audio_frame).await?;
+                input = input.recv() => {
+                    if let Some(input) = input {
+                        if let Input::Audio { frame } = input {
+                            // debug!("Sending frame: {:?}", audio_frame.duration());
+                            self.send_frame(frame).await?;
+                        }
                     } else {
                         // No more audio, end the session.
                         break;
@@ -123,7 +169,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match Self::process_message(message, &mut producer).await? {
+                            match Self::process_message(message, output_format, &output).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -210,10 +256,13 @@ impl Client {
 
     async fn process_message(
         message: Message,
-        producer: &mut AudioMsgProducer,
+        output_format: AudioFormat,
+        output: &ConversationOutput,
     ) -> Result<FlowControl> {
         match message {
-            Message::Text(str) => match serde_json::from_str(&str)? {
+            Message::Text(str) => match serde_json::from_str(&str)
+                .with_context(|| format!("Deserialization failed: `{str}`"))?
+            {
                 ServerEvent::Error(e) => {
                     bail!(format!("{e:?}, raw: {str}"));
                 }
@@ -221,9 +270,13 @@ impl Client {
                     let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                     let samples = audio::from_le_bytes(&decoded);
                     debug!("Sending {} samples", samples.len());
-                    producer.send_samples(samples)?;
+                    let frame = AudioFrame {
+                        format: output_format,
+                        samples,
+                    };
+                    output.audio_frame(frame)?;
                 }
-                ServerEvent::InputAudioBufferSpeechStarted(_) => producer.clear()?,
+                ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
                 response => {
                     debug!("Response: {:?}", response)
                 }
@@ -245,97 +298,4 @@ enum FlowControl {
     Continue,
     PongAndContinue(Bytes),
     End,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Params {
-    pub api_key: String,
-    pub model: String,
-    pub host: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct OpenAIDialog;
-
-#[async_trait]
-impl Endpoint for OpenAIDialog {
-    type Params = Params;
-
-    async fn start_conversation(
-        &self,
-        params: Params,
-        input_modality: InputModality,
-        output_modalities: Vec<OutputModality>,
-        output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation + Send>> {
-        // Only support audio input and output for now
-        let input_format = dialog::require_audio_input(input_modality)?;
-        let output_format = dialog::check_output_modalities(&output_modalities)?;
-        if input_format != output_format {
-            bail!("Input and output audio formats must match for OpenAI dialog endpoint");
-        }
-
-        let (input_producer, input_consumer) = audio_channel(input_format);
-        let (msg_producer, mut msg_consumer) = audio_msg_channel(output_format);
-
-        let host = if let Some(host) = params.host {
-            Host::new_with_host(&host, &params.api_key, &params.model)
-        } else {
-            Host::new(&params.api_key, &params.model)
-        };
-        info!("Connecting to {host:?}");
-        let mut client = host.connect().await?;
-
-        info!("Client connected");
-
-        // TODO: implement proper error handling. For example when the forwarder breaks for some
-        // reason while the dialog is running.
-        let dialog_processor: JoinHandle<Result<()>> = tokio::spawn(async move {
-            // Forward output audio frames to output channel
-            let forwarder = tokio::spawn(async move {
-                while let Some(msg) = msg_consumer.consume().await {
-                    let output_msg = match msg {
-                        AudioMsg::Frame(frame) => Output::Audio { frame },
-                        AudioMsg::Clear => Output::ClearAudio,
-                    };
-
-                    let _ = output.try_send(output_msg);
-                }
-            });
-
-            info!("Starting dialog");
-            let r = client.dialog(input_consumer, msg_producer).await;
-            debug!("Dialog ended with {r:?}, waiting for forwarder to end");
-            forwarder.await?;
-            debug!("Forwarder ended");
-            r
-        });
-
-        Ok(Box::new(DialogConversation {
-            input_producer,
-            dialog_processor,
-        }))
-    }
-}
-
-#[derive(Debug)]
-struct DialogConversation {
-    input_producer: AudioProducer,
-    dialog_processor: JoinHandle<Result<()>>,
-}
-
-#[async_trait]
-impl Conversation for DialogConversation {
-    fn post_audio(&mut self, frame: AudioFrame) -> Result<()> {
-        self.input_producer.produce(frame)
-    }
-
-    async fn stop(self: Box<Self>) -> Result<()> {
-        drop(self.input_producer);
-        debug!("stop: Waiting for dialog processor to end");
-        self.dialog_processor.await??;
-        debug!("stop: Dialog processor ended");
-        Ok(())
-    }
 }

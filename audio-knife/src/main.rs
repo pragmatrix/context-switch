@@ -337,7 +337,9 @@ impl SessionState {
                         .expect("Poison error")
                         .post_audio_frame(&self.conversation, frame)?;
                 } else {
-                    debug!("Audio input ignored (this conversation has no audio input)")
+                    // Don't log this for now, we may receive audio frames for TTS, for example.
+                    // TODO: may add an additional flag to mod_audio_fork to suppress this.
+                    // debug!("Audio input ignored (this conversation has no audio input)")
                 }
                 Ok(())
             }

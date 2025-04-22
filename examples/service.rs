@@ -1,10 +1,15 @@
 use std::{env, time::Duration};
 
 use anyhow::Result;
-use context_switch::{InputModality, OutputModality, endpoints::AzureTranscribe};
-use context_switch_core::{AudioFormat, AudioFrame, Endpoint, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
+
+use context_switch::{InputModality, OutputModality, services::AzureTranscribe};
+use context_switch_core::{
+    AudioFormat, AudioFrame, audio,
+    conversation::{Conversation, Input},
+    service::Service,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,22 +61,30 @@ async fn main() -> Result<()> {
     };
 
     let (output_producer, mut output_consumer) = channel(32);
+    let (conv_input_producer, conv_input_consumer) = channel(32);
 
     let azure = AzureTranscribe;
-    let mut conversation = azure
-        .start_conversation(
-            params,
+    let mut conversation = azure.conversation(
+        params,
+        Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText].into(),
+            conv_input_consumer,
             output_producer,
-        )
-        .await?;
+        ),
+    );
 
     loop {
         select! {
+            // Primary conversation
+            r = &mut conversation => {
+                r?;
+                break;
+            }
+            // Forward audio input
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conversation.post_audio(frame)?;
+                    conv_input_producer.try_send(Input::Audio {frame})?;
                 }
                 else {
                     println!("End of input");
@@ -79,6 +92,7 @@ async fn main() -> Result<()> {
                 }
 
             }
+            // Forward text output
             output = output_consumer.recv() => {
                 if let Some(output) = output {
                     println!("{output:?}")
