@@ -1,6 +1,4 @@
-use std::fmt;
-
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use azure_speech::{
     stream::StreamExt,
@@ -9,17 +7,15 @@ use azure_speech::{
         ssml::{self, ToSSML, ssml::SerializeOptions},
     },
 };
-use context_switch_core::{
-    AudioFrame, Conversation, Endpoint, InputModality, Output, OutputModality, synthesize,
-};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::mpsc::{Receiver, Sender, channel},
-    task::JoinHandle,
-};
-use tracing::{debug, error, warn};
+use tracing::debug;
 
 use crate::Host;
+use context_switch_core::{
+    AudioFrame, Service,
+    conversation::{Conversation, Input},
+    service::ServiceType,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,18 +31,13 @@ pub struct Params {
 pub struct AzureSynthesize;
 
 #[async_trait]
-impl Endpoint for AzureSynthesize {
+impl Service for AzureSynthesize {
     type Params = Params;
+    const TYPE: ServiceType = ServiceType::Synthesizer;
 
-    async fn start_conversation(
-        &self,
-        params: Params,
-        input_modality: InputModality,
-        output_modalities: Vec<OutputModality>,
-        output: Sender<Output>,
-    ) -> Result<Box<dyn Conversation + Send>> {
-        synthesize::require_text_input(input_modality)?;
-        let output_format = synthesize::check_output_modalities(&output_modalities)?;
+    async fn conversation(&self, params: Params, mut conversation: Conversation) -> Result<()> {
+        conversation.require_text_input_only()?;
+        let output_format = conversation.require_single_audio_output()?;
         let azure_audio_format = import_output_audio_format(output_format)?;
 
         // Resolve default voice if none is set.
@@ -74,122 +65,49 @@ impl Endpoint for AzureSynthesize {
 
         let client = synthesizer::Client::connect(host.auth.clone(), config).await?;
 
-        let synthesizer =
-            Synthesizer::new(client, params.language_code, voice, output_format, output);
+        let language = params.language_code;
 
-        Ok(Box::new(synthesizer))
-    }
-}
-
-struct Synthesizer {
-    request_tx: Sender<SynthesizeRequest>,
-    _processor: JoinHandle<Result<()>>,
-}
-
-// This is because `synthesizer::Client` does not implement `Debug`.
-impl fmt::Debug for Synthesizer {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Synthesizer").finish()
-    }
-}
-
-impl Synthesizer {
-    pub fn new(
-        client: synthesizer::Client,
-        language: String,
-        voice: String,
-        output_format: context_switch_core::AudioFormat,
-        output: Sender<Output>,
-    ) -> Self {
-        let (request_tx, request_rx) = channel::<SynthesizeRequest>(256);
-
-        let task = tokio::spawn(processor(
-            client,
-            language,
-            voice,
-            request_rx,
-            output_format,
-            output,
-        ));
-
-        Self {
-            request_tx,
-            _processor: task,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SynthesizeRequest {
-    text: String,
-}
-
-async fn processor(
-    client: synthesizer::Client,
-    language: String,
-    voice: String,
-    mut synthesize_requests: Receiver<SynthesizeRequest>,
-    output_format: context_switch_core::AudioFormat,
-    output: Sender<Output>,
-) -> Result<()> {
-    loop {
-        let Some(request) = synthesize_requests.recv().await else {
-            debug!("Synthesis request channel closed, exiting processor");
-            break;
-        };
-
-        let azure_request = AzureSynthesizeRequest {
-            language: language.clone(),
-            voice: voice.clone(),
-            text: request.text,
-        };
-
-        let mut stream = client.synthesize(azure_request).await?;
-        while let Some(event) = stream.next().await {
-            let Ok(event) = event else {
-                // TODO: (planned via Output?)
-                error!("Azure synthesizer: No error handling yet");
-                break;
+        loop {
+            let Some(input) = conversation.input().await? else {
+                debug!("No more input, exiting");
+                return Ok(());
             };
 
-            use synthesizer::Event;
-            match event {
-                Event::Synthesising(_uuid, audio) => {
-                    let frame = AudioFrame::from_le_bytes(output_format, &audio);
-                    debug!("Received audio: {:?}", frame.duration());
-                    output.try_send(Output::Audio { frame })?;
+            let text = match input {
+                Input::Audio { .. } => {
+                    bail!("Unexpected audio frame");
                 }
-                Event::Synthesised(_uuid) => output.try_send(Output::Completed)?,
-                event => {
-                    debug!("Received: {event:?}")
-                }
+                Input::Text { text } => text,
             };
-        }
-    }
 
-    Ok(())
-}
+            let azure_request = AzureSynthesizeRequest {
+                language: language.clone(),
+                voice: voice.clone(),
+                text,
+            };
 
-#[async_trait]
-impl Conversation for Synthesizer {
-    fn post_text(&mut self, text: String) -> Result<()> {
-        Ok(self.request_tx.try_send(SynthesizeRequest { text })?)
-    }
+            let mut stream = client.synthesize(azure_request).await?;
+            while let Some(event) = stream.next().await {
+                let event = event.context("Azure synthesizer event error")?;
 
-    async fn stop(self: Box<Self>) -> Result<()> {
-        if self._processor.is_finished() {
-            if let Err(e) = self._processor.await {
-                warn!("Processor failed early: {e}");
+                use synthesizer::Event;
+                match event {
+                    Event::Synthesising(_uuid, audio) => {
+                        let frame = AudioFrame::from_le_bytes(output_format, &audio);
+                        debug!("Received audio: {:?}", frame.duration());
+                        conversation.audio_frame(frame)?;
+                    }
+                    Event::Synthesised(_uuid) => conversation.request_completed()?,
+                    event => {
+                        debug!("Received: {event:?}")
+                    }
+                };
             }
-        } else {
-            // We must be sure that the task is dead, simply because we don't want to pay fore pending synthesize requests.
-            self._processor.abort();
         }
-        Ok(())
     }
 }
 
-/// This is because we won't want to got through voice and language conversion and therefore we are
+/// This is because we won't want to go through voice and language conversion and therefore we are
 /// forced to use SSML directly.
 #[derive(Debug)]
 struct AzureSynthesizeRequest {

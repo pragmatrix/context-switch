@@ -20,7 +20,7 @@ impl Default for Registry {
                 // ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
                 (
                     "azure-synthesize",
-                    Box::new(cs_azure::synthesize_service::AzureSynthesize) as _,
+                    Box::new(cs_azure::synthesize::AzureSynthesize) as _,
                 ),
                 // ("openai-dialog", Box::new(OpenAIDialog) as _),
             ]
