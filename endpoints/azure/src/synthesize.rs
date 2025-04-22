@@ -249,7 +249,7 @@ fn resolve_default_voice(language: &str) -> Result<&'static str> {
         "en-GB" => Ok("en-GB-LibbyNeural"),
         "de-DE" => Ok("de-DE-KatjaNeural"),
         _ => bail!(
-            "No default voice for this language defined, select one of from here: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts>"
+            "No default voice for this language defined, select one from here: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts>"
         ),
     }
 }
