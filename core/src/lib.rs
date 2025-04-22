@@ -1,8 +1,5 @@
 pub mod audio;
-pub mod audio_protocol;
 pub mod conversation;
-pub mod dialog;
-mod endpoint;
 pub mod protocol;
 pub mod service;
 
@@ -11,7 +8,6 @@ use anyhow::{Result, bail};
 use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-pub use endpoint::*;
 pub use protocol::*;
 pub use service::Service;
 
