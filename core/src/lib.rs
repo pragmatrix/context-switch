@@ -3,6 +3,7 @@ pub mod audio_protocol;
 pub mod dialog;
 mod endpoint;
 pub mod protocol;
+pub mod service;
 pub mod synthesize;
 pub mod transcribe;
 
