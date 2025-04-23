@@ -5,7 +5,7 @@ use std::{env, thread, time::Duration};
 use anyhow::Result;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cs_azure::AzureTranscribe;
+use cs_azure::AzureTranslate;
 use rodio::{OutputStream, Sink, Source};
 
 use context_switch_core::{
@@ -19,7 +19,8 @@ use tokio::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv()?;
+    dotenvy::dotenv_override()?;
+    tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
     let device = host
@@ -58,16 +59,18 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language_code = "de-DE";
+    let from_language = "de-DE";
+    let to_language = "en-US";
 
-    let service = AzureTranscribe;
+    let service = AzureTranslate;
     // TODO: clarify how to access configurations.
-    let params = cs_azure::transcribe::Params {
+    let params = cs_azure::translate::Params {
         host: None,
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-        language_code: language_code.into(),
+        from_language: from_language.into(),
+        to_language: to_language.into(),
     };
 
     let (output_sender, output_receiver) = channel(256);
@@ -75,9 +78,9 @@ async fn main() -> Result<()> {
     let conversation = Conversation::new(
         InputModality::Audio { format },
         [
-            // OutputModality::Audio { format },
-            OutputModality::Text,
-            OutputModality::InterimText,
+            OutputModality::Audio { format },
+            // OutputModality::Text,
+            // OutputModality::InterimText,
         ],
         input_receiver,
         output_sender,
