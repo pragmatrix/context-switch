@@ -1,6 +1,6 @@
 use std::{env, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
@@ -13,6 +13,8 @@ use context_switch_core::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv_override()?;
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -55,8 +57,9 @@ async fn main() -> Result<()> {
     // TODO: clarify how to access configurations.
     let params = cs_azure::transcribe::Params {
         host: None,
-        region: Some(env::var("AZURE_REGION").unwrap()),
-        subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
+        region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
+        subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
+            .expect("AZURE_SUBSCRIPTION_KEY undefined"),
         language_code: language_code.into(),
     };
 
@@ -78,7 +81,7 @@ async fn main() -> Result<()> {
         select! {
             // Primary conversation
             r = &mut conversation => {
-                r?;
+                r.context("Conversation stopped")?;
                 break;
             }
             // Forward audio input
