@@ -1,17 +1,14 @@
 use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::{
-    recognizer::{self, Event},
-    translator,
-};
+use azure_speech::translator::{self, Event};
 use futures::StreamExt;
 use serde::Deserialize;
 use tracing::debug;
 
 use crate::Host;
 use context_switch_core::{
-    Service,
+    AudioFrame, Service,
     conversation::{Conversation, Input},
 };
 
@@ -84,18 +81,20 @@ impl Service for AzureTranslate {
             .await?;
 
         while let Some(event) = stream.next().await {
-            debug!("Event: {event:?}");
-            // match event? {
-            //     Event::SessionStarted(_)
-            //     | Event::SessionEnded(_)
-            //     | Event::StartDetected(_, _)
-            //     | Event::EndDetected(_, _) => {}
-            //     Event::Recognizing(_, recognized, _, _, _) => {
-            //         output.text(false, recognized.text)?
-            //     }
-            //     Event::Recognized(_, recognized, _, _, _) => output.text(true, recognized.text)?,
-            //     Event::UnMatch(_, _, _, _) => {}
-            // }
+            match event? {
+                Event::SessionStarted(_) => {}
+                Event::SessionEnded(_) => {}
+                Event::StartDetected(_, _) => {}
+                Event::EndDetected(_, _) => {}
+                Event::TranslationSynthesis(_, samples) => {
+                    let frame = AudioFrame {
+                        format: input_format,
+                        samples,
+                    };
+                    output.audio_frame(frame)?;
+                }
+                Event::UnMatch(_, _, _, _) => {}
+            }
         }
 
         Ok(())
