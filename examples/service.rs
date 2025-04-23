@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         params,
         Conversation::new(
             InputModality::Audio { format },
-            [OutputModality::Text, OutputModality::InterimText].into(),
+            [OutputModality::Text, OutputModality::InterimText],
             conv_input_consumer,
             output_producer,
         ),

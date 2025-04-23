@@ -15,13 +15,13 @@ pub struct Conversation {
 impl Conversation {
     pub fn new(
         input_modality: InputModality,
-        output_modalities: Vec<OutputModality>,
+        output_modalities: impl Into<Vec<OutputModality>>,
         input: Receiver<Input>,
         output: Sender<Output>,
     ) -> Self {
         Self {
             input_modality,
-            output_modalities,
+            output_modalities: output_modalities.into(),
             input,
             output,
         }
