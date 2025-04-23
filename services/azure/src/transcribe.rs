@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::recognizer::{self, Event, WavType};
+use azure_speech::recognizer::{self, Event};
 use futures::StreamExt;
 use serde::Deserialize;
 
@@ -54,7 +54,16 @@ impl Service for AzureTranscribe {
 
         let (mut input, output) = conversation.start()?;
 
+        let wav_header = hound::WavSpec {
+            sample_rate: input_format.sample_rate,
+            channels: input_format.channels,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        }
+        .into_header_for_infinite_file();
+
         let audio_stream = stream! {
+            yield wav_header;
             while let Some(Input::Audio{frame}) = input.recv().await {
                 yield frame.to_le_bytes();
             }
@@ -65,16 +74,9 @@ impl Service for AzureTranscribe {
         // TODO: do they have an effect?
         let device = recognizer::AudioDevice::unknown();
 
-        let format = input_format;
-
-        let audio_format = recognizer::AudioFormat::Wav {
-            sample_rate: format.sample_rate,
-            bits_per_sample: 16,
-            channels: format.channels,
-            wav_type: WavType::Pcm,
-        };
-
-        let mut stream = client.recognize(audio_stream, audio_format, device).await?;
+        let mut stream = client
+            .recognize(audio_stream, recognizer::AudioFormat::Wav, device)
+            .await?;
 
         while let Some(event) = stream.next().await {
             match event? {
