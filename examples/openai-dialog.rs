@@ -3,9 +3,19 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::Result;
-use context_switch_core::{AudioFormat, AudioFrame, AudioMsg, AudioMsgProducer, audio};
+use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use openai_dialog::OpenAIDialog;
 use rodio::{OutputStream, Sink, Source};
+
+use context_switch_core::{
+    AudioFormat, AudioFrame, Service, audio,
+    conversation::{Conversation, Input, Output},
+};
+use tokio::{
+    select,
+    sync::mpsc::{Receiver, channel},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,7 +35,7 @@ async fn main() -> Result<()> {
     let sample_rate = input_config.sample_rate();
     let format = AudioFormat::new(channels, sample_rate.0);
 
-    let (producer, consumer) = format.new_channel();
+    let (input_sender, input_receiver) = channel(256);
 
     // Create and run the input stream
     let stream = device
@@ -34,7 +44,7 @@ async fn main() -> Result<()> {
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
                 let frame = AudioFrame { format, samples };
-                if producer.produce(frame).is_err() {
+                if input_sender.try_send(Input::Audio { frame }).is_err() {
                     println!("Failed to send audio data")
                 }
             },
@@ -48,28 +58,114 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let _language_code = "de-DE";
+    let key = env::var("OPENAI_API_KEY").unwrap();
+    let model = env::var("OPENAI_REALTIME_API_MODEL").unwrap();
 
-    {
-        let host = openai_dialog::Host::new(
-            &env::var("OPENAI_API_KEY").unwrap(),
-            &env::var("OPENAI_REALTIME_API_MODEL").unwrap(),
-        );
+    let openai = OpenAIDialog;
+    let params = openai_dialog::Params {
+        api_key: key,
+        model,
+        host: None,
+    };
 
-        let mut client = host.connect().await?;
+    let (output_sender, output_receiver) = channel(256);
 
-        let (output_producer, playback_task) = setup_audio_playback(format).await;
+    let conversation = Conversation::new(
+        InputModality::Audio { format },
+        [OutputModality::Audio { format }],
+        input_receiver,
+        output_sender,
+    );
 
-        // Spawn audio playback task
-        let playback_handle = tokio::spawn(playback_task);
+    let mut conversation = openai.conversation(params, conversation);
 
-        client.dialog(consumer, output_producer).await?;
+    let playback_task = setup_audio_playback(format, output_receiver).await;
 
-        // Wait for playback to complete
-        playback_handle.await?;
+    // Spawn audio playback task
+    let mut playback_handle = tokio::spawn(playback_task);
+
+    select! {
+        // Drive conversation
+        r = &mut conversation => {
+            // When conversation ends, wait for playback to complete before returning.
+            let _ = playback_handle.await;
+            r?
+        }
+
+        // Drive playback
+        r = &mut playback_handle => {
+            r?
+        }
+
     }
 
     Ok(())
+}
+
+enum AudioCommand {
+    PlayFrame(AudioFrame),
+    Clear,
+    Stop,
+}
+
+async fn setup_audio_playback(
+    format: AudioFormat,
+    mut output: Receiver<Output>,
+) -> impl std::future::Future<Output = ()> {
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+
+    // Spawn a dedicated audio thread
+    let playback_thread = thread::spawn(move || {
+        // Create output stream in the audio thread
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        while let Ok(cmd) = cmd_rx.recv() {
+            match cmd {
+                AudioCommand::PlayFrame(frame) => {
+                    let source = FrameSource {
+                        frames: audio::from_i16(frame.samples),
+                        position: 0,
+                        sample_rate: format.sample_rate,
+                        channels: format.channels,
+                    };
+                    sink.append(source);
+                }
+                AudioCommand::Clear => {
+                    sink.clear();
+                    sink.play();
+                }
+                AudioCommand::Stop => break,
+            }
+        }
+
+        sink.sleep_until_end();
+    });
+
+    // Create async task to forward frames to the audio thread
+
+    async move {
+        while let Some(output) = output.recv().await {
+            match output {
+                Output::ServiceStarted { .. } => {}
+                Output::Audio { frame } => {
+                    if cmd_tx.send(AudioCommand::PlayFrame(frame)).is_err() {
+                        break;
+                    }
+                }
+                Output::Text { .. } => {}
+                Output::RequestCompleted => {}
+                Output::ClearAudio => {
+                    if cmd_tx.send(AudioCommand::Clear).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = cmd_tx.send(AudioCommand::Stop);
+        // TODO: this may block!
+        let _ = playback_thread.join();
+    }
 }
 
 struct FrameSource {
@@ -110,68 +206,4 @@ impl Source for FrameSource {
         let seconds = self.frames.len() as f32 / (self.sample_rate as f32 * self.channels as f32);
         Some(Duration::from_secs_f32(seconds))
     }
-}
-
-enum AudioCommand {
-    PlayFrame(AudioFrame),
-    Clear,
-    Stop,
-}
-
-async fn setup_audio_playback(
-    format: AudioFormat,
-) -> (AudioMsgProducer, impl std::future::Future<Output = ()>) {
-    let (producer, mut consumer) = format.new_msg_channel();
-
-    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
-
-    // Spawn a dedicated audio thread
-    let handle = thread::spawn(move || {
-        // Create output stream in the audio thread
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-
-        while let Ok(cmd) = cmd_rx.recv() {
-            match cmd {
-                AudioCommand::PlayFrame(frame) => {
-                    let source = FrameSource {
-                        frames: audio::from_i16(frame.samples),
-                        position: 0,
-                        sample_rate: format.sample_rate,
-                        channels: format.channels,
-                    };
-                    sink.append(source);
-                }
-                AudioCommand::Clear => {
-                    sink.clear();
-                    sink.play();
-                }
-                AudioCommand::Stop => break,
-            }
-        }
-
-        sink.sleep_until_end();
-    });
-
-    // Create async task to forward frames to the audio thread
-    let forward_task = async move {
-        while let Some(msg) = consumer.consume().await {
-            match msg {
-                AudioMsg::Frame(audio_frame) => {
-                    if cmd_tx.send(AudioCommand::PlayFrame(audio_frame)).is_err() {
-                        break;
-                    }
-                }
-                AudioMsg::Clear => {
-                    if cmd_tx.send(AudioCommand::Clear).is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-        let _ = cmd_tx.send(AudioCommand::Stop);
-        let _ = handle.join();
-    };
-
-    (producer, forward_task)
 }
