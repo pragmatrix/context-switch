@@ -20,6 +20,7 @@ pub struct Params {
     pub subscription_key: String,
     pub recognition_language: String,
     pub target_language: String,
+    pub target_voice: Option<String>,
 }
 
 #[derive(Debug)]
@@ -66,6 +67,7 @@ impl Service for AzureTranslate {
                 target_languages: vec![params.target_language],
                 output_format: translator::OutputFormat::Detailed,
                 synthesize: output_modalities.audio.is_some(),
+                synthesize_voice: params.target_voice,
                 profanity: translator::Profanity::Raw,
                 ..Default::default()
             }

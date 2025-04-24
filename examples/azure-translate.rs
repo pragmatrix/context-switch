@@ -71,6 +71,7 @@ async fn main() -> Result<()> {
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
         recognition_language: recognition_language.into(),
         target_language: target_language.into(),
+        target_voice: None,
     };
 
     let (output_sender, output_receiver) = channel(256);
