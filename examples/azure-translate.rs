@@ -59,8 +59,8 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let from_language = "de-DE";
-    let to_language = "en-US";
+    let recognition_language = "de-DE";
+    let target_language = "en-US";
 
     let service = AzureTranslate;
     // TODO: clarify how to access configurations.
@@ -69,8 +69,8 @@ async fn main() -> Result<()> {
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-        recognition_language: from_language.into(),
-        target_language: to_language.into(),
+        recognition_language: recognition_language.into(),
+        target_language: target_language.into(),
     };
 
     let (output_sender, output_receiver) = channel(256);
