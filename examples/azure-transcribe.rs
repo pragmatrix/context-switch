@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let language_code = "de-DE";
 
     // TODO: clarify how to access configurations.
-    let params = cs_azure::transcribe::Params {
+    let params = azure::transcribe::Params {
         host: None,
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")

@@ -22,8 +22,6 @@ use crate::conversation::Conversation;
 #[async_trait]
 pub trait Service: fmt::Debug {
     type Params: DeserializeOwned;
-    // const TYPE: ServiceType;
-
     /// Execute a conversation on this service.
     ///
     /// The conversation function takes `&self`. If exclusive access to the service implementation
@@ -34,12 +32,3 @@ pub trait Service: fmt::Debug {
     /// If invalid or unexpected input is received, the function **must** terminate with an error.
     async fn conversation(&self, params: Self::Params, conversation: Conversation) -> Result<()>;
 }
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// pub enum ServiceType {
-//     Synthesizer,
-//     Transcriber,
-//     SpeechDialog,
-//     SpeechTranslator,
-//     Unclassified,
-// }
