@@ -6,9 +6,9 @@ use futures::StreamExt;
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::{Host, synthesize::import_output_audio_format};
+use crate::Host;
 use context_switch_core::{
-    AudioFrame, Service,
+    AudioFormat, AudioFrame, OutputModality, Service,
     conversation::{Conversation, Input},
 };
 
@@ -31,7 +31,22 @@ impl Service for AzureTranslate {
 
     async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
         let input_format = conversation.require_audio_input()?;
-        conversation.require_single_audio_output()?;
+        let output_modalities = OutputModalities::from_modalities(&conversation.output_modalities)?;
+
+        // There is no way to change the translator's output audio format to be found, so we
+        // need to use 16khz.
+        const AUDIO_OUTPUT_FORMAT: AudioFormat = AudioFormat {
+            channels: 1,
+            sample_rate: 16000,
+        };
+
+        if let Some(audio_format) = output_modalities.audio {
+            if audio_format != AUDIO_OUTPUT_FORMAT {
+                bail!(
+                    "Only {AUDIO_OUTPUT_FORMAT:?} is supported, but output modalities contains {audio_format:?}"
+                );
+            }
+        }
 
         // Host / Auth is lightweight, so we can create this every time.
         let host = {
@@ -45,12 +60,12 @@ impl Service for AzureTranslate {
         };
 
         let config = {
+            // TODO: configure interim events
             translator::Config {
                 recognition_language: params.recognition_language,
                 target_languages: vec![params.target_language],
                 output_format: translator::OutputFormat::Detailed,
-                synthesize: true,
-                synthesize_format: import_output_audio_format(input_format)?,
+                synthesize: output_modalities.audio.is_some(),
                 profanity: translator::Profanity::Raw,
                 ..Default::default()
             }
@@ -95,11 +110,19 @@ impl Service for AzureTranslate {
                 Event::SessionEnded(_) => {}
                 Event::StartDetected(_, _) => {}
                 Event::EndDetected(_, _) => {}
-                Event::Translating(_, _text, _, _, _) => {}
-                Event::Translated(_, _text, _, _, _) => {}
+                Event::Translating(_, text, _, _, _) => {
+                    if output_modalities.interim_text {
+                        output.text(false, text)?;
+                    }
+                }
+                Event::Translated(_, text, _, _, _) => {
+                    if output_modalities.interim_text {
+                        output.text(true, text)?;
+                    }
+                }
                 Event::TranslationSynthesis(_, samples) => {
                     let frame = AudioFrame {
-                        format: input_format,
+                        format: AUDIO_OUTPUT_FORMAT,
                         samples,
                     };
                     debug!("Event: TranslationSynthesis {:?}", frame.duration());
@@ -107,6 +130,54 @@ impl Service for AzureTranslate {
                 }
                 Event::NoMatch(_, _, _, _) => {}
             }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct OutputModalities {
+    text: bool,
+    interim_text: bool,
+    audio: Option<AudioFormat>,
+}
+
+impl OutputModalities {
+    pub fn from_modalities(output_modalities: &[OutputModality]) -> Result<Self> {
+        let mut modalities = OutputModalities::default();
+        for modality in output_modalities {
+            match modality {
+                OutputModality::Audio { format } => {
+                    if modalities.audio.is_some() {
+                        bail!("At most one audio output is supported");
+                    }
+                    modalities.audio = Some(*format);
+                }
+                OutputModality::Text => {
+                    if modalities.text {
+                        bail!("at most one text output is supported");
+                    }
+                    modalities.text = true;
+                }
+                OutputModality::InterimText => {
+                    if modalities.interim_text {
+                        bail!("At most one interim text modality is supported")
+                    }
+                    modalities.interim_text = true;
+                }
+            }
+        }
+        modalities.validate()?;
+        Ok(modalities)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.interim_text && !self.text {
+            bail!("OutputModalities: InterimText requested without Text in output modalities")
+        }
+        if !self.text && !self.interim_text && self.audio.is_none() {
+            bail!("At least Text or Audio must be requested in output modalities");
         }
 
         Ok(())
