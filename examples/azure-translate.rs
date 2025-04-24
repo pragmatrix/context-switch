@@ -3,9 +3,9 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::Result;
+use azure::AzureTranslate;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cs_azure::AzureTranslate;
 use rodio::{OutputStream, Sink, Source};
 
 use context_switch_core::{
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
 
     let service = AzureTranslate;
     // TODO: clarify how to access configurations.
-    let params = cs_azure::translate::Params {
+    let params = azure::translate::Params {
         host: None,
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")

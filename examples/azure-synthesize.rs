@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
 
     // start
 
-    let params = cs_azure::synthesize::Params {
+    let params = azure::synthesize::Params {
         host: None,
         region: Some(env::var("AZURE_EXAMPLES_SYNTHESIZE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),

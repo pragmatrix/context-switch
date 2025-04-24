@@ -6,7 +6,6 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use context_switch_core::conversation::Conversation;
-use openai_dialog::OpenAIDialog;
 
 #[derive(Debug)]
 pub struct Registry {
@@ -17,12 +16,10 @@ impl Default for Registry {
     fn default() -> Self {
         Self {
             services: [
-                ("azure-transcribe", Box::new(cs_azure::AzureTranscribe) as _),
-                (
-                    "azure-synthesize",
-                    Box::new(cs_azure::synthesize::AzureSynthesize) as _,
-                ),
-                ("openai-dialog", Box::new(OpenAIDialog) as _),
+                ("azure-transcribe", Box::new(azure::AzureTranscribe) as _),
+                ("azure-synthesize", Box::new(azure::AzureSynthesize) as _),
+                ("azure-translate", Box::new(azure::AzureTranslate) as _),
+                ("openai-dialog", Box::new(openai_dialog::OpenAIDialog) as _),
             ]
             .into(),
         }

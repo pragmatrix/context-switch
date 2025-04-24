@@ -6,5 +6,5 @@ pub use context_switch::*;
 pub use protocol::*;
 
 pub mod services {
-    pub use cs_azure::AzureTranscribe;
+    pub use azure::AzureTranscribe;
 }

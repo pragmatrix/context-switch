@@ -19,7 +19,7 @@ members = [
 context-switch-core = { workspace = true }
 
 openai-dialog = { path = "services/openai-dialog" }
-cs-azure = { workspace = true }
+azure = { workspace = true }
 azure-speech = { workspace = true }
 
 # basic
@@ -52,7 +52,7 @@ cpal = "0.15.3"
 # audio output
 rodio = "0.20.1"
 
-cs-azure = { workspace = true }
+azure = { workspace = true }
 google-transcribe = { path = "services/google-transcribe" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -61,7 +61,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19" }
 
 context-switch-core = { path = "core" }
-cs-azure = { path = "services/azure" }
+azure = { path = "services/azure" }
 
 anyhow = "1.0.93"
 derive_more = { version = "1.0.0", features = ["full"] }
