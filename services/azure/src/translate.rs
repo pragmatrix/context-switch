@@ -85,19 +85,27 @@ impl Service for AzureTranslate {
             .await?;
 
         while let Some(event) = stream.next().await {
-            match event? {
+            let event = event?;
+            if !matches!(event, Event::TranslationSynthesis(..)) {
+                debug!("Event: {:?}", event);
+            }
+
+            match event {
                 Event::SessionStarted(_) => {}
                 Event::SessionEnded(_) => {}
                 Event::StartDetected(_, _) => {}
                 Event::EndDetected(_, _) => {}
+                Event::Translating(_, _text, _, _, _) => {}
+                Event::Translated(_, _text, _, _, _) => {}
                 Event::TranslationSynthesis(_, samples) => {
                     let frame = AudioFrame {
                         format: input_format,
                         samples,
                     };
+                    debug!("Event: TranslationSynthesis {:?}", frame.duration());
                     output.audio_frame(frame)?;
                 }
-                Event::UnMatch(_, _, _, _) => {}
+                Event::NoMatch(_, _, _, _) => {}
             }
         }
 
