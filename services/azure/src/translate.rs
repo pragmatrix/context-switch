@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::Host;
+use crate::{Host, synthesize::import_output_audio_format};
 use context_switch_core::{
     AudioFrame, Service,
     conversation::{Conversation, Input},
@@ -18,8 +18,8 @@ pub struct Params {
     pub host: Option<String>,
     pub region: Option<String>,
     pub subscription_key: String,
-    pub from_language: String,
-    pub to_language: String,
+    pub recognition_language: String,
+    pub target_language: String,
 }
 
 #[derive(Debug)]
@@ -44,13 +44,17 @@ impl Service for AzureTranslate {
             }
         };
 
-        let config = translator::Config::default()
-            // Disable profanity filter.
-            .set_profanity(translator::Profanity::Raw)
-            // TODO: may actually use the filter to check for supported languages?
-            .set_from_language(params.from_language)
-            // TODO: This is probably only for text output?
-            .set_output_format(translator::OutputFormat::Detailed);
+        let config = {
+            translator::Config {
+                recognition_language: params.recognition_language,
+                target_languages: vec![params.target_language],
+                output_format: translator::OutputFormat::Detailed,
+                synthesize: true,
+                synthesize_format: import_output_audio_format(input_format)?,
+                profanity: translator::Profanity::Raw,
+                ..Default::default()
+            }
+        };
 
         let client = translator::Client::connect(host.auth.clone(), config).await?;
 

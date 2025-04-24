@@ -69,8 +69,8 @@ async fn main() -> Result<()> {
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-        from_language: from_language.into(),
-        to_language: to_language.into(),
+        recognition_language: from_language.into(),
+        target_language: to_language.into(),
     };
 
     let (output_sender, output_receiver) = channel(256);

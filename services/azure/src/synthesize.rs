@@ -137,7 +137,7 @@ fn serialize_to_ssml(speak: &impl ssml::ssml::Serialize) -> azure_speech::Result
         .map_err(|e| azure_speech::Error::InternalError(e.to_string()))
 }
 
-fn import_output_audio_format(
+pub fn import_output_audio_format(
     audio_format: context_switch_core::AudioFormat,
 ) -> Result<AudioFormat> {
     if audio_format.channels != 1 {
