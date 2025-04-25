@@ -37,11 +37,6 @@ use context_switch::{ClientEvent, ContextSwitch, ConversationId, InputModality, 
 use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
 
 const DEFAULT_PORT: u16 = 8123;
-/// For now we always assume only 1 channel (mono) and 16khz sent from mod_audio_fork.
-pub const DEFAULT_FORMAT: AudioFormat = AudioFormat {
-    channels: 1,
-    sample_rate: 16000,
-};
 
 #[tokio::main]
 async fn main() -> Result<()> {
