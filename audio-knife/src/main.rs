@@ -84,7 +84,10 @@ async fn main() -> Result<()> {
     info!("Listening on {:?}", addr);
 
     select! {
-        r = axum::serve(listener, app) => {
+        // IMPORTANT: set TCP_NODELAY, this does set it on _every_ incoming connection. We need to
+        // disable the Nagle algorithm to properly support low latency live streaming small audio
+        // packets.
+        r = axum::serve(listener, app).tcp_nodelay(true) => {
             info!("Axum server ended");
             r?
         },
