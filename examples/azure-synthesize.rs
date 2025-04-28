@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 
     let start = ClientEvent::Start {
         id: conversation_id.clone(),
-        endpoint: "azure-synthesize".into(),
+        service: "azure-synthesize".into(),
         params,
         input_modality: context_switch::InputModality::Text,
         output_modalities: [OutputModality::Audio {

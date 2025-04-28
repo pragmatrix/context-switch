@@ -17,7 +17,7 @@ pub enum ClientEvent {
     Start {
         id: ConversationId,
         /// The service to select.
-        endpoint: String,
+        service: String,
         /// The service parameters.
         params: serde_json::Value,
         /// Input modality.
