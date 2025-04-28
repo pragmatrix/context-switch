@@ -129,7 +129,7 @@ impl ContextSwitch {
     ) -> Result<ServerEvent> {
         let ClientEvent::Start {
             id: conversation_id,
-            endpoint: service,
+            service,
             params,
             input_modality,
             output_modalities,

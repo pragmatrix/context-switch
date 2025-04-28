@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         sample_rate: 16000,
     };
 
-    let language_code = "en-US";
+    let language = "en-US";
 
     let text = "In a small village, surrounded by dense forests and gentle hills, there once lived an inventive tinkerer who built machines that amazed people.";
 
@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         host: None,
         region: Some(env::var("AZURE_EXAMPLES_SYNTHESIZE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
-        language_code: language_code.to_string(),
+        language: language.to_string(),
         voice: None,
     };
 
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 
     let start = ClientEvent::Start {
         id: conversation_id.clone(),
-        endpoint: "azure-synthesize".into(),
+        service: "azure-synthesize".into(),
         params,
         input_modality: context_switch::InputModality::Text,
         output_modalities: [OutputModality::Audio {

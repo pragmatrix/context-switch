@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language_code = "de-DE";
+    let language = "de-DE";
 
     // TODO: clarify how to access configurations.
     let params = azure::transcribe::Params {
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-        language_code: language_code.into(),
+        language: language.into(),
     };
 
     let (output_producer, mut output_consumer) = channel(32);

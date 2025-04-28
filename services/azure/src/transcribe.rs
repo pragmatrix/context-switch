@@ -17,7 +17,7 @@ pub struct Params {
     pub host: Option<String>,
     pub region: Option<String>,
     pub subscription_key: String,
-    pub language_code: String,
+    pub language: String,
 }
 
 #[derive(Debug)]
@@ -47,7 +47,7 @@ impl Service for AzureTranscribe {
             .set_profanity(recognizer::Profanity::Raw)
             // short-circuit language filter.
             // TODO: may actually use the filter to check for supported languages?
-            .set_language(recognizer::Language::Custom(params.language_code))
+            .set_language(recognizer::Language::Custom(params.language))
             .set_output_format(recognizer::OutputFormat::Detailed);
 
         let client = recognizer::Client::connect(host.auth.clone(), config).await?;

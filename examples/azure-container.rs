@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
 
     todo!("Port the following code to use the service API");
 
-    //    let language_code = "en-US";
+    //    let language = "en-US";
 
     // Azure
     //{
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     // let key = env::var("AZURE_SUBSCRIPTION_KEY").unwrap();
 
     // let host = azure::Host::from_host(host, key)?;
-    // let mut client = host.connect_recognizer(language_code).await?;
+    // let mut client = host.connect_recognizer(language).await?;
     // let stream = client.transcribe(consumer).await?;
     // pin_mut!(stream);
     // while let Some(msg) = stream.next().await {
