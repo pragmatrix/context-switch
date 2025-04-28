@@ -8,6 +8,7 @@ members = [
     "audio-knife", 
     "audio-test",
     "core",
+    "services/aristech",
     "services/azure",
     "services/google-transcribe", 
     "services/openai-dialog", 
@@ -35,7 +36,7 @@ derive_more = { workspace = true }
 
 # serialization / async runtime
 
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.133"
 tokio = { workspace = true }
 async-trait = { workspace = true }
