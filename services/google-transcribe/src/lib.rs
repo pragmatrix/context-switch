@@ -116,7 +116,7 @@ impl TranscribeClient {
     pub async fn transcribe(
         &mut self,
         model: &str,
-        language_code: &str,
+        language: &str,
         mut audio_consumer: AudioConsumer,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
         let decoding_config = ExplicitDecodingConfig {
@@ -129,7 +129,7 @@ impl TranscribeClient {
         let recognition_config = RecognitionConfig {
             // TODO: configure
             model: model.into(),
-            language_codes: vec![language_code.into()],
+            language_codes: vec![language.into()],
             features: None,
             adaptation: None,
             transcript_normalization: None,

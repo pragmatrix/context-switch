@@ -22,7 +22,7 @@ pub struct Params {
     pub host: Option<String>,
     pub region: Option<String>,
     pub subscription_key: String,
-    pub language_code: String,
+    pub language: String,
     pub voice: Option<String>,
 }
 
@@ -41,7 +41,7 @@ impl Service for AzureSynthesize {
         // Resolve default voice if none is set.
         let voice = match params.voice {
             Some(voice) => voice,
-            None => resolve_default_voice(&params.language_code)?.to_string(),
+            None => resolve_default_voice(&params.language)?.to_string(),
         };
 
         // Host / Auth is lightweight, so we can create this every time.
@@ -63,7 +63,7 @@ impl Service for AzureSynthesize {
 
         let client = synthesizer::Client::connect(host.auth.clone(), config).await?;
 
-        let language = params.language_code;
+        let language = params.language;
         let (mut input, output) = conversation.start()?;
 
         loop {
