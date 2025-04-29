@@ -43,7 +43,6 @@ async-trait = { workspace = true }
 
 # todo: is this needed?
 uuid = "1.11.0"
-tokio-stream = "0.1.17"
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
@@ -56,6 +55,7 @@ cpal = "0.15.3"
 rodio = { workspace = true, features = ["playback"] }
 
 azure = { workspace = true }
+aristech = { workspace = true }
 google-transcribe = { path = "services/google-transcribe" }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -12,3 +12,5 @@ serde = { workspace = true }
 futures = { workspace = true }
 context-switch-core = { workspace = true }
 aristech-stt-client = "3.1.0"
+tokio-stream = "0.1.17"
+tonic = "0.13.0"
