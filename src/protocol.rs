@@ -41,16 +41,10 @@ pub enum ClientEvent {
 impl ClientEvent {
     pub fn conversation_id(&self) -> &ConversationId {
         match self {
-            ClientEvent::Start { id, .. } => id,
-            ClientEvent::Stop { id } => id,
-            ClientEvent::Audio {
-                id: conversation_id,
-                ..
-            } => conversation_id,
-            ClientEvent::Text {
-                id: conversation_id,
-                ..
-            } => conversation_id,
+            ClientEvent::Start { id, .. }
+            | ClientEvent::Stop { id, .. }
+            | ClientEvent::Audio { id, .. }
+            | ClientEvent::Text { id, .. } => id,
         }
     }
 }
