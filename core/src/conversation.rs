@@ -119,13 +119,26 @@ impl ConversationOutput {
 pub enum Input {
     Audio { frame: AudioFrame },
     Text { text: String },
+    FunctionCallResult { call_id: String, result: String },
 }
 
 #[derive(Debug)]
 pub enum Output {
-    ServiceStarted { modalities: Vec<OutputModality> },
-    Audio { frame: AudioFrame },
-    Text { is_final: bool, text: String },
+    ServiceStarted {
+        modalities: Vec<OutputModality>,
+    },
+    Audio {
+        frame: AudioFrame,
+    },
+    Text {
+        is_final: bool,
+        text: String,
+    },
     RequestCompleted,
     ClearAudio,
+    FunctionCall {
+        name: String,
+        call_id: String,
+        arguments: serde_json::Value,
+    },
 }

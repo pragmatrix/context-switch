@@ -10,3 +10,5 @@ async-trait = { workspace = true }
 derive_more = { workspace = true }
 
 serde = { workspace = true }
+# For function calling parameters.
+serde_json = { workspace = true }

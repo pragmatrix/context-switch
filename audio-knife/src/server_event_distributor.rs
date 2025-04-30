@@ -18,7 +18,7 @@ impl ServerEventDistributor {
         match self.conversation_targets.get(conversation) {
             Some(target) => match &target.redirect_output_to {
                 // May redirect if this is an output event.
-                Some(redirect_output) if Self::is_output_event(&event) => {
+                Some(redirect_output) if Self::may_be_redirected(&event) => {
                     if let Some(redir_target) = self.conversation_targets.get(redirect_output) {
                         redir_target.target.try_send(event)?
                     } else {
@@ -63,7 +63,7 @@ impl ServerEventDistributor {
         Ok(())
     }
 
-    fn is_output_event(event: &ServerEvent) -> bool {
+    fn may_be_redirected(event: &ServerEvent) -> bool {
         match event {
             ServerEvent::Started { .. }
             | ServerEvent::Stopped { .. }
@@ -72,6 +72,9 @@ impl ServerEventDistributor {
             | ServerEvent::Text { .. }
             | ServerEvent::RequestCompleted { .. }
             | ServerEvent::ClearAudio { .. } => true,
+            // Function calls are _always_ meant to be handled by the conversation that started the redirection.
+            // It's actually not part of the output, but part of the input.
+            ServerEvent::FunctionCall { .. } => false,
         }
     }
 }

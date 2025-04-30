@@ -84,6 +84,13 @@ pub enum ServerEvent {
     ClearAudio {
         id: ConversationId,
     },
+    /// Call a function
+    FunctionCall {
+        id: ConversationId,
+        name: String,
+        call_id: String,
+        arguments: serde_json::Value,
+    },
 }
 
 impl ServerEvent {
@@ -95,7 +102,8 @@ impl ServerEvent {
             | ServerEvent::Audio { id, .. }
             | ServerEvent::Text { id, .. }
             | ServerEvent::RequestCompleted { id }
-            | ServerEvent::ClearAudio { id } => id,
+            | ServerEvent::ClearAudio { id }
+            | ServerEvent::FunctionCall { id, .. } => id,
         }
     }
 }
