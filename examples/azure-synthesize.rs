@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
 
     let params = azure::synthesize::Params {
         host: None,
-        region: Some(env::var("AZURE_EXAMPLES_SYNTHESIZE_REGION").unwrap()),
+        region: Some(env::var("AZURE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
         language: language.to_string(),
         voice: None,
