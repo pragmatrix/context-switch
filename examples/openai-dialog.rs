@@ -2,7 +2,7 @@
 
 use std::{env, str::FromStr, thread, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -19,6 +19,7 @@ use tokio::{
     select,
     sync::mpsc::{Receiver, Sender, channel},
 };
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -167,13 +168,12 @@ async fn setup_audio_playback(
                 Output::FunctionCall {
                     name,
                     call_id,
-                    arguments: params,
+                    arguments,
                 } => {
-                    let output = call_function(&name, params)?;
-                    input.try_send(Input::FunctionCallResult {
-                        call_id,
-                        result: output,
-                    })?;
+                    info!("Processing function `{name}` with arguments `{arguments:?}`");
+                    let result = call_function(&name, arguments)?;
+                    info!("Function result: {result}");
+                    input.try_send(Input::FunctionCallResult { call_id, result })?;
                 }
             }
         }
@@ -201,12 +201,16 @@ fn get_time_function_definition() -> types::ToolDefinition {
     }
 }
 
-fn call_function(name: &str, params: serde_json::Value) -> Result<String> {
+fn call_function(name: &str, arguments: Option<serde_json::Value>) -> Result<String> {
+    let arguments = arguments.context("No arguments provided for function call")?;
     if name != "get_time" {
         bail!("Unknown function: {name}");
     }
-    let location = params["location"].to_string();
-    let tz = chrono_tz::Tz::from_str(&location)?;
+    let location = arguments["location"]
+        .as_str()
+        .context("Invalid or missing 'location' field in arguments")?;
+    let tz = chrono_tz::Tz::from_str(location)
+        .with_context(|| format!("Unknown time zone: {location}"))?;
 
     let now = Utc::now().with_timezone(&tz);
     Ok(now.format("%H:%M:%S").to_string())

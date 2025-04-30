@@ -89,7 +89,7 @@ pub enum ServerEvent {
         id: ConversationId,
         name: String,
         call_id: String,
-        arguments: serde_json::Value,
+        arguments: Option<serde_json::Value>,
     },
 }
 

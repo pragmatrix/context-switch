@@ -110,6 +110,19 @@ impl ConversationOutput {
         self.post(Output::RequestCompleted)
     }
 
+    pub fn function_call(
+        &self,
+        name: String,
+        call_id: String,
+        arguments: Option<serde_json::Value>,
+    ) -> Result<()> {
+        self.post(Output::FunctionCall {
+            name,
+            call_id,
+            arguments,
+        })
+    }
+
     fn post(&self, output: Output) -> Result<()> {
         Ok(self.output.try_send(output)?)
     }
@@ -139,6 +152,9 @@ pub enum Output {
     FunctionCall {
         name: String,
         call_id: String,
-        arguments: serde_json::Value,
+        /// `None` if none were defined. The Option here is used because we should avoid
+        /// representing `None` as `null`, as `null` could occur when there is a single parameter
+        /// that is optional according to the JSON schema.
+        arguments: Option<serde_json::Value>,
     },
 }

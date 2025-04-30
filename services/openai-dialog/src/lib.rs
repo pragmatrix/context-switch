@@ -14,7 +14,7 @@ use futures::{
 use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{self, ClientEvent},
-    server_event::ServerEvent,
+    server_event::{self, ServerEvent},
     types,
 };
 use serde::{Deserialize, Serialize};
@@ -331,8 +331,41 @@ impl Client {
                     output.audio_frame(frame)?;
                 }
                 ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+                ServerEvent::ResponseDone(server_event::ResponseDone {
+                    response:
+                        types::Response {
+                            object,
+                            status: types::ResponseStatus::Completed,
+                            output: items,
+                            ..
+                        },
+                    ..
+                }) if object == "realtime.response" && !items.is_empty() => {
+                    for item in items {
+                        if item.r#type != Some(types::ItemType::FunctionCall)
+                            || item.status != Some(types::ItemStatus::Completed)
+                        {
+                            continue;
+                        }
+                        let (Some(name), Some(call_id)) = (item.name, item.call_id) else {
+                            continue;
+                        };
+                        let arguments: Option<serde_json::Value> = {
+                            match item.arguments {
+                                Some(arguments) => {
+                                    let Ok(arguments) = serde_json::from_str(&arguments) else {
+                                        continue;
+                                    };
+                                    Some(arguments)
+                                }
+                                None => None,
+                            }
+                        };
+                        output.function_call(name, call_id, arguments)?;
+                    }
+                }
                 response => {
-                    debug!("Response: {:?}", response)
+                    debug!("Unhandled response: {:?}", response)
                 }
             },
             Message::Ping(data) => {
