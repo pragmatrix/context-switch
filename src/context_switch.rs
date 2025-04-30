@@ -192,6 +192,10 @@ impl ContextSwitch {
                                     bail!("Received unexpected Text");
                                 }
                             },
+                            ClientEvent::FunctionCallOutput{ call_id, output, ..} => {
+                                // TODO: May check if the service actually supports that?
+                                input_sender.try_send(Input::FunctionCallOutput { call_id, output })?;
+                            }
                         }
                     } else {
                         bail!("No more input")

@@ -172,8 +172,11 @@ async fn setup_audio_playback(
                 } => {
                     info!("Processing function `{name}` with arguments `{arguments:?}`");
                     let result = call_function(&name, arguments)?;
-                    info!("Function result: {result}");
-                    input.try_send(Input::FunctionCallResult { call_id, result })?;
+                    info!("Function result: `{result}`");
+                    input.try_send(Input::FunctionCallOutput {
+                        call_id,
+                        output: serde_json::Value::String(result),
+                    })?;
                 }
             }
         }

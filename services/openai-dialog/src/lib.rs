@@ -204,9 +204,29 @@ impl Client {
             select! {
                 input = input.recv() => {
                     if let Some(input) = input {
-                        if let Input::Audio { frame } = input {
-                            // debug!("Sending frame: {:?}", audio_frame.duration());
-                            self.send_frame(frame).await?;
+                        match input {
+                             Input::Audio { frame } => {
+                                // debug!("Sending frame: {:?}", audio_frame.duration());
+                                self.send_frame(frame).await?;
+                            }
+                            Input::FunctionCallOutput { call_id, output } => {
+                                debug!("Sending function call output");
+                                self.send_client_event(ClientEvent::ConversationItemCreate(
+                                    client_event::ConversationItemCreate {
+                                       item: types::Item {
+                                        r#type: Some(types::ItemType::FunctionCallOutput),
+                                        call_id: Some(call_id),
+                                        // TODO: Is there a need for error handling here?
+                                        output: serde_json::to_string(&output).ok(),
+                                        .. Default::default() },
+                                        .. Default::default()
+                                    })).await?;
+                                // TODO: Should we wait for ConversationItemCreated?
+                                self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
+                            }
+                            _ => {
+
+                            }
                         }
                     } else {
                         // No more audio, end the session.

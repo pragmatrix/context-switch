@@ -36,6 +36,11 @@ pub enum ClientEvent {
         id: ConversationId,
         content: String,
     },
+    FunctionCallOutput {
+        id: ConversationId,
+        call_id: String,
+        output: serde_json::Value,
+    },
 }
 
 impl ClientEvent {
@@ -44,7 +49,8 @@ impl ClientEvent {
             ClientEvent::Start { id, .. }
             | ClientEvent::Stop { id, .. }
             | ClientEvent::Audio { id, .. }
-            | ClientEvent::Text { id, .. } => id,
+            | ClientEvent::Text { id, .. }
+            | ClientEvent::FunctionCallOutput { id, .. } => id,
         }
     }
 }

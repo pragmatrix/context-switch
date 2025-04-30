@@ -130,9 +130,16 @@ impl ConversationOutput {
 
 #[derive(Debug)]
 pub enum Input {
-    Audio { frame: AudioFrame },
-    Text { text: String },
-    FunctionCallResult { call_id: String, result: String },
+    Audio {
+        frame: AudioFrame,
+    },
+    Text {
+        text: String,
+    },
+    FunctionCallOutput {
+        call_id: String,
+        output: serde_json::Value,
+    },
 }
 
 #[derive(Debug)]
