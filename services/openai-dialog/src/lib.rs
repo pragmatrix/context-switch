@@ -13,7 +13,7 @@ use futures::{
 };
 use openai_api_rs::realtime::{
     api::RealtimeClient,
-    client_event::{ClientEvent, InputAudioBufferAppend},
+    client_event::{self, ClientEvent},
     server_event::ServerEvent,
     types,
 };
@@ -36,6 +36,21 @@ pub struct Params {
     pub api_key: String,
     pub model: String,
     pub host: Option<String>,
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub tools: Vec<types::ToolDefinition>,
+}
+
+impl Params {
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+            model: model.into(),
+            host: None,
+            instructions: None,
+            tools: vec![],
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -66,7 +81,14 @@ impl Service for OpenAIDialog {
         let (input, output) = conversation.start()?;
 
         client
-            .dialog(input_format, output_format, input, output)
+            .dialog(
+                input_format,
+                output_format,
+                params.instructions,
+                params.tools,
+                input,
+                output,
+            )
             .await?;
 
         Ok(())
@@ -125,6 +147,8 @@ impl Client {
         &mut self,
         input_format: AudioFormat,
         output_format: AudioFormat,
+        instructions: Option<String>,
+        tools: Vec<types::ToolDefinition>,
         mut input: ConversationInput,
         output: ConversationOutput,
     ) -> Result<()> {
@@ -151,6 +175,30 @@ impl Client {
         Self::verify_session_created_event(message)?;
 
         debug!("Session created");
+
+        {
+            let mut send_update = false;
+            let mut session = types::Session::default();
+
+            if let Some(instructions) = instructions {
+                session.instructions = Some(instructions);
+                send_update = true;
+            };
+
+            if !tools.is_empty() {
+                session.tools = Some(tools);
+                send_update = true;
+            }
+
+            if send_update {
+                self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
+                    event_id: None,
+                    session,
+                }))
+                .await?;
+                debug!("Session updated");
+            }
+        }
 
         loop {
             select! {
@@ -241,7 +289,7 @@ impl Client {
         let samples = mono.samples;
         let samples_le = audio::to_le_bytes(samples);
 
-        let event = InputAudioBufferAppend {
+        let event = client_event::InputAudioBufferAppend {
             event_id: None,
             audio: BASE64_STANDARD.encode(samples_le),
         };
@@ -251,6 +299,12 @@ impl Client {
         );
 
         self.write.send(message).await?;
+        Ok(())
+    }
+
+    async fn send_client_event(&mut self, client_event: ClientEvent) -> Result<()> {
+        let json = serde_json::to_string(&client_event)?;
+        self.write.send(Message::Text(json.into())).await?;
         Ok(())
     }
 

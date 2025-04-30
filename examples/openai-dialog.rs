@@ -62,11 +62,7 @@ async fn main() -> Result<()> {
     let model = env::var("OPENAI_REALTIME_API_MODEL").unwrap();
 
     let openai = OpenAIDialog;
-    let params = openai_dialog::Params {
-        api_key: key,
-        model,
-        host: None,
-    };
+    let params = openai_dialog::Params::new(key, model);
 
     let (output_sender, output_receiver) = channel(256);
 
