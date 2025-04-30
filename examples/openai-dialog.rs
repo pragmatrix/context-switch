@@ -19,7 +19,8 @@ use tokio::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv()?;
+    dotenvy::dotenv_override()?;
+    tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
     let device = host
