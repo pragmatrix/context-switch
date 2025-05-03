@@ -381,7 +381,7 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.function_call(name, call_id, arguments)?;
+                        output.call_function(name, call_id, arguments)?;
                     }
                 }
                 response => {

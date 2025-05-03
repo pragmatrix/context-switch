@@ -110,13 +110,13 @@ impl ConversationOutput {
         self.post(Output::RequestCompleted)
     }
 
-    pub fn function_call(
+    pub fn call_function(
         &self,
         name: String,
         call_id: String,
         arguments: Option<serde_json::Value>,
     ) -> Result<()> {
-        self.post(Output::FunctionCall {
+        self.post(Output::CallFunction {
             name,
             call_id,
             arguments,
@@ -156,7 +156,7 @@ pub enum Output {
     },
     RequestCompleted,
     ClearAudio,
-    FunctionCall {
+    CallFunction {
         name: String,
         call_id: String,
         /// `None` if none were defined. The Option here is used because we should avoid

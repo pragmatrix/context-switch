@@ -279,7 +279,7 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
         },
         Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
         Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
-        Output::FunctionCall {
+        Output::CallFunction {
             name,
             call_id,
             arguments,

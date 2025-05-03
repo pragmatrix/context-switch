@@ -172,7 +172,7 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::FunctionCall { .. } => {}
+                Output::CallFunction { .. } => {}
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);

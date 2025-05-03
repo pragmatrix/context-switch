@@ -165,7 +165,7 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::FunctionCall {
+                Output::CallFunction {
                     name,
                     call_id,
                     arguments,
