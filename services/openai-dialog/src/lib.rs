@@ -95,6 +95,30 @@ impl Service for OpenAIDialog {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CustomOutput {
+    #[serde(rename_all = "camelCase")]
+    FunctionCall {
+        call_id: String,
+        name: String,
+        /// `None` if none were defined. `Option` here is used because we should avoid representing
+        /// `None` as `null`, as `null` could occur when there is a single parameter that is
+        /// optional according to the JSON schema.
+        arguments: Option<serde_json::Value>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CustomInput {
+    #[serde(rename_all = "camelCase")]
+    FunctionCallResult {
+        call_id: String,
+        output: serde_json::Value,
+    },
+}
+
 pub struct Host {
     client: RealtimeClient,
 }
@@ -205,25 +229,29 @@ impl Client {
                 input = input.recv() => {
                     if let Some(input) = input {
                         match input {
-                             Input::Audio { frame } => {
+                            Input::Audio { frame } => {
                                 // debug!("Sending frame: {:?}", audio_frame.duration());
                                 self.send_frame(frame).await?;
-                            }
-                            Input::FunctionCallOutput { call_id, output } => {
-                                debug!("Sending function call output");
-                                self.send_client_event(ClientEvent::ConversationItemCreate(
-                                    client_event::ConversationItemCreate {
-                                       item: types::Item {
-                                        r#type: Some(types::ItemType::FunctionCallOutput),
-                                        call_id: Some(call_id),
-                                        // TODO: Is there a need for error handling here?
-                                        output: serde_json::to_string(&output).ok(),
-                                        .. Default::default() },
-                                        .. Default::default()
-                                    })).await?;
-                                // TODO: Should we wait for ConversationItemCreated?
-                                self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
-                            }
+                            },
+                            Input::Event {value} => {
+                                match serde_json::from_value(value)? {
+                                    CustomInput::FunctionCallResult { call_id, output } => {
+                                        debug!("Sending function call output");
+                                        self.send_client_event(ClientEvent::ConversationItemCreate(
+                                            client_event::ConversationItemCreate {
+                                            item: types::Item {
+                                                r#type: Some(types::ItemType::FunctionCallOutput),
+                                                call_id: Some(call_id),
+                                                // TODO: Is there a need for error handling here?
+                                                output: serde_json::to_string(&output).ok(),
+                                                .. Default::default() },
+                                                .. Default::default()
+                                            })).await?;
+                                        // TODO: Should we wait for ConversationItemCreated?
+                                        self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
+                                    }
+                                }
+                            },
                             _ => {
 
                             }
@@ -381,7 +409,11 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.call_function(name, call_id, arguments)?;
+                        output.event(CustomOutput::FunctionCall {
+                            name,
+                            call_id,
+                            arguments,
+                        })?;
                     }
                 }
                 response => {

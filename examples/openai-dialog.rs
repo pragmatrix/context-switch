@@ -7,7 +7,7 @@ use chrono::Utc;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use openai_api_rs::realtime::types;
-use openai_dialog::OpenAIDialog;
+use openai_dialog::{CustomInput, CustomOutput, OpenAIDialog};
 use rodio::{OutputStream, Sink, Source};
 
 use context_switch_core::{
@@ -165,19 +165,23 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::CallFunction {
-                    name,
-                    call_id,
-                    arguments,
-                } => {
-                    info!("Processing function `{name}` with arguments `{arguments:?}`");
-                    let result = call_function(&name, arguments)?;
-                    info!("Function result: `{result}`");
-                    input.try_send(Input::FunctionCallOutput {
+                Output::Event { value } => match serde_json::from_value(value)? {
+                    CustomOutput::FunctionCall {
+                        name,
                         call_id,
-                        output: serde_json::Value::String(result),
-                    })?;
-                }
+                        arguments,
+                    } => {
+                        info!("Processing function `{name}` with arguments `{arguments:?}`");
+                        let result = call_function(&name, arguments)?;
+                        info!("Function result: `{result}`");
+                        let value = CustomInput::FunctionCallResult {
+                            call_id,
+                            output: serde_json::Value::String(result),
+                        };
+                        let value = serde_json::to_value(&value)?;
+                        input.try_send(Input::Event { value })?;
+                    }
+                },
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);

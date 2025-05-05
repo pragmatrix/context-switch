@@ -73,6 +73,12 @@ pub enum ServerEvent {
         id: ConversationId,
         samples: Samples,
     },
+    /// Clear all buffered audio data on the client. This typically occurs when a dialog is
+    /// interrupted by the client. Upon receiving this event, the client must discard all buffered
+    /// audio and immediately play any subsequent audio samples.
+    ClearAudio {
+        id: ConversationId,
+    },
     #[serde(rename_all = "camelCase")]
     Text {
         id: ConversationId,
@@ -84,18 +90,10 @@ pub enum ServerEvent {
     RequestCompleted {
         id: ConversationId,
     },
-    /// Clear all buffered audio data on the client. This typically occurs when a dialog is
-    /// interrupted by the client. Upon receiving this event, the client must discard all buffered
-    /// audio and immediately play any subsequent audio samples.
-    ClearAudio {
+    /// A custom event
+    Event {
         id: ConversationId,
-    },
-    /// Call a function
-    FunctionCall {
-        id: ConversationId,
-        name: String,
-        call_id: String,
-        arguments: Option<serde_json::Value>,
+        value: serde_json::Value,
     },
 }
 
@@ -109,7 +107,7 @@ impl ServerEvent {
             | ServerEvent::Text { id, .. }
             | ServerEvent::RequestCompleted { id }
             | ServerEvent::ClearAudio { id }
-            | ServerEvent::FunctionCall { id, .. } => id,
+            | ServerEvent::Event { id, .. } => id,
         }
     }
 }

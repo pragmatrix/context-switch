@@ -69,12 +69,15 @@ impl ServerEventDistributor {
             | ServerEvent::Stopped { .. }
             | ServerEvent::Error { .. } => false,
             ServerEvent::Audio { .. }
-            | ServerEvent::Text { .. }
-            | ServerEvent::RequestCompleted { .. }
-            | ServerEvent::ClearAudio { .. } => true,
-            // Function calls are _always_ meant to be handled by the conversation that started the redirection.
+            | ServerEvent::ClearAudio { .. }
+            | ServerEvent::Text { .. } => true,
+            // Text got initiated by the client, so RequestedCompleted must notify the client, not
+            // the redirected target.
+            ServerEvent::RequestCompleted { .. }
+            // Custom events are _always_ meant to be handled by the conversation that started the redirection.
             // It's actually not part of the output, but part of the input.
-            ServerEvent::FunctionCall { .. } => false,
+            // (There could be exceptions).
+            | ServerEvent::Event { .. } => false,
         }
     }
 }

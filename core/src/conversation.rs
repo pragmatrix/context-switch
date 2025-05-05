@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use serde::Serialize;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
@@ -110,17 +111,10 @@ impl ConversationOutput {
         self.post(Output::RequestCompleted)
     }
 
-    pub fn call_function(
-        &self,
-        name: String,
-        call_id: String,
-        arguments: Option<serde_json::Value>,
-    ) -> Result<()> {
-        self.post(Output::CallFunction {
-            name,
-            call_id,
-            arguments,
-        })
+    /// Output a custom event object.
+    pub fn event(&self, value: impl Serialize) -> Result<()> {
+        let value = serde_json::to_value(&value)?;
+        self.post(Output::Event { value })
     }
 
     fn post(&self, output: Output) -> Result<()> {
@@ -130,38 +124,17 @@ impl ConversationOutput {
 
 #[derive(Debug)]
 pub enum Input {
-    Audio {
-        frame: AudioFrame,
-    },
-    Text {
-        text: String,
-    },
-    FunctionCallOutput {
-        call_id: String,
-        output: serde_json::Value,
-    },
+    Audio { frame: AudioFrame },
+    Text { text: String },
+    Event { value: serde_json::Value },
 }
 
 #[derive(Debug)]
 pub enum Output {
-    ServiceStarted {
-        modalities: Vec<OutputModality>,
-    },
-    Audio {
-        frame: AudioFrame,
-    },
-    Text {
-        is_final: bool,
-        text: String,
-    },
+    ServiceStarted { modalities: Vec<OutputModality> },
+    Audio { frame: AudioFrame },
+    Text { is_final: bool, text: String },
     RequestCompleted,
     ClearAudio,
-    CallFunction {
-        name: String,
-        call_id: String,
-        /// `None` if none were defined. The Option here is used because we should avoid
-        /// representing `None` as `null`, as `null` could occur when there is a single parameter
-        /// that is optional according to the JSON schema.
-        arguments: Option<serde_json::Value>,
-    },
+    Event { value: serde_json::Value },
 }
