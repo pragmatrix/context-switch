@@ -8,5 +8,6 @@ pub use context_switch_core::*;
 pub use protocol::*;
 
 pub mod services {
+    pub use aristech::AristechTranscribe;
     pub use azure::AzureTranscribe;
 }
