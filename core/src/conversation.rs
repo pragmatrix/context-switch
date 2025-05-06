@@ -112,7 +112,7 @@ impl ConversationOutput {
     }
 
     /// Output a custom event object.
-    pub fn custom(&self, value: impl Serialize) -> Result<()> {
+    pub fn custom_event(&self, value: impl Serialize) -> Result<()> {
         let value = serde_json::to_value(&value)?;
         self.post(Output::Custom { value })
     }

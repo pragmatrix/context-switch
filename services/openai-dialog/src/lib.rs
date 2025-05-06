@@ -422,7 +422,7 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.custom(CustomOutput::FunctionCall {
+                        output.custom_event(CustomOutput::FunctionCall {
                             name,
                             call_id,
                             arguments,
