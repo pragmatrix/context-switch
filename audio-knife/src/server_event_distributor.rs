@@ -77,7 +77,7 @@ impl ServerEventDistributor {
             // Custom events are _always_ meant to be handled by the conversation that started the redirection.
             // It's actually not part of the output, but part of the input.
             // (There could be exceptions).
-            | ServerEvent::Event { .. } => false,
+            | ServerEvent::Custom { .. } => false,
         }
     }
 }

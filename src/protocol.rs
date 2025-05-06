@@ -36,10 +36,9 @@ pub enum ClientEvent {
         id: ConversationId,
         content: String,
     },
-    FunctionCallOutput {
+    Custom {
         id: ConversationId,
-        call_id: String,
-        output: serde_json::Value,
+        value: serde_json::Value,
     },
 }
 
@@ -50,7 +49,7 @@ impl ClientEvent {
             | ClientEvent::Stop { id, .. }
             | ClientEvent::Audio { id, .. }
             | ClientEvent::Text { id, .. }
-            | ClientEvent::FunctionCallOutput { id, .. } => id,
+            | ClientEvent::Custom { id, .. } => id,
         }
     }
 }
@@ -91,7 +90,7 @@ pub enum ServerEvent {
         id: ConversationId,
     },
     /// A custom event
-    Event {
+    Custom {
         id: ConversationId,
         value: serde_json::Value,
     },
@@ -107,7 +106,7 @@ impl ServerEvent {
             | ServerEvent::Text { id, .. }
             | ServerEvent::RequestCompleted { id }
             | ServerEvent::ClearAudio { id }
-            | ServerEvent::Event { id, .. } => id,
+            | ServerEvent::Custom { id, .. } => id,
         }
     }
 }

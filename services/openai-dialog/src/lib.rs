@@ -233,7 +233,7 @@ impl Client {
                                 // debug!("Sending frame: {:?}", audio_frame.duration());
                                 self.send_frame(frame).await?;
                             },
-                            Input::Event {value} => {
+                            Input::Custom {value} => {
                                 match serde_json::from_value(value)? {
                                     CustomInput::FunctionCallResult { call_id, output } => {
                                         debug!("Sending function call output");
@@ -409,7 +409,7 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.event(CustomOutput::FunctionCall {
+                        output.custom(CustomOutput::FunctionCall {
                             name,
                             call_id,
                             arguments,

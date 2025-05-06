@@ -172,7 +172,7 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Event { .. } => {}
+                Output::Custom { .. } => {}
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);

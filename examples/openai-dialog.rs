@@ -165,7 +165,7 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Event { value } => match serde_json::from_value(value)? {
+                Output::Custom { value } => match serde_json::from_value(value)? {
                     CustomOutput::FunctionCall {
                         name,
                         call_id,
@@ -179,7 +179,7 @@ async fn setup_audio_playback(
                             output: serde_json::Value::String(result),
                         };
                         let value = serde_json::to_value(&value)?;
-                        input.try_send(Input::Event { value })?;
+                        input.try_send(Input::Custom { value })?;
                     }
                 },
             }

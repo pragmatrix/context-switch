@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use openai_dialog::CustomInput;
 use static_assertions::assert_impl_all;
 use tokio::{
     select,
@@ -193,11 +192,8 @@ impl ContextSwitch {
                                     bail!("Received unexpected Text");
                                 }
                             },
-                            ClientEvent::FunctionCallOutput{ call_id, output, ..} => {
-                                // TODO: May check if the service actually supports that?
-                                let event = CustomInput::FunctionCallResult { call_id, output };
-                                let event = serde_json::to_value(event)?;
-                                input_sender.try_send(Input::Event { value: event })?;
+                            ClientEvent::Custom { value, ..} => {
+                                input_sender.try_send(Input::Custom { value })?;
                             }
                         }
                     } else {
@@ -282,7 +278,7 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
         },
         Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
         Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
-        Output::Event { value } => ServerEvent::Event {
+        Output::Custom { value } => ServerEvent::Custom {
             id: id.clone(),
             value,
         },
