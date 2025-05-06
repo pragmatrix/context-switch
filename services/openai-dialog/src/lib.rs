@@ -97,6 +97,19 @@ impl Service for OpenAIDialog {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+pub enum CustomInput {
+    #[serde(rename_all = "camelCase")]
+    FunctionCallResult {
+        call_id: String,
+        output: serde_json::Value,
+    },
+    Prompt {
+        text: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum CustomOutput {
     #[serde(rename_all = "camelCase")]
     FunctionCall {
@@ -106,16 +119,6 @@ pub enum CustomOutput {
         /// `None` as `null`, as `null` could occur when there is a single parameter that is
         /// optional according to the JSON schema.
         arguments: Option<serde_json::Value>,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum CustomInput {
-    #[serde(rename_all = "camelCase")]
-    FunctionCallResult {
-        call_id: String,
-        output: serde_json::Value,
     },
 }
 
