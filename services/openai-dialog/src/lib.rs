@@ -253,6 +253,16 @@ impl Client {
                                         // TODO: Should we wait for ConversationItemCreated?
                                         self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
                                     }
+                                    CustomInput::Prompt { text } => {
+                                        let response = ClientEvent::ResponseCreate(
+                                            client_event::ResponseCreate {
+                                                response: Some(types::Session {
+                                                    instructions: Some(text),
+                                                    .. Default::default()}),
+                                                .. Default::default()
+                                            });
+                                        self.send_client_event(response).await?;
+                                    }
                                 }
                             },
                             _ => {
