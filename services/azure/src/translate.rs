@@ -3,7 +3,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use azure_speech::translator::{self, Event};
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::Host;
@@ -113,7 +113,7 @@ impl Service for AzureTranslate {
                 Event::StartDetected(_, _) => {}
                 Event::EndDetected(_, _) => {}
                 Event::Translating(_, text, _, _, _) => {
-                    if output_modalities.interim_text {
+                    if output_modalities.text {
                         output.text(false, text)?;
                     }
                 }
@@ -123,12 +123,16 @@ impl Service for AzureTranslate {
                     }
                 }
                 Event::TranslationSynthesis(_, samples) => {
+                    // Azure Translate usually does a full translation synthesis, sometimes of
+                    // multiple sentences at once. So it's fine to put two events around that.
                     let frame = AudioFrame {
                         format: AUDIO_OUTPUT_FORMAT,
                         samples,
                     };
                     debug!("Event: TranslationSynthesis {:?}", frame.duration());
+                    output.custom_event(CustomEvent::AudioStart)?;
                     output.audio_frame(frame)?;
+                    output.custom_event(CustomEvent::AudioStop)?;
                 }
                 Event::NoMatch(_, _, _, _) => {}
             }
@@ -136,6 +140,15 @@ impl Service for AzureTranslate {
 
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum CustomEvent {
+    /// Translated audio follows.
+    AudioStart,
+    /// Translated audio stops.
+    AudioStop,
 }
 
 #[derive(Debug, Default)]

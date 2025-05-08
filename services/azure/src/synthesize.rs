@@ -72,11 +72,8 @@ impl Service for AzureSynthesize {
                 return Ok(());
             };
 
-            let text = match input {
-                Input::Audio { .. } => {
-                    bail!("Unexpected audio frame");
-                }
-                Input::Text { text } => text,
+            let Input::Text { text } = input else {
+                bail!("Unexpected input");
             };
 
             let azure_request = AzureSynthesizeRequest {

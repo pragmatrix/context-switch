@@ -22,6 +22,7 @@ use crate::conversation::Conversation;
 #[async_trait]
 pub trait Service: fmt::Debug {
     type Params: DeserializeOwned;
+
     /// Execute a conversation on this service.
     ///
     /// The conversation function takes `&self`. If exclusive access to the service implementation

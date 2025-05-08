@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use serde::Serialize;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
@@ -110,6 +111,12 @@ impl ConversationOutput {
         self.post(Output::RequestCompleted)
     }
 
+    /// Output a custom event object.
+    pub fn custom_event(&self, value: impl Serialize) -> Result<()> {
+        let value = serde_json::to_value(&value)?;
+        self.post(Output::Custom { value })
+    }
+
     fn post(&self, output: Output) -> Result<()> {
         Ok(self.output.try_send(output)?)
     }
@@ -119,6 +126,7 @@ impl ConversationOutput {
 pub enum Input {
     Audio { frame: AudioFrame },
     Text { text: String },
+    Custom { value: serde_json::Value },
 }
 
 #[derive(Debug)]
@@ -128,4 +136,5 @@ pub enum Output {
     Text { is_final: bool, text: String },
     RequestCompleted,
     ClearAudio,
+    Custom { value: serde_json::Value },
 }

@@ -13,8 +13,8 @@ use futures::{
 };
 use openai_api_rs::realtime::{
     api::RealtimeClient,
-    client_event::{ClientEvent, InputAudioBufferAppend},
-    server_event::ServerEvent,
+    client_event::{self, ClientEvent},
+    server_event::{self, ServerEvent},
     types,
 };
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,21 @@ pub struct Params {
     pub api_key: String,
     pub model: String,
     pub host: Option<String>,
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub tools: Vec<types::ToolDefinition>,
+}
+
+impl Params {
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+            model: model.into(),
+            host: None,
+            instructions: None,
+            tools: vec![],
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -66,11 +81,45 @@ impl Service for OpenAIDialog {
         let (input, output) = conversation.start()?;
 
         client
-            .dialog(input_format, output_format, input, output)
+            .dialog(
+                input_format,
+                output_format,
+                params.instructions,
+                params.tools,
+                input,
+                output,
+            )
             .await?;
 
         Ok(())
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CustomInput {
+    #[serde(rename_all = "camelCase")]
+    FunctionCallResult {
+        call_id: String,
+        output: serde_json::Value,
+    },
+    Prompt {
+        text: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CustomOutput {
+    #[serde(rename_all = "camelCase")]
+    FunctionCall {
+        call_id: String,
+        name: String,
+        /// `None` if none were defined. `Option` here is used because we should avoid representing
+        /// `None` as `null`, as `null` could occur when there is a single parameter that is
+        /// optional according to the JSON schema.
+        arguments: Option<serde_json::Value>,
+    },
 }
 
 pub struct Host {
@@ -125,6 +174,8 @@ impl Client {
         &mut self,
         input_format: AudioFormat,
         output_format: AudioFormat,
+        instructions: Option<String>,
+        tools: Vec<types::ToolDefinition>,
         mut input: ConversationInput,
         output: ConversationOutput,
     ) -> Result<()> {
@@ -152,13 +203,71 @@ impl Client {
 
         debug!("Session created");
 
+        {
+            let mut send_update = false;
+            let mut session = types::Session::default();
+
+            if let Some(instructions) = instructions {
+                session.instructions = Some(instructions);
+                send_update = true;
+            };
+
+            if !tools.is_empty() {
+                session.tools = Some(tools);
+                send_update = true;
+            }
+
+            if send_update {
+                self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
+                    event_id: None,
+                    session,
+                }))
+                .await?;
+                debug!("Session updated");
+            }
+        }
+
         loop {
             select! {
                 input = input.recv() => {
                     if let Some(input) = input {
-                        if let Input::Audio { frame } = input {
-                            // debug!("Sending frame: {:?}", audio_frame.duration());
-                            self.send_frame(frame).await?;
+                        match input {
+                            Input::Audio { frame } => {
+                                // debug!("Sending frame: {:?}", audio_frame.duration());
+                                self.send_frame(frame).await?;
+                            },
+                            Input::Custom {value} => {
+                                match serde_json::from_value(value)? {
+                                    CustomInput::FunctionCallResult { call_id, output } => {
+                                        debug!("Sending function call output");
+                                        self.send_client_event(ClientEvent::ConversationItemCreate(
+                                            client_event::ConversationItemCreate {
+                                            item: types::Item {
+                                                r#type: Some(types::ItemType::FunctionCallOutput),
+                                                call_id: Some(call_id),
+                                                // TODO: Is there a need for error handling here?
+                                                output: serde_json::to_string(&output).ok(),
+                                                .. Default::default() },
+                                                .. Default::default()
+                                            })).await?;
+                                        // TODO: Should we wait for ConversationItemCreated?
+                                        self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
+                                    }
+                                    CustomInput::Prompt { text } => {
+                                        let response = ClientEvent::ResponseCreate(
+                                            client_event::ResponseCreate {
+                                                response: Some(types::Session {
+                                                    instructions: Some(text),
+                                                    .. Default::default()}),
+                                                .. Default::default()
+                                            });
+                                        self.send_client_event(response).await?;
+                                    }
+                                }
+                            },
+                            _ => {
+
+                            }
                         }
                     } else {
                         // No more audio, end the session.
@@ -241,7 +350,7 @@ impl Client {
         let samples = mono.samples;
         let samples_le = audio::to_le_bytes(samples);
 
-        let event = InputAudioBufferAppend {
+        let event = client_event::InputAudioBufferAppend {
             event_id: None,
             audio: BASE64_STANDARD.encode(samples_le),
         };
@@ -251,6 +360,12 @@ impl Client {
         );
 
         self.write.send(message).await?;
+        Ok(())
+    }
+
+    async fn send_client_event(&mut self, client_event: ClientEvent) -> Result<()> {
+        let json = serde_json::to_string(&client_event)?;
+        self.write.send(Message::Text(json.into())).await?;
         Ok(())
     }
 
@@ -277,8 +392,45 @@ impl Client {
                     output.audio_frame(frame)?;
                 }
                 ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+                ServerEvent::ResponseDone(server_event::ResponseDone {
+                    response:
+                        types::Response {
+                            object,
+                            status: types::ResponseStatus::Completed,
+                            output: items,
+                            ..
+                        },
+                    ..
+                }) if object == "realtime.response" && !items.is_empty() => {
+                    for item in items {
+                        if item.r#type != Some(types::ItemType::FunctionCall)
+                            || item.status != Some(types::ItemStatus::Completed)
+                        {
+                            continue;
+                        }
+                        let (Some(name), Some(call_id)) = (item.name, item.call_id) else {
+                            continue;
+                        };
+                        let arguments: Option<serde_json::Value> = {
+                            match item.arguments {
+                                Some(arguments) => {
+                                    let Ok(arguments) = serde_json::from_str(&arguments) else {
+                                        continue;
+                                    };
+                                    Some(arguments)
+                                }
+                                None => None,
+                            }
+                        };
+                        output.custom_event(CustomOutput::FunctionCall {
+                            name,
+                            call_id,
+                            arguments,
+                        })?;
+                    }
+                }
                 response => {
-                    debug!("Response: {:?}", response)
+                    debug!("Unhandled response: {:?}", response)
                 }
             },
             Message::Ping(data) => {

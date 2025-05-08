@@ -1,25 +1,30 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{env, thread, time::Duration};
+use std::{env, str::FromStr, thread, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
+use chrono::Utc;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use openai_dialog::OpenAIDialog;
+use openai_api_rs::realtime::types;
+use openai_dialog::{CustomInput, CustomOutput, OpenAIDialog};
 use rodio::{OutputStream, Sink, Source};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, Service, audio,
     conversation::{Conversation, Input, Output},
 };
+use serde_json::json;
 use tokio::{
     select,
-    sync::mpsc::{Receiver, channel},
+    sync::mpsc::{Receiver, Sender, channel},
 };
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv()?;
+    dotenvy::dotenv_override()?;
+    tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
     let device = host
@@ -37,6 +42,8 @@ async fn main() -> Result<()> {
 
     let (input_sender, input_receiver) = channel(256);
 
+    let input_sender2 = input_sender.clone();
+
     // Create and run the input stream
     let stream = device
         .build_input_stream(
@@ -44,7 +51,7 @@ async fn main() -> Result<()> {
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
                 let frame = AudioFrame { format, samples };
-                if input_sender.try_send(Input::Audio { frame }).is_err() {
+                if input_sender2.try_send(Input::Audio { frame }).is_err() {
                     println!("Failed to send audio data")
                 }
             },
@@ -62,11 +69,8 @@ async fn main() -> Result<()> {
     let model = env::var("OPENAI_REALTIME_API_MODEL").unwrap();
 
     let openai = OpenAIDialog;
-    let params = openai_dialog::Params {
-        api_key: key,
-        model,
-        host: None,
-    };
+    let mut params = openai_dialog::Params::new(key, model);
+    params.tools.push(get_time_function_definition());
 
     let (output_sender, output_receiver) = channel(256);
 
@@ -79,7 +83,7 @@ async fn main() -> Result<()> {
 
     let mut conversation = openai.conversation(params, conversation);
 
-    let playback_task = setup_audio_playback(format, output_receiver).await;
+    let playback_task = setup_audio_playback(format, input_sender, output_receiver).await;
 
     // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
@@ -94,7 +98,7 @@ async fn main() -> Result<()> {
 
         // Drive playback
         r = &mut playback_handle => {
-            r?
+            r??
         }
 
     }
@@ -110,8 +114,9 @@ enum AudioCommand {
 
 async fn setup_audio_playback(
     format: AudioFormat,
+    input: Sender<Input>,
     mut output: Receiver<Output>,
-) -> impl std::future::Future<Output = ()> {
+) -> impl std::future::Future<Output = Result<()>> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
     // Spawn a dedicated audio thread
@@ -160,12 +165,62 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
+                Output::Custom { value } => match serde_json::from_value(value)? {
+                    CustomOutput::FunctionCall {
+                        name,
+                        call_id,
+                        arguments,
+                    } => {
+                        info!("Processing function `{name}` with arguments `{arguments:?}`");
+                        let result = call_function(&name, arguments)?;
+                        info!("Function result: `{result}`");
+                        let value = CustomInput::FunctionCallResult {
+                            call_id,
+                            output: serde_json::Value::String(result),
+                        };
+                        let value = serde_json::to_value(&value)?;
+                        input.try_send(Input::Custom { value })?;
+                    }
+                },
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);
         // TODO: this may block!
         let _ = playback_thread.join();
+        Ok(())
     }
+}
+
+fn get_time_function_definition() -> types::ToolDefinition {
+    types::ToolDefinition::Function {
+        name: "get_time".into(),
+        description: "The current time to the exact second.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "IANA time zone identifier of the region and city."
+                }
+            },
+            "required": ["location"]
+        }),
+    }
+}
+
+fn call_function(name: &str, arguments: Option<serde_json::Value>) -> Result<String> {
+    let arguments = arguments.context("No arguments provided for function call")?;
+    if name != "get_time" {
+        bail!("Unknown function: {name}");
+    }
+    let location = arguments["location"]
+        .as_str()
+        .context("Invalid or missing 'location' field in arguments")?;
+    let tz = chrono_tz::Tz::from_str(location)
+        .with_context(|| format!("Unknown time zone: {location}"))?;
+
+    let now = Utc::now().with_timezone(&tz);
+    Ok(now.format("%H:%M:%S").to_string())
 }
 
 struct FrameSource {

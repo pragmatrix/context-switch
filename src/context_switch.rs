@@ -192,6 +192,9 @@ impl ContextSwitch {
                                     bail!("Received unexpected Text");
                                 }
                             },
+                            ClientEvent::Custom { value, ..} => {
+                                input_sender.try_send(Input::Custom { value })?;
+                            }
                         }
                     } else {
                         bail!("No more input")
@@ -275,5 +278,9 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
         },
         Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
         Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
+        Output::Custom { value } => ServerEvent::Custom {
+            id: id.clone(),
+            value,
+        },
     }
 }
