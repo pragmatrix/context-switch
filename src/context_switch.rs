@@ -46,10 +46,6 @@ impl ContextSwitch {
 
     pub fn process(&mut self, event: ClientEvent) -> Result<()> {
         match self.conversations.entry(event.conversation_id().clone()) {
-            Entry::Occupied(occupied_entry) => {
-                // TODO: What if we can't post the event here?
-                occupied_entry.get().client_sender.try_send(event)?
-            }
             Entry::Vacant(vacant_entry) => {
                 // A new conversation must be initiated with a Start event. Store the input modality
                 // to support audio broadcasting on multiple backends.
@@ -78,13 +74,17 @@ impl ContextSwitch {
                     _task: task,
                 });
             }
+            Entry::Occupied(occupied_entry) => {
+                // TODO: What if we can't post the event here?
+                occupied_entry.get().client_sender.try_send(event)?;
+            }
         }
 
         Ok(())
     }
 
-    /// This further wraps the conversation processor to guarantee that there is a final
-    /// event sent.
+    /// This further wraps the conversation processor to guarantee that there is a final stopped or
+    /// error event is sent.
     async fn process_conversation(
         registry: Arc<Registry>,
         initial_event: ClientEvent,
