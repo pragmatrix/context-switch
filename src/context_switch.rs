@@ -75,8 +75,13 @@ impl ContextSwitch {
                 });
             }
             Entry::Occupied(occupied_entry) => {
-                // TODO: What if we can't post the event here?
-                occupied_entry.get().client_sender.try_send(event)?;
+                let conversation = if let ClientEvent::Stop { .. } = event {
+                    &occupied_entry.remove()
+                } else {
+                    occupied_entry.get()
+                };
+
+                conversation.client_sender.try_send(event)?;
             }
         }
 
