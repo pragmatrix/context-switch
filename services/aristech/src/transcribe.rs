@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use aristech_stt_client::{
     Auth, SttClientBuilder,
     stt_service::{
@@ -62,17 +62,17 @@ impl Service for AristechTranscribe {
                 secret,
             } => SttClientBuilder::default()
                 .host(&host)
-                .unwrap()
+                .map_err(|e| anyhow!("Failed to set host: {}", e))?
                 .auth(Some(Auth { token, secret }))
                 .build()
                 .await
-                .unwrap(),
+                .map_err(|e| anyhow!("Failed to build STT client with credentials: {}", e))?,
             AuthConfig::ApiKey { api_key } => SttClientBuilder::default()
                 .api_key(&api_key)
-                .unwrap()
+                .map_err(|e| anyhow!("Failed to set API key: {}", e))?
                 .build()
                 .await
-                .unwrap(),
+                .map_err(|e| anyhow!("Failed to build STT client with API key: {}", e))?,
         };
 
         // Build the client with the auth and language
@@ -136,7 +136,11 @@ impl Service for AristechTranscribe {
         });
 
         // Process recognition results
-        while let Some(response) = response_stream.message().await? {
+        while let Some(response) = response_stream
+            .message()
+            .await
+            .map_err(|e| anyhow!("Failed to receive message from stream: {}", e))?
+        {
             for chunk in response.chunks {
                 // Determine if this is a final result
                 let is_final = chunk.r#final;
