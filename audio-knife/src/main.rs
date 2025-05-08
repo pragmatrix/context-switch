@@ -238,16 +238,7 @@ struct SessionState {
 
 impl Drop for SessionState {
     fn drop(&mut self) {
-        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
-            if distributor
-                .remove_conversation_target(&self.conversation)
-                .is_err()
-            {
-                error!("Internal error: Failed to remove conversation target");
-            }
-        } else {
-            error!("Internal error: Can't lock server event distributor");
-        }
+        self.stop_session();
     }
 }
 
@@ -310,11 +301,36 @@ impl SessionState {
         ))
     }
 
+    fn stop_session(&mut self) {
+        let Ok(mut distributor) = self.state.server_event_distributor.lock() else {
+            error!("Internal error: Can't lock server event distributor");
+            return;
+        };
+
+        if distributor
+            .remove_conversation_target(&self.conversation)
+            .is_err()
+        {
+            error!("Internal error: Failed to remove conversation target");
+        }
+    }
+
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
         match msg {
             Message::Text(msg) => {
                 let client_event = Self::decode_client_event(msg)?;
                 debug!("Received client event: `{client_event:?}`");
+
+                // Be sure we don't process events for other than the one we got with the first start event.
+                {
+                    let client_event_conversation = client_event.conversation_id();
+                    if client_event_conversation != &self.conversation {
+                        bail!(
+                            "Received client event from an unexpected conversation: `{client_event_conversation}`, expected `{}`",
+                            self.conversation
+                        );
+                    }
+                }
 
                 self.state
                     .context_switch
