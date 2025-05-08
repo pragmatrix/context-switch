@@ -160,6 +160,9 @@ impl ContextSwitch {
                 // Drive the conversation.
                 result = &mut conversation => {
                     result?;
+                    // TODO: Shouldn't `ServerEvent::Stopped` only be sent in response to a client
+                    // event stopped and aren't conversations meant to run indefinitely, so this is
+                    // effectively an error when the conversation stops early?
                     break;
                 }
 
