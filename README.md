@@ -63,7 +63,7 @@ cargo run --example azure-synthesize
 
 ### Using Audio Knife
 
-Audio Knife is a WebSocket server that implements the mod_audio_fork protocol, allowing real-time audio streaming from telephony systems like FreeSWITCH or Asterisk. It acts as a bridge between audio sources and the Context Switch framework.
+Audio Knife is a WebSocket server that implements the mod_audio_fork protocol, allowing real-time audio streaming from and to FreeSWITCH. It acts as a bridge between audio sources and the Context Switch framework.
 
 To run the Audio Knife server:
 
