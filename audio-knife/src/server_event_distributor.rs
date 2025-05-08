@@ -1,4 +1,6 @@
-//! A component to split server events to multiple conversation targets.
+//! A component to distributes server events to multiple conversation targets.
+//!
+//! Conceptually, this is similar to a reverse proxy.
 use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{Result, bail};
