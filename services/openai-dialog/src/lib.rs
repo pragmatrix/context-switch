@@ -23,7 +23,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, Service, audio,
@@ -106,6 +106,10 @@ pub enum CustomInput {
     Prompt {
         text: String,
     },
+    SessionUpdate {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<types::ToolDefinition>>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -119,6 +123,10 @@ pub enum CustomOutput {
         /// `None` as `null`, as `null` could occur when there is a single parameter that is
         /// optional according to the JSON schema.
         arguments: Option<serde_json::Value>,
+    },
+    SessionUpdated {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<types::ToolDefinition>>,
     },
 }
 
@@ -231,44 +239,7 @@ impl Client {
             select! {
                 input = input.recv() => {
                     if let Some(input) = input {
-                        match input {
-                            Input::Audio { frame } => {
-                                // debug!("Sending frame: {:?}", audio_frame.duration());
-                                self.send_frame(frame).await?;
-                            },
-                            Input::Custom {value} => {
-                                match serde_json::from_value(value)? {
-                                    CustomInput::FunctionCallResult { call_id, output } => {
-                                        debug!("Sending function call output");
-                                        self.send_client_event(ClientEvent::ConversationItemCreate(
-                                            client_event::ConversationItemCreate {
-                                            item: types::Item {
-                                                r#type: Some(types::ItemType::FunctionCallOutput),
-                                                call_id: Some(call_id),
-                                                // TODO: Is there a need for error handling here?
-                                                output: serde_json::to_string(&output).ok(),
-                                                .. Default::default() },
-                                                .. Default::default()
-                                            })).await?;
-                                        // TODO: Should we wait for ConversationItemCreated?
-                                        self.send_client_event(ClientEvent::ResponseCreate(Default::default())).await?;
-                                    }
-                                    CustomInput::Prompt { text } => {
-                                        let response = ClientEvent::ResponseCreate(
-                                            client_event::ResponseCreate {
-                                                response: Some(types::Session {
-                                                    instructions: Some(text),
-                                                    .. Default::default()}),
-                                                .. Default::default()
-                                            });
-                                        self.send_client_event(response).await?;
-                                    }
-                                }
-                            },
-                            _ => {
-
-                            }
-                        }
+                        self.process_input(input).await?;
                     } else {
                         // No more audio, end the session.
                         break;
@@ -369,6 +340,62 @@ impl Client {
         Ok(())
     }
 
+    async fn process_input(&mut self, input: Input) -> Result<()> {
+        match input {
+            Input::Text { .. } => {
+                warn!("Unexpected text input");
+            }
+            Input::Audio { frame } => {
+                // debug!("Sending frame: {:?}", audio_frame.duration());
+                self.send_frame(frame).await?;
+            }
+            Input::Custom { value } => {
+                match serde_json::from_value(value)? {
+                    CustomInput::FunctionCallResult { call_id, output } => {
+                        debug!("Sending function call output");
+                        self.send_client_event(ClientEvent::ConversationItemCreate(
+                            client_event::ConversationItemCreate {
+                                item: types::Item {
+                                    r#type: Some(types::ItemType::FunctionCallOutput),
+                                    call_id: Some(call_id),
+                                    // TODO: Is there a need for error handling here?
+                                    output: serde_json::to_string(&output).ok(),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            },
+                        ))
+                        .await?;
+                        // TODO: Should we wait for ConversationItemCreated?
+                        self.send_client_event(ClientEvent::ResponseCreate(Default::default()))
+                            .await?;
+                    }
+                    CustomInput::Prompt { text } => {
+                        let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
+                            response: Some(types::Session {
+                                instructions: Some(text),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        });
+                        self.send_client_event(response).await?;
+                    }
+                    CustomInput::SessionUpdate { tools } => {
+                        let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
+                            session: types::Session {
+                                tools,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        });
+                        self.send_client_event(event).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn process_message(
         message: Message,
         output_format: AudioFormat,
@@ -429,6 +456,10 @@ impl Client {
                         })?;
                     }
                 }
+                ServerEvent::SessionUpdated(server_event::SessionUpdated {
+                    session: types::Session { tools, .. },
+                    ..
+                }) => output.custom_event(CustomOutput::SessionUpdated { tools })?,
                 response => {
                     debug!("Unhandled response: {:?}", response)
                 }
@@ -450,4 +481,18 @@ enum FlowControl {
     Continue,
     PongAndContinue(Bytes),
     End,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::CustomOutput;
+
+    #[test]
+    fn session_updated_serializes_properly() {
+        let input = CustomOutput::SessionUpdated { tools: None };
+        let value = serde_json::to_value(&input).unwrap();
+        assert_eq!(value, json!({ "type": "sessionUpdated" }));
+    }
 }
