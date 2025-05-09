@@ -181,6 +181,9 @@ async fn setup_audio_playback(
                         let value = serde_json::to_value(&value)?;
                         input.try_send(Input::Custom { value })?;
                     }
+                    CustomOutput::SessionUpdated { tools } => {
+                        info!("Session Updated: {tools:?}");
+                    }
                 },
             }
         }
