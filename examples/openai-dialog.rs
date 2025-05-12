@@ -176,7 +176,7 @@ async fn setup_audio_playback(
                         info!("Function result: `{result}`");
                         let value = CustomInput::FunctionCallResult {
                             call_id,
-                            output: serde_json::Value::String(result),
+                            output: json! ({ "time": serde_json::Value::String(result) }),
                         };
                         let value = serde_json::to_value(&value)?;
                         input.try_send(Input::Custom { value })?;
