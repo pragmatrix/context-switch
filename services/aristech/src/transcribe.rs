@@ -3,7 +3,7 @@ use aristech_stt_client::{
     Auth, SttClientBuilder,
     stt_service::{
         RecognitionConfig, RecognitionSpec, StreamingRecognitionRequest,
-        streaming_recognition_request,
+        recognition_spec::AudioEncoding, streaming_recognition_request,
     },
 };
 use async_trait::async_trait;
@@ -20,7 +20,7 @@ use context_switch_core::{
 /// Authentication configuration
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", untagged)]
-enum AuthConfig {
+pub enum AuthConfig {
     /// Authentication using just an API key
     ApiKey { api_key: String },
     /// Authentication using host, token, and secret
@@ -35,7 +35,7 @@ enum AuthConfig {
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     #[serde(flatten)]
-    auth_config: AuthConfig,
+    pub auth_config: AuthConfig,
     pub language_code: String,
     #[serde(default)]
     pub model: String,
@@ -91,7 +91,7 @@ impl Service for AristechTranscribe {
             streaming_request: Some(streaming_recognition_request::StreamingRequest::Config(
                 RecognitionConfig {
                     specification: Some(RecognitionSpec {
-                        audio_encoding: 0, // PCM16 encoding
+                        audio_encoding: AudioEncoding::Unspecified as i32, // Defaults to LINEAR16_PCM encoding
                         sample_rate_hertz: input_format.sample_rate as i64,
                         locale: params.language_code,
                         graph: "".to_string(),
@@ -118,8 +118,7 @@ impl Service for AristechTranscribe {
         // Process audio input and recognition results concurrently
         let input_task = tokio::spawn(async move {
             while let Some(Input::Audio { frame }) = input.recv().await {
-                // Convert audio frame to PCM16 format
-                let pcm_data = audio::to_le_bytes(frame.samples);
+                let pcm_data = frame.to_le_bytes();
 
                 // Create a new audio request and send it
                 let audio_request = StreamingRecognitionRequest {
