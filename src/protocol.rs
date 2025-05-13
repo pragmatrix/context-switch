@@ -36,7 +36,7 @@ pub enum ClientEvent {
         id: ConversationId,
         content: String,
     },
-    Custom {
+    Service {
         id: ConversationId,
         value: serde_json::Value,
     },
@@ -49,7 +49,7 @@ impl ClientEvent {
             | ClientEvent::Stop { id, .. }
             | ClientEvent::Audio { id, .. }
             | ClientEvent::Text { id, .. }
-            | ClientEvent::Custom { id, .. } => id,
+            | ClientEvent::Service { id, .. } => id,
         }
     }
 }
@@ -89,8 +89,8 @@ pub enum ServerEvent {
     RequestCompleted {
         id: ConversationId,
     },
-    /// A custom event
-    Custom {
+    /// A service event
+    Service {
         id: ConversationId,
         value: serde_json::Value,
     },
@@ -106,7 +106,7 @@ impl ServerEvent {
             | ServerEvent::Text { id, .. }
             | ServerEvent::RequestCompleted { id }
             | ServerEvent::ClearAudio { id }
-            | ServerEvent::Custom { id, .. } => id,
+            | ServerEvent::Service { id, .. } => id,
         }
     }
 }

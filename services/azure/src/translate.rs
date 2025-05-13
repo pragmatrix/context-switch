@@ -130,9 +130,9 @@ impl Service for AzureTranslate {
                         samples,
                     };
                     debug!("Event: TranslationSynthesis {:?}", frame.duration());
-                    output.custom_event(CustomEvent::AudioStart)?;
+                    output.service_event(ServiceEvent::AudioStart)?;
                     output.audio_frame(frame)?;
-                    output.custom_event(CustomEvent::AudioStop)?;
+                    output.service_event(ServiceEvent::AudioStop)?;
                 }
                 Event::NoMatch(_, _, _, _) => {}
             }
@@ -144,7 +144,7 @@ impl Service for AzureTranslate {
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-enum CustomEvent {
+enum ServiceEvent {
     /// Translated audio follows.
     AudioStart,
     /// Translated audio stops.

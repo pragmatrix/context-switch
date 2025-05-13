@@ -18,7 +18,7 @@ impl ServerEventDistributor {
         match self.conversation_targets.get(conversation) {
             Some(target) => match &target.redirect_output_to {
                 // May redirect if this is an output event.
-                Some(redirect_output) if Self::may_be_redirected(&event) => {
+                Some(redirect_output) if Self::takes_output_path(&event) => {
                     if let Some(redir_target) = self.conversation_targets.get(redirect_output) {
                         redir_target.target.try_send(event)?
                     } else {
@@ -63,21 +63,24 @@ impl ServerEventDistributor {
         Ok(())
     }
 
-    fn may_be_redirected(event: &ServerEvent) -> bool {
+    fn takes_output_path(event: &ServerEvent) -> bool {
         match event {
             ServerEvent::Started { .. }
             | ServerEvent::Stopped { .. }
             | ServerEvent::Error { .. } => false,
+            // TODO: Audio and ClearAudio's Conversation Ids are being ignored when received in
+            // mod_audio_fork, but not so for Text. Do we have to rewrite the ConversationId, so
+            // that the events find their intended target?
             ServerEvent::Audio { .. }
             | ServerEvent::ClearAudio { .. }
             | ServerEvent::Text { .. } => true,
             // Text got initiated by the client, so RequestedCompleted must notify the client, not
             // the redirected target.
             ServerEvent::RequestCompleted { .. }
-            // Custom events are _always_ meant to be handled by the conversation that started the redirection.
-            // It's actually not part of the output, but part of the input.
-            // (There could be exceptions).
-            | ServerEvent::Custom { .. } => false,
+            // Service events are _always_ meant to be handled by the conversation that started the
+            // redirection. It's actually not part of the output, but part of the input. (There
+            // could be exceptions).
+            | ServerEvent::Service { .. } => false,
         }
     }
 }

@@ -7,7 +7,7 @@ use chrono::Utc;
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use openai_api_rs::realtime::types;
-use openai_dialog::{CustomInput, CustomOutput, OpenAIDialog};
+use openai_dialog::{OpenAIDialog, ServiceInputEvent, ServiceOutputEvent};
 use rodio::{OutputStream, Sink, Source};
 
 use context_switch_core::{
@@ -165,8 +165,8 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Custom { value } => match serde_json::from_value(value)? {
-                    CustomOutput::FunctionCall {
+                Output::ServiceEvent { value } => match serde_json::from_value(value)? {
+                    ServiceOutputEvent::FunctionCall {
                         name,
                         call_id,
                         arguments,
@@ -174,14 +174,14 @@ async fn setup_audio_playback(
                         info!("Processing function `{name}` with arguments `{arguments:?}`");
                         let result = call_function(&name, arguments)?;
                         info!("Function result: `{result}`");
-                        let value = CustomInput::FunctionCallResult {
+                        let value = ServiceInputEvent::FunctionCallResult {
                             call_id,
                             output: json! ({ "time": serde_json::Value::String(result) }),
                         };
                         let value = serde_json::to_value(&value)?;
-                        input.try_send(Input::Custom { value })?;
+                        input.try_send(Input::ServiceEvent { value })?;
                     }
-                    CustomOutput::SessionUpdated { tools } => {
+                    ServiceOutputEvent::SessionUpdated { tools } => {
                         info!("Session Updated: {tools:?}");
                     }
                 },
