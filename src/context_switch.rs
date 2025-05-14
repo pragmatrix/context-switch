@@ -192,8 +192,8 @@ impl ContextSwitch {
                                     bail!("Received unexpected Text");
                                 }
                             },
-                            ClientEvent::Custom { value, ..} => {
-                                input_sender.try_send(Input::Custom { value })?;
+                            ClientEvent::Service { value, ..} => {
+                                input_sender.try_send(Input::ServiceEvent { value })?;
                             }
                         }
                     } else {
@@ -278,7 +278,7 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
         },
         Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
         Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
-        Output::Custom { value } => ServerEvent::Custom {
+        Output::ServiceEvent { value } => ServerEvent::Service {
             id: id.clone(),
             value,
         },

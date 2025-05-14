@@ -111,10 +111,10 @@ impl ConversationOutput {
         self.post(Output::RequestCompleted)
     }
 
-    /// Output a custom event object.
-    pub fn custom_event(&self, value: impl Serialize) -> Result<()> {
+    /// Output a service event object.
+    pub fn service_event(&self, value: impl Serialize) -> Result<()> {
         let value = serde_json::to_value(&value)?;
-        self.post(Output::Custom { value })
+        self.post(Output::ServiceEvent { value })
     }
 
     fn post(&self, output: Output) -> Result<()> {
@@ -126,7 +126,7 @@ impl ConversationOutput {
 pub enum Input {
     Audio { frame: AudioFrame },
     Text { text: String },
-    Custom { value: serde_json::Value },
+    ServiceEvent { value: serde_json::Value },
 }
 
 #[derive(Debug)]
@@ -136,5 +136,5 @@ pub enum Output {
     Text { is_final: bool, text: String },
     RequestCompleted,
     ClearAudio,
-    Custom { value: serde_json::Value },
+    ServiceEvent { value: serde_json::Value },
 }

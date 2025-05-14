@@ -97,7 +97,7 @@ impl Service for OpenAIDialog {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum CustomInput {
+pub enum ServiceInputEvent {
     #[serde(rename_all = "camelCase")]
     FunctionCallResult {
         call_id: String,
@@ -114,7 +114,7 @@ pub enum CustomInput {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum CustomOutput {
+pub enum ServiceOutputEvent {
     #[serde(rename_all = "camelCase")]
     FunctionCall {
         call_id: String,
@@ -349,9 +349,9 @@ impl Client {
                 // debug!("Sending frame: {:?}", audio_frame.duration());
                 self.send_frame(frame).await?;
             }
-            Input::Custom { value } => {
+            Input::ServiceEvent { value } => {
                 match serde_json::from_value(value)? {
-                    CustomInput::FunctionCallResult { call_id, output } => {
+                    ServiceInputEvent::FunctionCallResult { call_id, output } => {
                         debug!("Sending function call output");
                         self.send_client_event(ClientEvent::ConversationItemCreate(
                             client_event::ConversationItemCreate {
@@ -370,7 +370,7 @@ impl Client {
                         self.send_client_event(ClientEvent::ResponseCreate(Default::default()))
                             .await?;
                     }
-                    CustomInput::Prompt { text } => {
+                    ServiceInputEvent::Prompt { text } => {
                         let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
                             response: Some(types::Session {
                                 instructions: Some(text),
@@ -380,7 +380,7 @@ impl Client {
                         });
                         self.send_client_event(response).await?;
                     }
-                    CustomInput::SessionUpdate { tools } => {
+                    ServiceInputEvent::SessionUpdate { tools } => {
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
                             session: types::Session {
                                 tools,
@@ -449,7 +449,7 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.custom_event(CustomOutput::FunctionCall {
+                        output.service_event(ServiceOutputEvent::FunctionCall {
                             name,
                             call_id,
                             arguments,
@@ -459,7 +459,7 @@ impl Client {
                 ServerEvent::SessionUpdated(server_event::SessionUpdated {
                     session: types::Session { tools, .. },
                     ..
-                }) => output.custom_event(CustomOutput::SessionUpdated { tools })?,
+                }) => output.service_event(ServiceOutputEvent::SessionUpdated { tools })?,
                 response => {
                     debug!("Unhandled response: {:?}", response)
                 }
@@ -487,11 +487,11 @@ enum FlowControl {
 mod tests {
     use serde_json::json;
 
-    use crate::CustomOutput;
+    use crate::ServiceOutputEvent;
 
     #[test]
     fn session_updated_serializes_properly() {
-        let input = CustomOutput::SessionUpdated { tools: None };
+        let input = ServiceOutputEvent::SessionUpdated { tools: None };
         let value = serde_json::to_value(&input).unwrap();
         assert_eq!(value, json!({ "type": "sessionUpdated" }));
     }
