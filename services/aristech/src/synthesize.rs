@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow, bail};
 use aristech_tts_client::tts_services::speech_audio_format::{Codec, Container};
 use aristech_tts_client::tts_services::{SpeechAudioFormat, SpeechRequest, SpeechRequestOption};
-use aristech_tts_client::{TlsOptions, get_client};
+use aristech_tts_client::{Auth, TlsOptions, get_client, get_voices};
 use async_trait::async_trait;
+use context_switch_core::AudioFormat;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -17,7 +18,8 @@ use context_switch_core::{
 pub struct Params {
     pub endpoint: String,
     pub voice_id: Option<String>,
-    pub use_tls: Option<bool>,
+    pub token: String,
+    pub secret: String,
 }
 
 #[derive(Debug)]
@@ -34,19 +36,38 @@ impl Service for AristechSynthesize {
         // Resolve default voice if none is set
         // TODO: Add the possibility to determine this from a language parameter and the
         // `get_voices` function if no voice_id is provided.
-        let voice_id = params.voice_id.unwrap_or_else(|| "anne_en_GB".to_string());
+        let voice_id = params.voice_id.unwrap_or_else(|| "anne_de_DE".to_string());
 
         // TLS options
-        let tls_options = if params.use_tls.unwrap_or(true) {
-            Some(TlsOptions::default())
-        } else {
-            None
-        };
+        let tls_options = get_tls_options(params.token, params.secret);
 
         // Create client
         let mut client = get_client(params.endpoint, tls_options)
             .await
             .map_err(|e| anyhow!("Failed to create Aristech TTS client: {}", e))?;
+
+        let available_voices = get_voices(&mut client, None)
+            .await
+            .map_err(|e| anyhow!("Failed to find any available voices for TTS client: {}", e))?;
+
+        let sample_rate = available_voices
+            .iter()
+            .find(|v| v.voice_id == voice_id)
+            .context(format!("Voice {} not available", voice_id))?
+            .audio
+            .unwrap_or_default()
+            .samplerate;
+
+        // Now update the output_format with this sample_rate
+        // TODO: If this does not match with the original sample rate, there should be an
+        // option to just display a warning rather than failing in AudioProducer::produce
+        let output_format = AudioFormat::new(output_format.channels, sample_rate as u32);
+
+        let speech_request_option = SpeechRequestOption {
+            voice_id: voice_id.clone(),
+            audio: Some(import_output_audio_format(output_format)),
+            ..SpeechRequestOption::default()
+        };
 
         let (mut input, output) = conversation.start()?;
 
@@ -63,11 +84,7 @@ impl Service for AristechSynthesize {
             // Create the speech request
             let request = SpeechRequest {
                 text,
-                options: Some(SpeechRequestOption {
-                    voice_id: voice_id.clone(),
-                    audio: Some(import_output_audio_format(output_format)),
-                    ..SpeechRequestOption::default()
-                }),
+                options: Some(speech_request_option.clone()),
                 ..SpeechRequest::default()
             };
 
@@ -102,4 +119,11 @@ pub fn import_output_audio_format(
         codec: Codec::Pcm as i32,
         ..SpeechAudioFormat::default()
     }
+}
+
+pub fn get_tls_options(token: String, secret: String) -> Option<TlsOptions> {
+    Some(TlsOptions {
+        ca_certificate: None,
+        auth: Some(Auth { token, secret }),
+    })
 }
