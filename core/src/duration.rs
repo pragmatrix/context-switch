@@ -61,8 +61,6 @@ impl<'de> Deserialize<'de> for Duration {
 mod tests {
     use std::time;
 
-    use serde_json;
-
     use super::*;
 
     #[test]

@@ -127,7 +127,7 @@ impl ServerEvent {
         match self {
             ServerEvent::Started { .. }
             // TODO: The Stopped and Error events might need special consideration as they do
-            // overtake all pending media.
+            // overtake all pending media which they probably should not.
             | ServerEvent::Stopped { .. }
             | ServerEvent::Error { .. } => OutputPath::Control,
 
