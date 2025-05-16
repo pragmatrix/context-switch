@@ -76,10 +76,10 @@ pub enum BillingRecordValue {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OutputPath {
-    /// Deliver the event to media path. Enqueued and sequenced with the audio and text output.
-    Media,
     /// Deliver the event to the control path, which is the path where the initial start input event
     /// originated. All events on this path will take priority over media output, ensuring that
     /// events like billing records are delivered as quickly as possible.
     Control,
+    /// Deliver the event to media path. Enqueued and sequenced with the audio and text output.
+    Media,
 }
