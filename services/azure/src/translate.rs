@@ -8,7 +8,7 @@ use tracing::debug;
 
 use crate::Host;
 use context_switch_core::{
-    AudioFormat, AudioFrame, OutputModality, Service,
+    AudioFormat, AudioFrame, OutputModality, OutputPath, Service,
     conversation::{Conversation, Input},
 };
 
@@ -130,9 +130,9 @@ impl Service for AzureTranslate {
                         samples,
                     };
                     debug!("Event: TranslationSynthesis {:?}", frame.duration());
-                    output.service_event(ServiceEvent::AudioStart)?;
+                    output.service_event(OutputPath::Media, ServiceEvent::AudioStart)?;
                     output.audio_frame(frame)?;
-                    output.service_event(ServiceEvent::AudioStop)?;
+                    output.service_event(OutputPath::Media, ServiceEvent::AudioStop)?;
                 }
                 Event::NoMatch(_, _, _, _) => {}
             }

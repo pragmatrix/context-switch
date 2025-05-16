@@ -33,8 +33,10 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use context_switch::{ClientEvent, ContextSwitch, ConversationId, InputModality, ServerEvent};
-use context_switch_core::{AudioFrame, audio, protocol::AudioFormat};
+use context_switch::{
+    AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
+    ServerEvent, audio,
+};
 
 const DEFAULT_PORT: u16 = 8123;
 

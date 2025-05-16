@@ -72,7 +72,7 @@ impl Service for AzureSynthesize {
                 return Ok(());
             };
 
-            let Input::Text { text } = input else {
+            let Input::Text { request_id, text } = input else {
                 bail!("Unexpected input");
             };
 
@@ -93,12 +93,13 @@ impl Service for AzureSynthesize {
                         debug!("Received audio: {:?}", frame.duration());
                         output.audio_frame(frame)?;
                     }
-                    Event::Synthesised(_uuid) => output.request_completed()?,
                     event => {
                         debug!("Received: {event:?}")
                     }
                 };
             }
+
+            output.request_completed(request_id)?;
         }
     }
 }
