@@ -26,7 +26,7 @@ use tokio_tungstenite::{
 use tracing::{debug, info, warn};
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, Service, audio,
+    AudioFormat, AudioFrame, OutputPath, Service, audio,
     conversation::{Conversation, ConversationInput, ConversationOutput, Input},
 };
 
@@ -449,17 +449,23 @@ impl Client {
                                 None => None,
                             }
                         };
-                        output.service_event(ServiceOutputEvent::FunctionCall {
-                            name,
-                            call_id,
-                            arguments,
-                        })?;
+                        output.service_event(
+                            OutputPath::Control,
+                            ServiceOutputEvent::FunctionCall {
+                                name,
+                                call_id,
+                                arguments,
+                            },
+                        )?;
                     }
                 }
                 ServerEvent::SessionUpdated(server_event::SessionUpdated {
                     session: types::Session { tools, .. },
                     ..
-                }) => output.service_event(ServiceOutputEvent::SessionUpdated { tools })?,
+                }) => output.service_event(
+                    OutputPath::Control,
+                    ServiceOutputEvent::SessionUpdated { tools },
+                )?,
                 response => {
                     debug!("Unhandled response: {:?}", response)
                 }

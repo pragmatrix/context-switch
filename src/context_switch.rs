@@ -186,7 +186,7 @@ impl ContextSwitch {
                             ClientEvent::Text { content, .. } => {
                                 if let InputModality::Text = input_modality {
                                     input_sender
-                                        .try_send(Input::Text{text:content})
+                                        .try_send(Input::Text { request_id: None, text:content })
                                         .context("Sending input text to conversation")?;
                                 } else {
                                     bail!("Received unexpected Text");
@@ -276,11 +276,23 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             is_final,
             content: text,
         },
-        Output::RequestCompleted => ServerEvent::RequestCompleted { id: id.clone() },
-        Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
-        Output::ServiceEvent { value } => ServerEvent::Service {
+        Output::RequestCompleted { request_id } => ServerEvent::RequestCompleted {
             id: id.clone(),
+            request_id,
+        },
+        Output::ClearAudio => ServerEvent::ClearAudio { id: id.clone() },
+        Output::ServiceEvent { path, value } => ServerEvent::Service {
+            id: id.clone(),
+            path,
             value,
+        },
+        Output::BillingRecords {
+            request_id,
+            records,
+        } => ServerEvent::BillingRecords {
+            id: id.clone(),
+            request_id,
+            records,
         },
     }
 }

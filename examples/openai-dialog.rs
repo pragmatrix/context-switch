@@ -158,14 +158,13 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Text { .. } => {}
-                Output::RequestCompleted => {}
+                Output::Text { .. } | Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {
                     if cmd_tx.send(AudioCommand::Clear).is_err() {
                         break;
                     }
                 }
-                Output::ServiceEvent { value } => match serde_json::from_value(value)? {
+                Output::ServiceEvent { value, .. } => match serde_json::from_value(value)? {
                     ServiceOutputEvent::FunctionCall {
                         name,
                         call_id,
@@ -185,6 +184,7 @@ async fn setup_audio_playback(
                         info!("Session Updated: {tools:?}");
                     }
                 },
+                Output::BillingRecords { .. } => {}
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);

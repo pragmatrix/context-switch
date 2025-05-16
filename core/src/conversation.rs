@@ -1,9 +1,10 @@
 use anyhow::{Result, bail};
 
-use serde::Serialize;
+use derive_more::derive::{Display, From, Into};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{AudioFormat, AudioFrame, InputModality, OutputModality};
+use crate::{AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath};
 
 #[derive(Debug)]
 pub struct Conversation {
@@ -107,14 +108,14 @@ impl ConversationOutput {
         self.post(Output::Text { is_final, text })
     }
 
-    pub fn request_completed(&self) -> Result<()> {
-        self.post(Output::RequestCompleted)
+    pub fn request_completed(&self, request_id: Option<RequestId>) -> Result<()> {
+        self.post(Output::RequestCompleted { request_id })
     }
 
     /// Output a service event object.
-    pub fn service_event(&self, value: impl Serialize) -> Result<()> {
+    pub fn service_event(&self, path: OutputPath, value: impl Serialize) -> Result<()> {
         let value = serde_json::to_value(&value)?;
-        self.post(Output::ServiceEvent { value })
+        self.post(Output::ServiceEvent { path, value })
     }
 
     fn post(&self, output: Output) -> Result<()> {
@@ -124,17 +125,43 @@ impl ConversationOutput {
 
 #[derive(Debug)]
 pub enum Input {
-    Audio { frame: AudioFrame },
-    Text { text: String },
-    ServiceEvent { value: serde_json::Value },
+    Audio {
+        frame: AudioFrame,
+    },
+    Text {
+        request_id: Option<RequestId>,
+        text: String,
+    },
+    ServiceEvent {
+        value: serde_json::Value,
+    },
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
+pub struct RequestId(String);
 
 #[derive(Debug)]
 pub enum Output {
-    ServiceStarted { modalities: Vec<OutputModality> },
-    Audio { frame: AudioFrame },
-    Text { is_final: bool, text: String },
-    RequestCompleted,
+    ServiceStarted {
+        modalities: Vec<OutputModality>,
+    },
+    Audio {
+        frame: AudioFrame,
+    },
+    Text {
+        is_final: bool,
+        text: String,
+    },
+    RequestCompleted {
+        request_id: Option<RequestId>,
+    },
     ClearAudio,
-    ServiceEvent { value: serde_json::Value },
+    ServiceEvent {
+        path: OutputPath,
+        value: serde_json::Value,
+    },
+    BillingRecords {
+        request_id: Option<RequestId>,
+        records: Vec<BillingRecord>,
+    },
 }

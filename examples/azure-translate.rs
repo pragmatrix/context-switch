@@ -166,13 +166,13 @@ async fn setup_audio_playback(
                 Output::Text { is_final, text } => {
                     println!("Text: {text}, final: {is_final}")
                 }
-                Output::RequestCompleted => {}
+                Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {
                     if cmd_tx.send(AudioCommand::Clear).is_err() {
                         break;
                     }
                 }
-                Output::ServiceEvent { .. } => {}
+                Output::ServiceEvent { .. } | Output::BillingRecords { .. } => {}
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);
