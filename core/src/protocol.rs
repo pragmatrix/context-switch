@@ -75,6 +75,7 @@ pub enum BillingRecordValue {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OutputPath {
     /// Deliver the event to the control path, which is the path where the initial start input event
     /// originated. All events on this path will take priority over media output, ensuring that
