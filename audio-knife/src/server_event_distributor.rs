@@ -12,7 +12,7 @@ pub struct ServerEventDistributor {
 }
 
 impl ServerEventDistributor {
-    pub fn dispatch(&mut self, event: ServerEvent) -> Result<()> {
+    pub fn dispatch(&mut self, mut event: ServerEvent) -> Result<()> {
         let conversation = event.conversation_id();
 
         match self.conversation_targets.get(conversation) {
@@ -20,6 +20,7 @@ impl ServerEventDistributor {
                 // May redirect if this is an output event.
                 Some(redirect_output) if event.output_path() == OutputPath::Media => {
                     if let Some(redir_target) = self.conversation_targets.get(redirect_output) {
+                        event.set_conversation_id(redirect_output.clone());
                         redir_target.target.try_send(event)?
                     } else {
                         bail!(

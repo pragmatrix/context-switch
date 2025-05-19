@@ -123,6 +123,21 @@ impl ServerEvent {
         }
     }
 
+    pub fn set_conversation_id(&mut self, id: ConversationId) {
+        let id_ref = match self {
+            ServerEvent::Started { id, .. } => id,
+            ServerEvent::Stopped { id } => id,
+            ServerEvent::Error { id, .. } => id,
+            ServerEvent::Audio { id, .. } => id,
+            ServerEvent::ClearAudio { id } => id,
+            ServerEvent::Text { id, .. } => id,
+            ServerEvent::RequestCompleted { id, .. } => id,
+            ServerEvent::Service { id, .. } => id,
+            ServerEvent::BillingRecords { id, .. } => id,
+        };
+        *id_ref = id;
+    }
+
     pub fn output_path(&self) -> OutputPath {
         match self {
             ServerEvent::Started { .. }
