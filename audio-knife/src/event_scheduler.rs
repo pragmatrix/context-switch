@@ -17,7 +17,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
     time::sleep,
 };
-use tracing::debug;
+use tracing::{debug, warn};
 
 use context_switch::{AudioFormat, OutputModality, OutputPath, ServerEvent};
 
@@ -53,6 +53,11 @@ pub async fn event_scheduler(
         if let Some(event) = event {
             match event.output_path() {
                 OutputPath::Control => {
+                    if let ServerEvent::Started { modalities, .. } = &event {
+                        // TODO: This is ugly here, may be we should set it when we set up the conversation, because
+                        // the modalities should be clear from the beginning (no negotiation is currently supported).
+                        media_scheduler.notify_started(modalities)?;
+                    }
                     // Control events are sent out immediately.
                     sender.try_send(event)?;
                     // Even though only a control event was short circuited we need to kick the the
@@ -94,6 +99,17 @@ impl MediaEventScheduler {
         }
     }
 
+    /// TODO: There could be situation in which ... when there is a conversation crossover ... the
+    /// started event was not sent yet when we received audio here. In this case, we have to ignore
+    /// the audio and warn about it.
+    pub fn notify_started(&mut self, modalities: &[OutputModality]) -> Result<()> {
+        if self.audio_format.is_some() {
+            bail!("Internal error, received output modalities twice.");
+        }
+        self.audio_format = audio_format_from_output_modalities(modalities)?;
+        Ok(())
+    }
+
     pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
         // Don't give me anothing other than media events!
         debug_assert!(event.output_path() == OutputPath::Media);
@@ -119,12 +135,12 @@ impl MediaEventScheduler {
                 return Ok(None);
             };
             match next_event {
-                ServerEvent::Started { modalities, .. } => {
-                    self.audio_format = audio_format_from_output_modalities(modalities)?;
-                }
                 ServerEvent::Audio { samples, .. } => {
                     let Some(audio_format) = self.audio_format else {
-                        bail!("Received Audio but without a prior Started event or no audio output")
+                        warn!(
+                            "Received Audio but without a prior Started event or no audio output, audio is ignored"
+                        );
+                        continue;
                     };
                     let duration = audio_format.duration(samples.len());
                     if self.audio_finished >= (now + MAX_BUFFERED_AUDIO) {
