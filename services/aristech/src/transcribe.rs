@@ -131,6 +131,7 @@ impl Service for AristechTranscribe {
                     break;
                 }
             }
+
             Ok::<_, anyhow::Error>(())
         });
 
@@ -142,7 +143,7 @@ impl Service for AristechTranscribe {
         {
             for chunk in response.chunks {
                 // Determine if this is a final result
-                let is_final = chunk.r#final;
+                let is_final = chunk.end_of_utterance;
 
                 // Instead of processing all alternatives, just take the first one
                 if let Some(alternative) = chunk.alternatives.into_iter().next() {
