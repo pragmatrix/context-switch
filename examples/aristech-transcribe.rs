@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
-use context_switch::{InputModality, OutputModality, services::AristechTranscribe};
 use aristech::transcribe::{AuthConfig, Params as AristechParams};
+use context_switch::{InputModality, OutputModality, services::AristechTranscribe};
 use context_switch_core::{
     AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input},
@@ -20,22 +20,34 @@ async fn main() -> Result<()> {
     let device = host
         .default_input_device()
         .expect("Failed to get default input device");
-    let config = device
-        .default_input_config()
-        .expect("Failed to get default input config");
+    // let config = device
+    //     .default_input_config()
+    //     .expect("Failed to get default input config");
+
+    let stream_config = cpal::SupportedStreamConfig::new(
+        1,
+        cpal::SampleRate(16_000),
+        cpal::SupportedBufferSize::Range {
+            min: 512,
+            max: 2048,
+        },
+        cpal::SampleFormat::F32,
+    );
+    let sample_rate = stream_config.sample_rate().0 as i64;
+    let config = stream_config.config();
 
     println!("config: {:?}", config);
 
-    let channels = config.channels();
-    let sample_rate = config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate.0);
+    let channels = config.channels;
+    //let sample_rate = config.sample_rate;
+    let format = AudioFormat::new(channels, sample_rate as u32);
 
     let (producer, mut input_consumer) = format.new_channel();
 
     // Create and run the input stream
     let stream = device
         .build_input_stream(
-            &config.into(),
+            &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
                 let frame = AudioFrame { format, samples };
@@ -54,7 +66,7 @@ async fn main() -> Result<()> {
     stream.play().expect("Failed to play stream");
 
     // Language code for Aristech transcription
-    let language_code = "en_GB";
+    let language_code = "en";
 
     // Create params for Aristech transcribe based on environment variables
     let auth_config = if let Ok(api_key) = env::var("ARISTECH_API_KEY") {
@@ -65,16 +77,20 @@ async fn main() -> Result<()> {
         let host = env::var("ARISTECH_HOST").context("ARISTECH_HOST undefined")?;
         let token = env::var("ARISTECH_TOKEN").context("ARISTECH_TOKEN undefined")?;
         let secret = env::var("ARISTECH_SECRET").context("ARISTECH_SECRET undefined")?;
-        
-        AuthConfig::Credentials { host, token, secret }
+
+        AuthConfig::Credentials {
+            host,
+            token,
+            secret,
+        }
     };
-    
+
     // Create the params with authentication and language settings
     let params = AristechParams {
         auth_config,
         language_code: language_code.into(),
-        model: String::new(),     // Optional: Specify a model if needed
-        prompt: String::new(),    // Optional: Specify a prompt if needed
+        model: String::new(),  // Optional: Specify a model if needed
+        prompt: String::new(), // Optional: Specify a prompt if needed
     };
 
     let (output_producer, mut output_consumer) = channel(32);
