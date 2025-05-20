@@ -1,14 +1,14 @@
 use base64::prelude::*;
-use context_switch_core::audio;
 use derive_more::derive::{Deref, Display, From, Into};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use context_switch_core::{
+    BillingRecord, InputModality, OutputModality, OutputPath, audio, conversation::RequestId,
+};
 
 /// Conversation identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
 pub struct ConversationId(String);
-
-/// Re-export everything that's in core.
-pub use context_switch_core::protocol::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -86,13 +86,25 @@ pub enum ServerEvent {
     },
     /// A completed event is sent when the client request that triggered Audio or Text responses has
     /// has been fully processed.
+    #[serde(rename_all = "camelCase")]
     RequestCompleted {
         id: ConversationId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<RequestId>,
     },
     /// A service event
     Service {
         id: ConversationId,
+        path: OutputPath,
         value: serde_json::Value,
+    },
+    /// Billing
+    #[serde(rename_all = "camelCase")]
+    BillingRecords {
+        id: ConversationId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<RequestId>,
+        records: Vec<BillingRecord>,
     },
 }
 
@@ -104,9 +116,44 @@ impl ServerEvent {
             | ServerEvent::Error { id, .. }
             | ServerEvent::Audio { id, .. }
             | ServerEvent::Text { id, .. }
-            | ServerEvent::RequestCompleted { id }
+            | ServerEvent::RequestCompleted { id, .. }
             | ServerEvent::ClearAudio { id }
             | ServerEvent::Service { id, .. } => id,
+            ServerEvent::BillingRecords { id, .. } => id,
+        }
+    }
+
+    pub fn set_conversation_id(&mut self, id: ConversationId) {
+        let id_ref = match self {
+            ServerEvent::Started { id, .. } => id,
+            ServerEvent::Stopped { id } => id,
+            ServerEvent::Error { id, .. } => id,
+            ServerEvent::Audio { id, .. } => id,
+            ServerEvent::ClearAudio { id } => id,
+            ServerEvent::Text { id, .. } => id,
+            ServerEvent::RequestCompleted { id, .. } => id,
+            ServerEvent::Service { id, .. } => id,
+            ServerEvent::BillingRecords { id, .. } => id,
+        };
+        *id_ref = id;
+    }
+
+    pub fn output_path(&self) -> OutputPath {
+        match self {
+            ServerEvent::Started { .. }
+            // TODO: The Stopped and Error events might need special consideration as they do
+            // overtake all pending media which they probably should not.
+            | ServerEvent::Stopped { .. }
+            | ServerEvent::Error { .. } => OutputPath::Control,
+
+            ServerEvent::Audio { .. }
+            | ServerEvent::ClearAudio { .. }
+            | ServerEvent::Text { .. }
+            | ServerEvent::RequestCompleted { .. } => OutputPath::Media,
+
+            | ServerEvent::Service { path, .. } => *path,
+
+            ServerEvent::BillingRecords { .. } => OutputPath::Control,
         }
     }
 }

@@ -1,13 +1,15 @@
 pub mod audio;
 pub mod conversation;
-pub mod protocol;
+mod duration;
+mod protocol;
 pub mod service;
 
-use anyhow::{Result, bail};
+use std::time;
 
-use std::time::Duration;
+use anyhow::{Result, bail};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+pub use duration::Duration;
 pub use protocol::*;
 pub use service::Service;
 
@@ -161,7 +163,7 @@ impl AudioFrame {
         audio::to_le_bytes(&self.samples)
     }
 
-    pub fn duration(&self) -> Duration {
+    pub fn duration(&self) -> time::Duration {
         self.format.duration(self.samples.len())
     }
 
