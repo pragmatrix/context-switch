@@ -319,6 +319,17 @@ impl SessionState {
                 let client_event = Self::decode_client_event(msg)?;
                 debug!("Received client event: `{client_event:?}`");
 
+                // Be sure we don't process events for other than the one we got with the first start event.
+                {
+                    let conversation = client_event.conversation_id();
+                    if conversation != &self.conversation {
+                        bail!(
+                            "Received client event from an unexpected conversation: `{conversation}`, expected `{}`",
+                            self.conversation
+                        );
+                    }
+                }
+
                 self.state
                     .context_switch
                     .lock()
