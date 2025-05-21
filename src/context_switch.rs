@@ -150,7 +150,7 @@ impl ContextSwitch {
         info!("Conversation ended: {:?}", final_event);
         if let Result::Err(e) = output.try_send(final_event) {
             warn!(
-                "Failed to deliver the final event of conversation, output receiver is gone: `{id}`: {e:?}"
+                "Failed to deliver the final event of the conversation, output receiver is gone: `{id}`: {e:?}"
             )
         }
     }
@@ -212,9 +212,9 @@ impl ContextSwitch {
                             bail!("Received unexpected Start event")
                         },
                         ClientEvent::Stop { .. } => {
-                            // Stop isn't handled through the event, we stop by disconnecting
+                            // Stop isn't handled through this event, we stop by disconnecting
                             // the input.
-                            bail!("Received unexpeced Stop event")
+                            bail!("Received unexpected Stop event")
                         },
                         ClientEvent::Audio { samples, .. } => {
                             if let InputModality::Audio { format } = input_modality {
@@ -267,7 +267,7 @@ impl ContextSwitch {
                 // We don't bail here and confuse clients with an error. After all, dropping the
                 // conversation must always be reliable. The graceful shutdown is just for closing
                 // internet connections and keeping services from panicking too much.
-                error!("Graceful shutdown failed after waiting for {}ms", shutdown_timeout.as_millis());
+                error!("Graceful shutdown peroid expired after waiting for {}ms", shutdown_timeout.as_millis());
             }
         }
 

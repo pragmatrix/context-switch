@@ -8,7 +8,7 @@ use crate::{ClientEvent, ContextSwitch, ConversationId, ServerEvent, registry::R
 use context_switch_core::InputModality;
 
 #[tokio::test]
-async fn never_ending_service_is_shutdown_gracefully_in_response_to_stop() {
+async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
     let (server_sender, mut server_receiver) = channel(256);
 
     let (n_send, mut n_recv) = channel(10);
