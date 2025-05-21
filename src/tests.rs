@@ -14,10 +14,10 @@ async fn never_ending_service_is_shutdown_gracefully_in_response_to_stop() {
     let (n_send, mut n_recv) = channel(10);
 
     let registry = Registry::default().add_service(
-        "never-ending",
+        "test-service",
         TestService {
             notification: n_send,
-            behavior: Behavior::NeverEnd,
+            scenario: Scenario::NeverEnd,
         },
     );
 
@@ -28,7 +28,7 @@ async fn never_ending_service_is_shutdown_gracefully_in_response_to_stop() {
 
     cs.process(ClientEvent::Start {
         id: conv.clone(),
-        service: "never-ending".into(),
+        service: "test-service".into(),
         params: Value::Null,
         input_modality: InputModality::Text,
         output_modalities: Vec::new(),
@@ -42,6 +42,52 @@ async fn never_ending_service_is_shutdown_gracefully_in_response_to_stop() {
     cs.process(ClientEvent::Stop { id: conv }).unwrap();
 
     assert_eq!(n_recv.recv().await, Some(Notification::Lingering));
+
+    let ev = server_receiver.recv().await.unwrap();
+    assert!(matches!(ev, ServerEvent::Stopped { .. }));
+
+    assert_eq!(n_recv.recv().await, Some(Notification::Stopped));
+}
+
+// This is currently a limitation. No output events can be sent while a graceful shutdown has
+// started.
+// #[tokio::test]
+#[allow(unused)]
+async fn output_events_can_be_sent_after_shutdown() {
+    let (server_sender, mut server_receiver) = channel(256);
+
+    let (n_send, mut n_recv) = channel(10);
+
+    let registry = Registry::default().add_service(
+        "test-service",
+        TestService {
+            notification: n_send,
+            scenario: Scenario::OutputAfterStop,
+        },
+    );
+
+    let mut cs = ContextSwitch::new(registry.into(), server_sender)
+        .with_shutdown_timeout(Duration::from_micros(1));
+
+    let conv: ConversationId = "conv".to_string().into();
+
+    cs.process(ClientEvent::Start {
+        id: conv.clone(),
+        service: "test-service".into(),
+        params: Value::Null,
+        input_modality: InputModality::Text,
+        output_modalities: Vec::new(),
+    })
+    .unwrap();
+
+    let ev = server_receiver.recv().await.unwrap();
+    assert!(matches!(ev, ServerEvent::Started { .. }));
+    assert_eq!(n_recv.recv().await, Some(Notification::Started));
+
+    cs.process(ClientEvent::Stop { id: conv }).unwrap();
+
+    let ev = server_receiver.recv().await.unwrap();
+    assert!(matches!(ev, ServerEvent::ClearAudio { .. }));
 
     let ev = server_receiver.recv().await.unwrap();
     assert!(matches!(ev, ServerEvent::Stopped { .. }));
@@ -67,14 +113,15 @@ mod helper {
     }
 
     #[derive(Debug)]
-    pub enum Behavior {
+    pub enum Scenario {
         NeverEnd,
+        OutputAfterStop,
     }
 
     #[derive(Debug)]
     pub struct TestService {
         pub notification: Sender<Notification>,
-        pub behavior: Behavior,
+        pub scenario: Scenario,
     }
 
     #[async_trait]
@@ -85,19 +132,21 @@ mod helper {
             _params: Self::Params,
             conversation: Conversation,
         ) -> Result<()> {
-            let (mut input, _output) = conversation.start()?;
+            let (mut input, output) = conversation.start()?;
             self.notification.send(Notification::Started).await?;
 
             let input = input.recv().await;
             assert!(input.is_none());
 
-            self.notification.send(Notification::Lingering).await?;
+            let _stop_on_drop = StopOnDrop(&self.notification);
 
-            let _ = StopOnDrop(&self.notification);
-
-            match self.behavior {
-                Behavior::NeverEnd => {
+            match self.scenario {
+                Scenario::NeverEnd => {
+                    self.notification.send(Notification::Lingering).await?;
                     time::sleep(Duration::from_secs(u64::MAX)).await;
+                }
+                Scenario::OutputAfterStop => {
+                    output.clear_audio()?;
                 }
             }
 

@@ -220,7 +220,7 @@ impl ContextSwitch {
                             if let InputModality::Audio { format } = input_modality {
                                 let frame = AudioFrame { format, samples: samples.into() };
                                 input_sender
-                                    .try_send(Input::Audio{frame})
+                                    .try_send(Input::Audio { frame })
                                     .context("Sending input audio frame to conversation")?;
                             } else {
                                 bail!("Received unexpected Audio");
