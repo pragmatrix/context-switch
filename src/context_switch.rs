@@ -9,10 +9,9 @@ use static_assertions::assert_impl_all;
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender, channel},
-    task::JoinHandle,
     time,
 };
-use tracing::{Level, error, info, span};
+use tracing::{Level, error, info, span, warn};
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
 use context_switch_core::{
@@ -33,9 +32,6 @@ assert_impl_all!(ContextSwitch: Send);
 struct ActiveConversation {
     pub input_modality: InputModality,
     pub client_sender: Sender<ClientEvent>,
-    // TODO: Need some clarity if we should abort on Drop or leave it running, so that it can send
-    // out the final event?
-    pub _task: JoinHandle<Result<()>>,
 }
 
 /// All the services we currently support in CS
@@ -84,7 +80,10 @@ impl ContextSwitch {
 
                 // TODO: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
-                let task = tokio::spawn(Self::process_conversation(
+                // The task is expected to handle all circumstances and so its never required to abort it or
+                // inspect its return value.
+
+                tokio::spawn(Self::process_conversation(
                     self.registry.clone(),
                     self.shutdown_timeout,
                     event,
@@ -94,7 +93,6 @@ impl ContextSwitch {
                 vacant_entry.insert(ActiveConversation {
                     input_modality,
                     client_sender: sender,
-                    _task: task,
                 });
             }
             Entry::Occupied(occupied_entry) => {
@@ -119,7 +117,7 @@ impl ContextSwitch {
         initial_event: ClientEvent,
         input: Receiver<ClientEvent>,
         output: Sender<ServerEvent>,
-    ) -> Result<()> {
+    ) {
         let id = initial_event.conversation_id().clone();
 
         let span = span!(Level::INFO, "process-conversation", id = %id);
@@ -150,7 +148,11 @@ impl ContextSwitch {
             }
         };
         info!("Conversation ended: {:?}", final_event);
-        Ok(output.try_send(final_event)?)
+        if let Result::Err(e) = output.try_send(final_event) {
+            warn!(
+                "Failed to deliver the final event of conversation, output receiver is gone: `{id}`: {e:?}"
+            )
+        }
     }
 
     /// A protected version of the conversation processor. Outside error handling makes sure that
