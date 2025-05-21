@@ -243,6 +243,20 @@ struct SessionState {
 
 impl Drop for SessionState {
     fn drop(&mut self) {
+        // First remove the target, so that - when we send the stop event to ContextSwitch, it's
+        // guaranteed that no events are delivered anymore to the client.
+        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
+            if distributor
+                .remove_conversation_target(&self.conversation)
+                .is_err()
+            {
+                error!("Internal error: Failed to remove conversation target");
+            }
+        } else {
+            error!("Internal error: Can't lock server event distributor");
+        }
+
+        // Now send the stop event to shut down the service gracefully. This happens asynchronously.
         if let Err(e) = self
             .state
             .context_switch
@@ -253,17 +267,6 @@ impl Drop for SessionState {
             })
         {
             error!("Internal error: Failed to send the final stop event: {e:?}");
-        }
-
-        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
-            if distributor
-                .remove_conversation_target(&self.conversation)
-                .is_err()
-            {
-                error!("Internal error: Failed to remove conversation target");
-            }
-        } else {
-            error!("Internal error: Can't lock server event distributor");
         }
     }
 }
@@ -430,10 +433,10 @@ struct StartEventAuxiliary {
     pub redirect_output_to: Option<ConversationId>,
 }
 
-/// Dispatches channel messages to the socket's sink.
+/// Dispatches outgoing server events and pongs to the socket's sink.
 async fn dispatch_channel_messages(
     mut pong_receiver: Receiver<Pong>,
-    mut event_receiver: Receiver<ServerEvent>,
+    mut server_event_receiver: Receiver<ServerEvent>,
     mut socket: SplitSink<WebSocket, Message>,
 ) -> Result<()> {
     loop {
@@ -446,7 +449,7 @@ async fn dispatch_channel_messages(
                     bail!("Pong sender vanished");
                 }
             }
-            event = event_receiver.recv() => {
+            event = server_event_receiver.recv() => {
                 if let Some(event) = event {
                     dispatch_server_event(&mut socket, event).await?;
                 } else {
