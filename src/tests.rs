@@ -13,7 +13,13 @@ async fn never_ending_service_is_shutdown_gracefully_with_stop() {
 
     let (n_send, mut n_recv) = channel(10);
 
-    let registry = Registry::default().add_service("never-ending", NeverEndingService(n_send));
+    let registry = Registry::default().add_service(
+        "never-ending",
+        TestService {
+            notification: n_send,
+            behavior: Behavior::NeverEnd,
+        },
+    );
 
     let mut cs = ContextSwitch::new(registry.into(), server_sender)
         .with_shutdown_timeout(Duration::from_micros(1));
@@ -61,10 +67,18 @@ mod helper {
     }
 
     #[derive(Debug)]
-    pub struct NeverEndingService(pub Sender<Notification>);
+    pub enum Behavior {
+        NeverEnd,
+    }
+
+    #[derive(Debug)]
+    pub struct TestService {
+        pub notification: Sender<Notification>,
+        pub behavior: Behavior,
+    }
 
     #[async_trait]
-    impl Service for NeverEndingService {
+    impl Service for TestService {
         type Params = ();
         async fn conversation(
             &self,
@@ -72,15 +86,21 @@ mod helper {
             conversation: Conversation,
         ) -> Result<()> {
             let (mut input, _output) = conversation.start()?;
-            self.0.send(Notification::Started).await?;
+            self.notification.send(Notification::Started).await?;
 
             let input = input.recv().await;
             assert!(input.is_none());
 
-            self.0.send(Notification::Lingering).await?;
+            self.notification.send(Notification::Lingering).await?;
 
-            let _ = StopOnDrop(&self.0);
-            time::sleep(Duration::from_secs(u64::MAX)).await;
+            let _ = StopOnDrop(&self.notification);
+
+            match self.behavior {
+                Behavior::NeverEnd => {
+                    time::sleep(Duration::from_secs(u64::MAX)).await;
+                }
+            }
+
             Ok(())
         }
     }
