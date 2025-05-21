@@ -56,7 +56,7 @@ impl ContextSwitch {
         }
     }
 
-    /// Sets the shutdown timeout. this is useful for testing.
+    /// Sets the shutdown timeout. This is useful for testing.
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
