@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use context_switch_core::InputModality;
 use helper::*;
 use serde_json::Value;
 use tokio::sync::mpsc::channel;
 
 use crate::{ClientEvent, ContextSwitch, ConversationId, ServerEvent, registry::Registry};
+use context_switch_core::InputModality;
 
 #[tokio::test]
-async fn never_ending_service_is_shutdown_gracefully_with_stop() {
+async fn never_ending_service_is_shutdown_gracefully_in_response_to_stop() {
     let (server_sender, mut server_receiver) = channel(256);
 
     let (n_send, mut n_recv) = channel(10);
