@@ -74,7 +74,10 @@ async fn main() -> Result<()> {
     let server_event_distributor = Arc::new(Mutex::new(ServerEventDistributor::default()));
 
     let state = State {
-        context_switch: Arc::new(Mutex::new(ContextSwitch::new(cs_sender))),
+        context_switch: Arc::new(Mutex::new(ContextSwitch::new(
+            context_switch::registry().into(),
+            cs_sender,
+        ))),
         server_event_distributor: server_event_distributor.clone(),
     };
 
