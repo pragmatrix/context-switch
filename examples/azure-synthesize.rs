@@ -27,7 +27,8 @@ async fn main() -> Result<()> {
 
     let conversation_id = ConversationId::from("synthesize-conversation".to_string());
 
-    let mut context_switch = ContextSwitch::new(server_events_tx);
+    let mut context_switch =
+        ContextSwitch::new(context_switch::registry().into(), server_events_tx);
 
     // start
 

@@ -1,4 +1,5 @@
-//! A component to distributes server events to multiple conversation targets.
+//! A component that routes server events that are received from ContextSwitch to multiple
+//! conversation targets.
 //!
 //! Conceptually, this is similar to a reverse proxy.
 use std::collections::{HashMap, hash_map::Entry};
@@ -9,11 +10,11 @@ use tokio::sync::mpsc::Sender;
 use context_switch::{ConversationId, OutputPath, ServerEvent};
 
 #[derive(Debug, Default)]
-pub struct ServerEventDistributor {
+pub struct ServerEventRouter {
     conversation_targets: HashMap<ConversationId, ConversationTarget>,
 }
 
-impl ServerEventDistributor {
+impl ServerEventRouter {
     pub fn dispatch(&mut self, mut event: ServerEvent) -> Result<()> {
         let conversation = event.conversation_id();
 

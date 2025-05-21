@@ -3,7 +3,7 @@
 mod app_error;
 mod event_scheduler;
 mod mod_audio_fork;
-mod server_event_distributor;
+mod server_event_router;
 
 use std::{
     env,
@@ -25,7 +25,7 @@ use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
-use server_event_distributor::ServerEventDistributor;
+use server_event_router::ServerEventRouter;
 use tokio::{
     net::TcpListener,
     pin, select,
@@ -71,10 +71,13 @@ async fn main() -> Result<()> {
     // Channel from context_switch to event_scheduler
     let (cs_sender, cs_receiver) = channel(32);
 
-    let server_event_distributor = Arc::new(Mutex::new(ServerEventDistributor::default()));
+    let server_event_distributor = Arc::new(Mutex::new(ServerEventRouter::default()));
 
     let state = State {
-        context_switch: Arc::new(Mutex::new(ContextSwitch::new(cs_sender))),
+        context_switch: Arc::new(Mutex::new(ContextSwitch::new(
+            context_switch::registry().into(),
+            cs_sender,
+        ))),
         server_event_distributor: server_event_distributor.clone(),
     };
 
@@ -104,7 +107,7 @@ async fn main() -> Result<()> {
 
 async fn server_event_dispatcher(
     mut receiver: Receiver<ServerEvent>,
-    distributor: Arc<Mutex<ServerEventDistributor>>,
+    distributor: Arc<Mutex<ServerEventRouter>>,
 ) -> Result<()> {
     loop {
         match receiver.recv().await {
@@ -112,6 +115,8 @@ async fn server_event_dispatcher(
                 if let Err(e) = distributor.lock().expect("poisened").dispatch(event) {
                     // Because of the asynchronous nature of cross-conversation events, events not
                     // reaching their conversations may happen.
+                    //
+                    // Also in shutdown scenarios, we might not be able to deliver Stopped events.
                     debug!("Ignored failure to deliver server event: {e}")
                 }
             }
@@ -125,7 +130,7 @@ async fn server_event_dispatcher(
 #[derive(Debug, Clone)]
 struct State {
     context_switch: Arc<Mutex<ContextSwitch>>,
-    server_event_distributor: Arc<Mutex<ServerEventDistributor>>,
+    server_event_distributor: Arc<Mutex<ServerEventRouter>>,
 }
 
 async fn ws_get(
@@ -238,6 +243,8 @@ struct SessionState {
 
 impl Drop for SessionState {
     fn drop(&mut self) {
+        // First remove the target, so that - when we send the stop event to ContextSwitch, it's
+        // guaranteed that no events are delivered anymore to the client.
         if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
             if distributor
                 .remove_conversation_target(&self.conversation)
@@ -247,6 +254,19 @@ impl Drop for SessionState {
             }
         } else {
             error!("Internal error: Can't lock server event distributor");
+        }
+
+        // Now send the stop event to shut down the service gracefully. This happens asynchronously.
+        if let Err(e) = self
+            .state
+            .context_switch
+            .lock()
+            .expect("Poison error")
+            .process(ClientEvent::Stop {
+                id: self.conversation.clone(),
+            })
+        {
+            error!("Internal error: Failed to send the final stop event: {e:?}");
         }
     }
 }
@@ -316,6 +336,25 @@ impl SessionState {
                 let client_event = Self::decode_client_event(msg)?;
                 debug!("Received client event: `{client_event:?}`");
 
+                // Be sure we don't process events for other than the one we got with the first start event.
+                {
+                    let conversation = client_event.conversation_id();
+                    if conversation != &self.conversation {
+                        bail!(
+                            "Received client event from an unexpected conversation: `{conversation}`, expected `{}`",
+                            self.conversation
+                        );
+                    }
+                }
+
+                // We don't expect stop events coming via AudioFork. The only way to stop the
+                // conversation is to close the socket.
+                //
+                // This might change in the future.
+                if let ClientEvent::Stop { .. } = client_event {
+                    bail!("Internal Error: Unexpected stop event. Just close the socket instead!");
+                }
+
                 self.state
                     .context_switch
                     .lock()
@@ -352,7 +391,7 @@ impl SessionState {
             Message::Close(msg) => {
                 if let Some(msg) = &msg {
                     debug!(
-                        "Received close message with code {} and message: {}",
+                        "Received close message with code {} and message: `{}`",
                         msg.code, msg.reason
                     );
                 } else {
@@ -394,10 +433,10 @@ struct StartEventAuxiliary {
     pub redirect_output_to: Option<ConversationId>,
 }
 
-/// Dispatches channel messages to the socket's sink.
+/// Dispatches outgoing server events and pongs to the socket's sink.
 async fn dispatch_channel_messages(
     mut pong_receiver: Receiver<Pong>,
-    mut event_receiver: Receiver<ServerEvent>,
+    mut server_event_receiver: Receiver<ServerEvent>,
     mut socket: SplitSink<WebSocket, Message>,
 ) -> Result<()> {
     loop {
@@ -410,7 +449,7 @@ async fn dispatch_channel_messages(
                     bail!("Pong sender vanished");
                 }
             }
-            event = event_receiver.recv() => {
+            event = server_event_receiver.recv() => {
                 if let Some(event) = event {
                     dispatch_server_event(&mut socket, event).await?;
                 } else {

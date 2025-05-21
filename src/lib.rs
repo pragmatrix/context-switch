@@ -1,6 +1,8 @@
 mod context_switch;
 mod protocol;
 mod registry;
+#[cfg(test)]
+mod tests;
 
 pub use context_switch::*;
 pub use context_switch_core::*;

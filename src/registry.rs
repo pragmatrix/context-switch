@@ -7,23 +7,9 @@ use serde_json::Value;
 
 use context_switch_core::conversation::Conversation;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Registry {
     services: HashMap<&'static str, Box<dyn WrappedService + Send + Sync>>,
-}
-
-impl Default for Registry {
-    fn default() -> Self {
-        Self {
-            services: [
-                ("azure-transcribe", Box::new(azure::AzureTranscribe) as _),
-                ("azure-synthesize", Box::new(azure::AzureSynthesize) as _),
-                ("azure-translate", Box::new(azure::AzureTranslate) as _),
-                ("openai-dialog", Box::new(openai_dialog::OpenAIDialog) as _),
-            ]
-            .into(),
-        }
-    }
 }
 
 impl Registry {
@@ -32,6 +18,17 @@ impl Registry {
             .get(name)
             .map(|e| e.as_ref())
             .ok_or_else(|| anyhow!("`{name}`: Unregistered service"))
+    }
+
+    #[must_use]
+    pub fn add_service(
+        mut self,
+        name: &'static str,
+        service: impl WrappedService + Send + Sync + 'static,
+    ) -> Self {
+        let service = Box::new(service) as _;
+        self.services.insert(name, service);
+        self
     }
 }
 
