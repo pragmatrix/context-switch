@@ -115,9 +115,9 @@ impl ConversationInput {
     /// - The nested conversation receives the same input and output modalities.
     pub async fn converse(
         &self,
+        output: &ConversationOutput,
         service: &str,
         params: serde_json::Value,
-        output: &ConversationOutput,
         request: Input,
     ) -> Result<()> {
         let service = self.registry.service(service)?;
