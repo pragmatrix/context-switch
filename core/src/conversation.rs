@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::{
     AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
@@ -78,44 +78,26 @@ impl Conversation {
 
     /// Start the conversation.
     pub fn start(self) -> Result<(ConversationInput, ConversationOutput)> {
-        let input = ConversationInput { input: self.input };
+        let input = ConversationInput {
+            registry: self.registry,
+            modality: self.input_modality,
+            input: self.input,
+        };
         let output = ConversationOutput {
+            modalities: self.output_modalities,
             output: self.output,
         };
         output.post(Output::ServiceStarted {
-            modalities: self.output_modalities,
+            modalities: output.modalities.clone(),
         })?;
         Ok((input, output))
-    }
-
-    /// Run a nested service conversation.
-    ///
-    /// The service must be registered in the registry provided to this conversation and the nested
-    /// conversation receives the same input and output modalities.
-    pub async fn converse(
-        &self,
-        service: &str,
-        params: serde_json::Value,
-        input: Receiver<Input>,
-    ) -> Result<()> {
-        let service = self.registry.service(service)?;
-        let conversation = Conversation {
-            // Nest only one layer deep for now. Idea: CS should remove this service from the
-            // registry passed to this conversation and then we could nest and remove all services
-            // that are in use.
-            registry: Registry::empty().into(),
-            input_modality: self.input_modality,
-            output_modalities: self.output_modalities.clone(),
-            input,
-            output: self.output.clone(),
-        };
-
-        service.converse(params, conversation).await
     }
 }
 
 #[derive(Debug)]
 pub struct ConversationInput {
+    registry: Arc<Registry>,
+    modality: InputModality,
     input: Receiver<Input>,
 }
 
@@ -123,10 +105,45 @@ impl ConversationInput {
     pub async fn recv(&mut self) -> Option<Input> {
         self.input.recv().await
     }
+
+    /// Run a nested service conversation with one single input request and wait until its
+    /// completed.
+    ///
+    /// All output is sent to the conversation output.
+    ///
+    /// - The service must be registered in the registry provided to this conversation.
+    /// - The nested conversation receives the same input and output modalities.
+    pub async fn converse(
+        &self,
+        service: &str,
+        params: serde_json::Value,
+        output: &ConversationOutput,
+        request: Input,
+    ) -> Result<()> {
+        let service = self.registry.service(service)?;
+
+        let (input_tx, input_rx) = channel(1);
+        input_tx.try_send(request)?;
+        drop(input_tx);
+
+        let conversation = Conversation {
+            // Nest only one layer deep for now. Idea: CS should remove this service from the
+            // registry passed to this conversation and then we could nest and remove all services
+            // that are in use.
+            registry: Registry::empty().into(),
+            input_modality: self.modality,
+            output_modalities: output.modalities.clone(),
+            input: input_rx,
+            output: output.output.clone(),
+        };
+
+        service.converse(params, conversation).await
+    }
 }
 
 #[derive(Debug)]
 pub struct ConversationOutput {
+    modalities: Vec<OutputModality>,
     output: Sender<Output>,
 }
 
