@@ -184,8 +184,8 @@ async fn setup_audio_playback(
                         info!("Session Updated: {tools:?}");
                     }
                 },
-                Output::BillingRecords { records, .. } => {
-                    info!("Billing records: {records:?}");
+                Output::BillingRecords { records, scope, .. } => {
+                    info!("Billing: scope: {scope:?}, records: {records:?}");
                 }
             }
         }

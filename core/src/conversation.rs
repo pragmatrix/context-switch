@@ -130,6 +130,7 @@ impl ConversationOutput {
             records: records.into(),
         })
     }
+
     fn post(&self, output: Output) -> Result<()> {
         Ok(self.output.try_send(output)?)
     }
