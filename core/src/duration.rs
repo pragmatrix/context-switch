@@ -6,10 +6,10 @@
 /// - `mmm` is milliseconds (zero-padded, 000-999)
 use std::{fmt, time};
 
-use derive_more::derive::{From, Into};
+use derive_more::derive::{Deref, From, Into};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref)]
 pub struct Duration(time::Duration);
 
 impl fmt::Display for Duration {

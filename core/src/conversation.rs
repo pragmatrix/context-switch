@@ -124,10 +124,13 @@ impl ConversationOutput {
         scope: impl Into<Option<String>>,
         records: impl Into<Vec<BillingRecord>>,
     ) -> Result<()> {
+        let mut records: Vec<_> = records.into();
+        // ADR: Remove zero records early on.
+        records.retain(|r| !r.is_zero());
         self.post(Output::BillingRecords {
             request_id,
             scope: scope.into(),
-            records: records.into(),
+            records,
         })
     }
 

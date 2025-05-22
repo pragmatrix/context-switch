@@ -80,6 +80,13 @@ impl BillingRecord {
             value: BillingRecordValue::Duration(duration.into()),
         }
     }
+
+    pub fn is_zero(&self) -> bool {
+        match &self.value {
+            BillingRecordValue::Duration(duration) => duration.is_zero(),
+            BillingRecordValue::Count(count) => *count == 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
