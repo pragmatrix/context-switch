@@ -68,6 +68,7 @@ tracing-subscriber = { version = "0.3.19" }
 
 context-switch-core = { path = "core" }
 azure = { path = "services/azure" }
+playback = { path = "services/playback" }
 
 anyhow = "1.0.93"
 derive_more = { version = "1.0.0", features = ["full"] }

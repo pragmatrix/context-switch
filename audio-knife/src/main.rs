@@ -8,6 +8,7 @@ mod server_event_router;
 use std::{
     env,
     net::SocketAddr,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -57,6 +58,12 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ADR: For security reasons, this is an environment variable, and is not passed as playback
+    // service params to the playback service.
+    let local_audio_files = env::var("AUDIO_KNIFE_LOCAL_AUDIO_FILES")
+        .map(|path| PathBuf::from(&path))
+        .ok();
+
     {
         let args = env::args();
         let args: Vec<String> = args.collect();
@@ -73,11 +80,17 @@ async fn main() -> Result<()> {
 
     let server_event_distributor = Arc::new(Mutex::new(ServerEventRouter::default()));
 
+    let registry = {
+        let registry = context_switch::registry();
+
+        let playback_service = playback::Playback {
+            local_root: local_audio_files,
+        };
+        registry.add_service("playback", playback_service)
+    };
+
     let state = State {
-        context_switch: Arc::new(Mutex::new(ContextSwitch::new(
-            context_switch::registry().into(),
-            cs_sender,
-        ))),
+        context_switch: Arc::new(Mutex::new(ContextSwitch::new(registry.into(), cs_sender))),
         server_event_distributor: server_event_distributor.clone(),
     };
 
