@@ -1,0 +1,17 @@
+[package]
+name = "playback"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+context-switch-core = { workspace = true }
+
+tracing = { workspace = true }
+
+anyhow = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+async-trait = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
