@@ -87,6 +87,31 @@ impl Conversation {
         })?;
         Ok((input, output))
     }
+
+    /// Run a nested service conversation.
+    ///
+    /// The service must be registered in the registry provided to this conversation and the nested
+    /// conversation receives the same input and output modalities.
+    pub async fn converse(
+        &self,
+        service: &str,
+        params: serde_json::Value,
+        input: Receiver<Input>,
+    ) -> Result<()> {
+        let service = self.registry.service(service)?;
+        let conversation = Conversation {
+            // Nest only one layer deep for now. Idea: CS should remove this service from the
+            // registry passed to this conversation and then we could nest and remove all services
+            // that are in use.
+            registry: Registry::empty().into(),
+            input_modality: self.input_modality,
+            output_modalities: self.output_modalities.clone(),
+            input,
+            output: self.output.clone(),
+        };
+
+        service.converse(params, conversation).await
+    }
 }
 
 #[derive(Debug)]
