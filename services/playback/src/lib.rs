@@ -145,7 +145,7 @@ fn read_to_one_second_frames(
     // Correctness: This does not seem to actually mix the channels it just extracts one channel.
     let converter = ChannelCountConverter::new(source, source_channels, 1);
     let samples_f32: Vec<Sample> = if format.sample_rate != source_sample_rate {
-        // Quality: This resample is simple and linear.
+        // Quality: This resampler is a simple linear resampler.
         SampleRateConverter::new(converter, source_sample_rate, format.sample_rate, 1).collect()
     } else {
         converter.collect()
