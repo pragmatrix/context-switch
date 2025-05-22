@@ -35,9 +35,9 @@ pub struct SynthesizerParams {
 
 #[derive(Debug)]
 pub struct Playback {
-    /// The root of the local path for local playback. If it's not set, local playback leads to an
+    /// The local path root for local audio playback. If it's not set, local playback leads to an
     /// error.
-    pub local_root: Option<PathBuf>,
+    pub local_files: Option<PathBuf>,
 }
 
 #[async_trait]
@@ -65,7 +65,7 @@ impl Service for Playback {
                     let method = playback_backend_from_mime_type(
                         text,
                         text_type,
-                        self.local_root.as_deref(),
+                        self.local_files.as_deref(),
                     )?;
                     match method {
                         PlaybackMethod::Synthesize(text) => {

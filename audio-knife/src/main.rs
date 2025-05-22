@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
 
     // ADR: For security reasons, this is an environment variable, and is not passed as playback
     // service params to the playback service.
-    let local_audio_files = env::var("AUDIO_KNIFE_LOCAL_AUDIO_FILES")
+    let local_files = env::var("AUDIO_KNIFE_LOCAL_FILES")
         .map(|path| PathBuf::from(&path))
         .ok();
 
@@ -83,9 +83,7 @@ async fn main() -> Result<()> {
     let registry = {
         let registry = context_switch::registry();
 
-        let playback_service = playback::Playback {
-            local_root: local_audio_files,
-        };
+        let playback_service = playback::Playback { local_files };
         registry.add_service("playback", playback_service)
     };
 
