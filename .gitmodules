@@ -6,3 +6,6 @@
 	path = external/openai-api-rs
 	url = ../openai-api-rs.git
 	branch = context-switch
+[submodule "external/rodio"]
+	path = external/rodio
+	url = ../rodio.git

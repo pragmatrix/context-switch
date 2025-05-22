@@ -50,8 +50,7 @@ dotenvy = { workspace = true }
 
 # audio input
 cpal = "0.15.3"
-# audio output
-rodio = "0.20.1"
+rodio = { workspace = true }
 
 azure = { workspace = true }
 google-transcribe = { path = "services/google-transcribe" }
@@ -84,9 +83,14 @@ async-trait = "0.1.83"
 tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
 url = { version = "2.5.4" }
+# mediatype = { version = "0.19.20" }
 
 # external dependencies.
 
 azure-speech = { path = "external/azure-speech-sdk-rs" }
 # openai-api-rs = "5.2.3"
 openai-api-rs = { path = "external/openai-api-rs" }
+# Because 0.21 isn't released yet and we need to convert audio to mono and resample it.
+rodio = { path = "external/rodio" }
+
+
