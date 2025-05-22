@@ -226,10 +226,10 @@ impl ContextSwitch {
                                 bail!("Received unexpected Audio");
                             }
                         },
-                        ClientEvent::Text { content, .. } => {
+                        ClientEvent::Text { content, content_type, .. } => {
                             if let InputModality::Text = input_modality {
                                 input_sender
-                                    .try_send(Input::Text { request_id: None, text:content })
+                                    .try_send(Input::Text { request_id: None, text: content, text_type: content_type })
                                     .context("Sending input text to conversation")?;
                             } else {
                                 bail!("Received unexpected Text");

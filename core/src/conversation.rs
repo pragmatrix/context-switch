@@ -147,6 +147,7 @@ pub enum Input {
     Text {
         request_id: Option<RequestId>,
         text: String,
+        text_type: Option<String>,
     },
     ServiceEvent {
         value: serde_json::Value,

@@ -35,6 +35,7 @@ pub enum ClientEvent {
     Text {
         id: ConversationId,
         content: String,
+        content_type: Option<String>,
     },
     Service {
         id: ConversationId,

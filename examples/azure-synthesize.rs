@@ -65,6 +65,7 @@ async fn main() -> Result<()> {
     context_switch.process(ClientEvent::Text {
         id: conversation_id.clone(),
         content: text.into(),
+        content_type: None,
     })?;
     let (output_producer, playback_task) = setup_audio_playback(output_format).await;
 
