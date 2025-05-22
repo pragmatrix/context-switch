@@ -1,13 +1,17 @@
-use anyhow::{Result, bail};
+use std::sync::Arc;
 
+use anyhow::{Result, bail};
 use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath};
+use crate::{
+    AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
+};
 
 #[derive(Debug)]
 pub struct Conversation {
+    registry: Arc<Registry>,
     pub input_modality: InputModality,
     pub output_modalities: Vec<OutputModality>,
     input: Receiver<Input>,
@@ -15,6 +19,7 @@ pub struct Conversation {
 }
 
 impl Conversation {
+    /// A new conversation with an empty registry.
     pub fn new(
         input_modality: InputModality,
         output_modalities: impl Into<Vec<OutputModality>>,
@@ -22,11 +27,16 @@ impl Conversation {
         output: Sender<Output>,
     ) -> Self {
         Self {
+            registry: Registry::empty().into(),
             input_modality,
             output_modalities: output_modalities.into(),
             input,
             output,
         }
+    }
+
+    pub fn with_registry(self, registry: Arc<Registry>) -> Self {
+        Self { registry, ..self }
     }
 
     pub fn require_text_input_only(&self) -> Result<()> {

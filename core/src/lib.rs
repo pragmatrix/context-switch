@@ -2,6 +2,7 @@ pub mod audio;
 pub mod conversation;
 mod duration;
 mod protocol;
+mod registry;
 pub mod service;
 
 use std::time;
@@ -11,6 +12,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_chan
 
 pub use duration::Duration;
 pub use protocol::*;
+pub use registry::*;
 pub use service::Service;
 
 /// A unidirectional audio message. Useful for implementing an audio transfer channel.

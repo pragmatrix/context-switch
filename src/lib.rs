@@ -1,6 +1,5 @@
 mod context_switch;
 mod protocol;
-mod registry;
 #[cfg(test)]
 mod tests;
 

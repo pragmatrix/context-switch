@@ -4,7 +4,7 @@ use helper::*;
 use serde_json::Value;
 use tokio::sync::mpsc::channel;
 
-use crate::{ClientEvent, ContextSwitch, ConversationId, ServerEvent, registry::Registry};
+use crate::{ClientEvent, ContextSwitch, ConversationId, Registry, ServerEvent};
 use context_switch_core::InputModality;
 
 #[tokio::test]
@@ -13,7 +13,7 @@ async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
 
     let (n_send, mut n_recv) = channel(10);
 
-    let registry = Registry::default().add_service(
+    let registry = Registry::empty().add_service(
         "test-service",
         TestService {
             notification: n_send,
@@ -58,7 +58,7 @@ async fn output_events_can_be_sent_after_shutdown() {
 
     let (n_send, mut n_recv) = channel(10);
 
-    let registry = Registry::default().add_service(
+    let registry = Registry::empty().add_service(
         "test-service",
         TestService {
             notification: n_send,
