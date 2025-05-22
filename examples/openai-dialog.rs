@@ -184,7 +184,9 @@ async fn setup_audio_playback(
                         info!("Session Updated: {tools:?}");
                     }
                 },
-                Output::BillingRecords { .. } => {}
+                Output::BillingRecords { records, .. } => {
+                    info!("Billing records: {records:?}");
+                }
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);

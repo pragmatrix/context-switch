@@ -104,6 +104,8 @@ pub enum ServerEvent {
         id: ConversationId,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<RequestId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
         records: Vec<BillingRecord>,
     },
 }

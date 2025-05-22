@@ -118,6 +118,18 @@ impl ConversationOutput {
         self.post(Output::ServiceEvent { path, value })
     }
 
+    pub fn billing_records(
+        &self,
+        request_id: Option<RequestId>,
+        scope: impl Into<Option<String>>,
+        records: impl Into<Vec<BillingRecord>>,
+    ) -> Result<()> {
+        self.post(Output::BillingRecords {
+            request_id,
+            scope: scope.into(),
+            records: records.into(),
+        })
+    }
     fn post(&self, output: Output) -> Result<()> {
         Ok(self.output.try_send(output)?)
     }
@@ -162,6 +174,7 @@ pub enum Output {
     },
     BillingRecords {
         request_id: Option<RequestId>,
+        scope: Option<String>,
         records: Vec<BillingRecord>,
     },
 }

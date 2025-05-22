@@ -26,7 +26,7 @@ use tokio_tungstenite::{
 use tracing::{debug, info, warn};
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, OutputPath, Service, audio,
+    AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
     conversation::{Conversation, ConversationInput, ConversationOutput, Input},
 };
 
@@ -88,6 +88,7 @@ impl Service for OpenAIDialog {
                 params.tools,
                 input,
                 output,
+                &params.model,
             )
             .await?;
 
@@ -178,6 +179,7 @@ pub struct Client {
 
 impl Client {
     /// Run an audio dialog.
+    #[allow(clippy::too_many_arguments)]
     pub async fn dialog(
         &mut self,
         input_format: AudioFormat,
@@ -186,6 +188,7 @@ impl Client {
         tools: Vec<types::ToolDefinition>,
         mut input: ConversationInput,
         output: ConversationOutput,
+        billing_scope: &str,
     ) -> Result<()> {
         let expected_format = AudioFormat::new(1, 24000);
         if input_format != expected_format {
@@ -249,7 +252,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match Self::process_message(message, output_format, &output).await? {
+                            match Self::process_message(message, output_format, &output, billing_scope).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -400,76 +403,22 @@ impl Client {
         message: Message,
         output_format: AudioFormat,
         output: &ConversationOutput,
+        billing_scope: &str,
     ) -> Result<FlowControl> {
         match message {
-            Message::Text(str) => match serde_json::from_str(&str)
-                .with_context(|| format!("Deserialization failed: `{str}`"))?
-            {
-                ServerEvent::Error(e) => {
-                    bail!(format!("{e:?}, raw: {str}"));
-                }
-                ServerEvent::ResponseAudioDelta(audio_delta) => {
-                    let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
-                    let samples = audio::from_le_bytes(&decoded);
-                    debug!("Sending {} samples", samples.len());
-                    let frame = AudioFrame {
-                        format: output_format,
-                        samples,
-                    };
-                    output.audio_frame(frame)?;
-                }
-                ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
-                ServerEvent::ResponseDone(server_event::ResponseDone {
-                    response:
-                        types::Response {
-                            object,
-                            status: types::ResponseStatus::Completed,
-                            output: items,
-                            ..
-                        },
-                    ..
-                }) if object == "realtime.response" && !items.is_empty() => {
-                    for item in items {
-                        if item.r#type != Some(types::ItemType::FunctionCall)
-                            || item.status != Some(types::ItemStatus::Completed)
-                        {
-                            continue;
-                        }
-                        let (Some(name), Some(call_id)) = (item.name, item.call_id) else {
-                            continue;
-                        };
-                        let arguments: Option<serde_json::Value> = {
-                            match item.arguments {
-                                Some(arguments) => {
-                                    let Ok(arguments) = serde_json::from_str(&arguments) else {
-                                        continue;
-                                    };
-                                    Some(arguments)
-                                }
-                                None => None,
-                            }
-                        };
-                        output.service_event(
-                            OutputPath::Control,
-                            ServiceOutputEvent::FunctionCall {
-                                name,
-                                call_id,
-                                arguments,
-                            },
-                        )?;
-                    }
-                }
-                ServerEvent::SessionUpdated(server_event::SessionUpdated {
-                    session: types::Session { tools, .. },
-                    ..
-                }) => output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::SessionUpdated { tools },
-                )?,
-                response => {
-                    debug!("Unhandled response: {:?}", response)
-                }
-            },
+            Message::Text(str) => {
+                let api_event = serde_json::from_str(&str)
+                    .with_context(|| format!("Deserialization failed: `{str}`"))?;
+
+                handle_realtime_server_event(
+                    &str,
+                    api_event,
+                    output,
+                    output_format,
+                    billing_scope,
+                )?;
+            }
+
             Message::Ping(data) => {
                 return Ok(FlowControl::PongAndContinue(data));
             }
@@ -481,6 +430,115 @@ impl Client {
 
         Ok(FlowControl::Continue)
     }
+}
+
+fn handle_realtime_server_event(
+    raw: &str,
+    event: ServerEvent,
+    output: &ConversationOutput,
+    output_format: AudioFormat,
+    billing_scope: &str,
+) -> Result<()> {
+    match event {
+        ServerEvent::Error(e) => {
+            bail!(format!("{e:?}, raw: {raw}"));
+        }
+        ServerEvent::ResponseAudioDelta(audio_delta) => {
+            let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
+            let samples = audio::from_le_bytes(&decoded);
+            debug!("Sending {} samples", samples.len());
+            let frame = AudioFrame {
+                format: output_format,
+                samples,
+            };
+            output.audio_frame(frame)?;
+        }
+        ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+        ServerEvent::ResponseDone(server_event::ResponseDone {
+            response:
+                types::Response {
+                    object,
+                    status: types::ResponseStatus::Completed,
+                    output: items,
+                    usage,
+                    ..
+                },
+            ..
+        }) if object == "realtime.response" => {
+            for item in items {
+                if item.r#type != Some(types::ItemType::FunctionCall)
+                    || item.status != Some(types::ItemStatus::Completed)
+                {
+                    continue;
+                }
+                let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
+                    continue;
+                };
+                let arguments: Option<serde_json::Value> = {
+                    match item.arguments {
+                        Some(arguments) => {
+                            let Ok(arguments) = serde_json::from_str(&arguments) else {
+                                continue;
+                            };
+                            Some(arguments)
+                        }
+                        None => None,
+                    }
+                };
+                output.service_event(
+                    OutputPath::Control,
+                    ServiceOutputEvent::FunctionCall {
+                        name: name.clone(),
+                        call_id: call_id.clone(),
+                        arguments,
+                    },
+                )?;
+            }
+
+            if let Some(usage) = usage {
+                let input_details = &usage.input_token_details;
+                let output_details = &usage.output_token_details;
+                let cached_tokens = &usage.input_token_details.cached_tokens_details;
+                if input_details.audio_tokens < cached_tokens.audio_tokens {
+                    bail!("Internal error: less audio tokens than cached text tokens");
+                }
+                if input_details.text_tokens < cached_tokens.text_tokens {
+                    bail!("Internal error: less text tokens than cached text tokens");
+                }
+
+                let input_audio_tokens = input_details.audio_tokens - cached_tokens.audio_tokens;
+                let input_text_tokens = input_details.text_tokens - cached_tokens.text_tokens;
+
+                let records = [
+                    BillingRecord::count("tokens:input:audio", input_audio_tokens as _),
+                    BillingRecord::count("tokens:input:text", input_text_tokens as _),
+                    BillingRecord::count(
+                        "tokens:input:audio:cached",
+                        cached_tokens.audio_tokens as _,
+                    ),
+                    BillingRecord::count(
+                        "tokens:input:text:cached",
+                        cached_tokens.text_tokens as _,
+                    ),
+                    BillingRecord::count("tokens:output:audio", output_details.audio_tokens as _),
+                    BillingRecord::count("tokens:output:text", output_details.text_tokens as _),
+                ];
+                output.billing_records(None, Some(billing_scope.into()), records)?;
+            }
+        }
+        ServerEvent::SessionUpdated(server_event::SessionUpdated {
+            session: types::Session { tools, .. },
+            ..
+        }) => output.service_event(
+            OutputPath::Control,
+            ServiceOutputEvent::SessionUpdated { tools },
+        )?,
+        response => {
+            debug!("Unhandled response: {:?}", response)
+        }
+    }
+
+    Ok(())
 }
 
 enum FlowControl {
