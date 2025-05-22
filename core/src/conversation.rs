@@ -118,6 +118,22 @@ impl ConversationOutput {
         self.post(Output::ServiceEvent { path, value })
     }
 
+    pub fn billing_records(
+        &self,
+        request_id: Option<RequestId>,
+        scope: impl Into<Option<String>>,
+        records: impl Into<Vec<BillingRecord>>,
+    ) -> Result<()> {
+        let mut records: Vec<_> = records.into();
+        // ADR: Remove zero records early on.
+        records.retain(|r| !r.is_zero());
+        self.post(Output::BillingRecords {
+            request_id,
+            scope: scope.into(),
+            records,
+        })
+    }
+
     fn post(&self, output: Output) -> Result<()> {
         Ok(self.output.try_send(output)?)
     }
@@ -162,6 +178,7 @@ pub enum Output {
     },
     BillingRecords {
         request_id: Option<RequestId>,
+        scope: Option<String>,
         records: Vec<BillingRecord>,
     },
 }

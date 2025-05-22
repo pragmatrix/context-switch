@@ -66,6 +66,29 @@ pub struct BillingRecord {
     pub value: BillingRecordValue,
 }
 
+impl BillingRecord {
+    pub fn count(name: impl Into<String>, count: usize) -> Self {
+        Self {
+            name: name.into(),
+            value: BillingRecordValue::Count(count),
+        }
+    }
+
+    pub fn duration(name: impl Into<String>, duration: time::Duration) -> Self {
+        Self {
+            name: name.into(),
+            value: BillingRecordValue::Duration(duration.into()),
+        }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        match &self.value {
+            BillingRecordValue::Duration(duration) => duration.is_zero(),
+            BillingRecordValue::Count(count) => *count == 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BillingRecordValue {
     /// A duration.
