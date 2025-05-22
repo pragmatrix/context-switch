@@ -6,7 +6,7 @@
 /// - `mmm` is milliseconds (zero-padded, 000-999)
 use std::{fmt, time};
 
-use derive_more::derive::{Deref, From, Into};
+use derive_more::{Deref, From, Into};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref)]
