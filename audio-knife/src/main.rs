@@ -64,6 +64,8 @@ async fn main() -> Result<()> {
         .map(|path| PathBuf::from(&path))
         .ok();
 
+    info!("Local files path: {local_files:?}");
+
     {
         let args = env::args();
         let args: Vec<String> = args.collect();
