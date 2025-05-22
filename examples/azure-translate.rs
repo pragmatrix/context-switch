@@ -4,10 +4,10 @@ use std::{env, thread, time::Duration};
 
 use anyhow::Result;
 use azure::AzureTranslate;
-use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
+use rodio::{OutputStreamBuilder, Sink, Source};
 
+use context_switch::{InputModality, OutputModality};
 use context_switch_core::{
     AudioFormat, AudioFrame, Service, audio,
     conversation::{Conversation, Input, Output},
