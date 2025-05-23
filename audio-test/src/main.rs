@@ -12,7 +12,7 @@ use clap::Parser;
 use context_switch_core::{AudioFormat, AudioFrame};
 use indicatif::{ProgressBar, ProgressStyle};
 
-use playback::read_to_one_second_frames;
+use playback::{check_supported_audio_type, read_to_one_second_frames};
 use tracing::{error, info};
 use walkdir::WalkDir;
 
@@ -214,6 +214,8 @@ fn process_audio_file(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame
     let file =
         File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
     let reader = BufReader::new(file);
+
+    check_supported_audio_type(&path.to_string_lossy())?;
 
     read_to_one_second_frames(reader, format)
         .with_context(|| format!("Failed to process audio: {}", path.display()))

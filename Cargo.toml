@@ -97,6 +97,8 @@ azure-speech = { path = "external/azure-speech-sdk-rs" }
 # openai-api-rs = "5.2.3"
 openai-api-rs = { path = "external/openai-api-rs" }
 # Because 0.21 isn't released yet and we need to convert audio to mono and resample it.
-rodio = { path = "external/rodio" }
+# `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
+# panics with a few of our testcases.
+rodio = { path = "external/rodio", default-features = false, features = ["symphonia-wav"] }
 
 rstest = { version = "0.25.0" }

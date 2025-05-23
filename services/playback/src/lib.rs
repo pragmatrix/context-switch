@@ -100,6 +100,8 @@ impl Service for Playback {
                             if !status.is_success() {
                                 bail!("Download of `{url}` failed with status {status}");
                             }
+
+                            check_supported_audio_type(url.path())?;
                             // Performance: convert to frames while downloading.
                             let bytes = response.bytes().await?;
                             let cursor = Cursor::new(bytes);
@@ -130,6 +132,7 @@ fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<V
     if format.channels != 1 {
         bail!("Only mono output is supported");
     }
+    check_supported_audio_type(&path.to_string_lossy())?;
     let file = File::open(path)?;
     let buf_reader = BufReader::new(file);
     read_to_one_second_frames(buf_reader, format)
@@ -210,7 +213,6 @@ fn playback_backend_from_mime_type(
                     PlaybackMethod::File(resolved_path)
                 }
                 "http" | "https" => {
-                    require_supported_file_format(&url)?;
                     // Security: prevent access of internal networks.
                     PlaybackMethod::Remote(url)
                 }
@@ -223,13 +225,20 @@ fn playback_backend_from_mime_type(
     })
 }
 
-fn require_supported_file_format(url: &Url) -> Result<()> {
-    let Some(mime_type) = mime_guess2::from_path(url.path()).first() else {
+#[derive(Debug)]
+pub enum AudioType {
+    Wav,
+    MP3,
+}
+
+pub fn check_supported_audio_type(path: &str) -> Result<AudioType> {
+    let Some(mime_type) = mime_guess2::from_path(path).first() else {
         bail!("Invalid audio url (should end in `.mp3` or `.wav`)")
     };
-    match mime_type.essence_str() {
-        "audio/wav" => Ok(()),
-        "audio/mpeg" => Ok(()),
+    let mime_type = mime_type.essence_str();
+    match mime_type {
+        "audio/wav" => Ok(AudioType::Wav),
+        "audio/mpeg" => Ok(AudioType::MP3),
         mime => bail!("Invalid audio url, guessed mime type: {mime}"),
     }
 }
@@ -239,7 +248,7 @@ mod tests {
     use rstest::rstest;
     use url::Url;
 
-    use crate::require_supported_file_format;
+    use crate::check_supported_audio_type;
 
     #[rstest]
     #[case("http://test.wav", false)]
@@ -250,8 +259,8 @@ mod tests {
     #[case("http://test.com/test.ogg", false)]
     fn supported_file_formats(#[case] url: &str, #[case] acceptable: bool) {
         let url = Url::parse(url).unwrap();
-        match require_supported_file_format(&url) {
-            Ok(()) => {
+        match check_supported_audio_type(url.path()) {
+            Ok(_) => {
                 assert!(acceptable);
             }
             Err(e) => {
