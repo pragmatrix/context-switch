@@ -135,7 +135,7 @@ fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<V
     read_to_one_second_frames(buf_reader, format)
 }
 
-fn read_to_one_second_frames(
+pub fn read_to_one_second_frames(
     reader: impl io::Read + io::Seek + Send + Sync + 'static,
     format: AudioFormat,
 ) -> Result<Vec<AudioFrame>> {

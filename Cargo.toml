@@ -6,6 +6,7 @@ edition = "2024"
 [workspace]
 members = [ 
     "audio-knife", 
+    "audio-test",
     "core",
     "services/azure",
     "services/google-transcribe", 
