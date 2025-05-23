@@ -24,13 +24,8 @@ use context_switch_core::{
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
-    pub synthesizer: SynthesizerParams,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SynthesizerParams {
-    pub service: String,
-    pub params: serde_json::Value,
+    pub synthesizer_service: String,
+    pub synthesizer_params: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -69,12 +64,11 @@ impl Service for Playback {
                     )?;
                     match method {
                         PlaybackMethod::Synthesize(text) => {
-                            let synthesizer = &params.synthesizer;
                             input
                                 .converse(
                                     &output,
-                                    &synthesizer.service,
-                                    synthesizer.params.clone(),
+                                    &params.synthesizer_service,
+                                    params.synthesizer_params.clone(),
                                     Input::Text {
                                         request_id,
                                         text,
