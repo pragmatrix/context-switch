@@ -32,6 +32,7 @@ pub enum ClientEvent {
         id: ConversationId,
         samples: Samples,
     },
+    #[serde(rename_all = "camelCase")]
     Text {
         id: ConversationId,
         content: String,
