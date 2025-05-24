@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use context_switch_core::audio;
 use rodio::{
@@ -13,7 +13,7 @@ use rodio::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::task;
-use tracing::debug;
+use tracing::{debug, error};
 use url::Url;
 
 use context_switch_core::{
@@ -57,7 +57,7 @@ impl Service for Playback {
                     text_type,
                 } => {
                     let text_type = text_type.as_deref().unwrap_or("text/plain");
-                    let method = playback_backend_from_mime_type(
+                    let method = PlaybackMethod::from_text_and_mime_type(
                         text,
                         text_type,
                         self.local_files.as_deref(),
@@ -123,11 +123,16 @@ impl Service for Playback {
 
 /// Render the file into 1 second audio frames frames mono.
 fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
-    if format.channels != 1 {
-        bail!("Only mono output is supported");
-    }
     check_supported_audio_type(&path.to_string_lossy())?;
-    let file = File::open(path)?;
+    let file = File::open(path).inspect_err(|_| {
+        // We don't want to provide the resolved path to the user in an error message. Therefore we
+        // rather log it.
+        //
+        // Usability: Add the local path originally provided by the client to the error. BUT: What
+        // if the client already prefixes the file path, for example, if the client uses
+        // user-specific directories?
+        error!("Failed to open audio file: `{path:?}`");
+    })?;
     let buf_reader = BufReader::new(file);
     read_to_one_second_frames(buf_reader, format)
 }
@@ -136,6 +141,9 @@ pub fn read_to_one_second_frames(
     reader: impl io::Read + io::Seek + Send + Sync + 'static,
     format: AudioFormat,
 ) -> Result<Vec<AudioFrame>> {
+    if format.channels != 1 {
+        bail!("Only mono output is supported");
+    }
     let source = Decoder::new(reader)?;
     let source_sample_rate = source.sample_rate();
     let source_channels = source.channels();
@@ -169,54 +177,58 @@ enum PlaybackMethod {
     Remote(Url),
 }
 
-fn playback_backend_from_mime_type(
-    text: String,
-    mime: &str,
-    local_root: Option<&Path>,
-) -> Result<PlaybackMethod> {
-    Ok(match mime {
-        "text/plain" => PlaybackMethod::Synthesize(text),
-        "text/uri-list" => {
-            let lines: Vec<&str> = text.lines().collect();
-            if lines.len() != 1 {
-                bail!("Invalid input: Expected a single line in text/uri-list");
-            }
-            let uri = lines[0];
-            let url = Url::parse(uri).context("Failed to parse URI in text/uri-list")?;
-            match url.scheme() {
-                "file" => {
-                    let Some(local_root) = local_root else {
-                        bail!("Local file playback is disabled, no local root provided");
-                    };
-
-                    let path = url
-                        .to_file_path()
-                        .map_err(|_| anyhow!("Invalid file URI"))?;
-
-                    if path.is_absolute() {
-                        bail!("Absolute paths are not supported to play back files.");
-                    }
-
-                    // Resolve the path to ensure it doesn't escape a trusted directory
-                    let resolved_path =
-                        fs::canonicalize(&path).context("Failed to resolve file path")?;
-                    if !resolved_path.starts_with(local_root) {
-                        bail!("Access to the specified path is not allowed");
-                    }
-
-                    PlaybackMethod::File(resolved_path)
+impl PlaybackMethod {
+    fn from_text_and_mime_type(
+        text: String,
+        mime: &str,
+        local_root: Option<&Path>,
+    ) -> Result<PlaybackMethod> {
+        Ok(match mime {
+            "text/plain" => PlaybackMethod::Synthesize(text),
+            "text/uri-list" => {
+                let lines: Vec<&str> = text.lines().collect();
+                if lines.len() != 1 {
+                    bail!("Invalid input: Expected a single line in text/uri-list");
                 }
-                "http" | "https" => {
-                    // Security: prevent access of internal networks.
-                    PlaybackMethod::Remote(url)
+                let uri = lines[0];
+                let url = Url::parse(uri).context("Failed to parse URI in text/uri-list")?;
+                match url.scheme() {
+                    "http" | "https" => {
+                        // Security: prevent access of internal networks.
+                        PlaybackMethod::Remote(url)
+                    }
+                    _ => bail!(
+                        "Unsupported URI scheme in text/uri-list, expecting either `http://` or `https://`"
+                    ),
                 }
-                _ => bail!("Unsupported URI scheme in text/uri-list"),
             }
-        }
-        _ => {
-            bail!("Unsupported text type, expecting `text/plain` or `text/uri-list`")
-        }
-    })
+            "application/x-file-path" => {
+                let Some(local_root) = local_root else {
+                    bail!("Can't play back a local audio file: No local root path configured")
+                };
+
+                let path = PathBuf::from(text.trim());
+
+                if path.is_absolute() {
+                    bail!("Absolute paths are not supported to play back files.");
+                }
+
+                // Resolve the path to ensure it doesn't escape a trusted directory
+                let resolved_path =
+                    fs::canonicalize(&path).context("Failed to resolve file path")?;
+                if !resolved_path.starts_with(local_root) {
+                    bail!("Access to the specified path is not allowed");
+                }
+
+                PlaybackMethod::File(resolved_path)
+            }
+            _ => {
+                bail!(
+                    "Unsupported text type, expecting `text/plain`, `text/uri-list`, or `application/x-file-path`"
+                )
+            }
+        })
+    }
 }
 
 #[derive(Debug)]
