@@ -16,6 +16,7 @@ pub struct Conversation {
     pub output_modalities: Vec<OutputModality>,
     input: Receiver<Input>,
     output: Sender<Output>,
+    send_started_event: bool,
 }
 
 impl Conversation {
@@ -32,11 +33,28 @@ impl Conversation {
             output_modalities: output_modalities.into(),
             input,
             output,
+            send_started_event: true,
         }
+    }
+
+    pub fn new_nested(
+        input_modality: InputModality,
+        output_modalities: impl Into<Vec<OutputModality>>,
+        input: Receiver<Input>,
+        output: Sender<Output>,
+    ) -> Self {
+        Self::new(input_modality, output_modalities, input, output).with_no_started_event()
     }
 
     pub fn with_registry(self, registry: Arc<Registry>) -> Self {
         Self { registry, ..self }
+    }
+
+    pub fn with_no_started_event(self) -> Self {
+        Self {
+            send_started_event: false,
+            ..self
+        }
     }
 
     pub fn require_text_input_only(&self) -> Result<()> {
@@ -87,9 +105,11 @@ impl Conversation {
             modalities: self.output_modalities,
             output: self.output,
         };
-        output.post(Output::ServiceStarted {
-            modalities: output.modalities.clone(),
-        })?;
+        if self.send_started_event {
+            output.post(Output::ServiceStarted {
+                modalities: output.modalities.clone(),
+            })?;
+        }
         Ok((input, output))
     }
 }
@@ -126,16 +146,15 @@ impl ConversationInput {
         input_tx.try_send(request)?;
         drop(input_tx);
 
-        let conversation = Conversation {
-            // Nest only one layer deep for now. Idea: CS should remove this service from the
-            // registry passed to this conversation and then we could nest and remove all services
-            // that are in use.
-            registry: Registry::empty().into(),
-            input_modality: self.modality,
-            output_modalities: output.modalities.clone(),
-            input: input_rx,
-            output: output.output.clone(),
-        };
+        // Don't add a registry, so to allow nested only once. Idea: CS should remove this service
+        // from the registry passed to this conversation such that we could nest and remove all
+        // services that are in use.
+        let conversation = Conversation::new_nested(
+            self.modality,
+            output.modalities.clone(),
+            input_rx,
+            output.output.clone(),
+        );
 
         service.converse(params, conversation).await
     }
