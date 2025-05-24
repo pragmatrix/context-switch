@@ -13,9 +13,9 @@ use tokio::{
 };
 use tracing::{Level, error, info, span, warn};
 
-use crate::{ClientEvent, ConversationId, InputModality, ServerEvent, registry::Registry};
+use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{
-    AudioFrame,
+    AudioFrame, Registry,
     conversation::{Conversation, Input, Output},
 };
 
@@ -36,7 +36,7 @@ struct ActiveConversation {
 
 /// All the services we currently support in CS
 pub fn registry() -> Registry {
-    Registry::default()
+    Registry::empty()
         .add_service("azure-transcribe", azure::AzureTranscribe)
         .add_service("azure-synthesize", azure::AzureSynthesize)
         .add_service("azure-translate", azure::AzureTranslate)
@@ -177,6 +177,8 @@ impl ContextSwitch {
 
         // Idea: Move input / output dispatching into the Conversation type?
 
+        let conversation_registry = registry.clone();
+
         // Service lookup has to be in the protected part so that clients may receive an error
         // event in case the service does not exist.
         let service = registry.service(&service)?;
@@ -190,7 +192,8 @@ impl ContextSwitch {
             output_modalities.clone(),
             input_receiver,
             output_sender,
-        );
+        )
+        .with_registry(conversation_registry);
 
         let mut conversation = service.converse(params, conversation);
 
@@ -226,10 +229,10 @@ impl ContextSwitch {
                                 bail!("Received unexpected Audio");
                             }
                         },
-                        ClientEvent::Text { content, .. } => {
+                        ClientEvent::Text { content, content_type, .. } => {
                             if let InputModality::Text = input_modality {
                                 input_sender
-                                    .try_send(Input::Text { request_id: None, text:content })
+                                    .try_send(Input::Text { request_id: None, text: content, text_type: content_type })
                                     .context("Sending input text to conversation")?;
                             } else {
                                 bail!("Received unexpected Text");

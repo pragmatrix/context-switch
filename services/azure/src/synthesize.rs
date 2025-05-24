@@ -72,7 +72,13 @@ impl Service for AzureSynthesize {
                 return Ok(());
             };
 
-            let Input::Text { request_id, text } = input else {
+            let Input::Text {
+                request_id,
+                text,
+                // TODO: Verify text_type.
+                text_type: _,
+            } = input
+            else {
                 bail!("Unexpected input");
             };
 
