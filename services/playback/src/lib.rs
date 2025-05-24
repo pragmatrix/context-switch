@@ -124,14 +124,14 @@ impl Service for Playback {
 /// Render the file into 1 second audio frames frames mono.
 fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
     check_supported_audio_type(&path.to_string_lossy())?;
-    let file = File::open(path).inspect_err(|_| {
+    let file = File::open(path).inspect_err(|e| {
         // We don't want to provide the resolved path to the user in an error message. Therefore we
         // rather log it.
         //
         // Usability: Add the local path originally provided by the client to the error. BUT: What
         // if the client already prefixes the file path, for example, if the client uses
         // user-specific directories?
-        error!("Failed to open audio file: `{path:?}`");
+        error!("Failed to open audio file: `{path:?}`: {e:?}");
     })?;
     let buf_reader = BufReader::new(file);
     read_to_one_second_frames(buf_reader, format)
@@ -210,17 +210,22 @@ impl PlaybackMethod {
                 let path = PathBuf::from(text.trim());
 
                 if path.is_absolute() {
-                    bail!("Absolute paths are not supported to play back files.");
+                    bail!("Absolute paths are not supported in local audio file playback");
                 }
 
+                let path = local_root.join(path);
+
                 // Resolve the path to ensure it doesn't escape a trusted directory
-                let resolved_path =
-                    fs::canonicalize(&path).context("Failed to resolve file path")?;
-                if !resolved_path.starts_with(local_root) {
+                let path = fs::canonicalize(&path)
+                    .inspect_err(|e| error!("Failed to resolve file path: `{path:?}`: {e:?}"))?;
+                if !path.starts_with(local_root) {
+                    error!(
+                        "Resolved file path `{path:?}` does not match local root path `{local_root:?}`"
+                    );
                     bail!("Access to the specified path is not allowed");
                 }
 
-                PlaybackMethod::File(resolved_path)
+                PlaybackMethod::File(path)
             }
             _ => {
                 bail!(
