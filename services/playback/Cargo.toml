@@ -18,7 +18,7 @@ async-trait = { workspace = true }
 
 # mediatype = { workspace = true }
 url = { workspace = true }
-rodio = { workspace = true, features = ["symphonia-wav", "mp3"] }
+rodio = { workspace = true, features = ["symphonia-wav", "symphonia-mp3"] }
 reqwest = { workspace = true }
 mime_guess2 = { workspace = true }
 

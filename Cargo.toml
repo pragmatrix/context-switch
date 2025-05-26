@@ -100,6 +100,7 @@ openai-api-rs = { path = "external/openai-api-rs" }
 # - `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
 #    panics with a few of our testcases.
 # - No default features because we don't want to pull alsa on Linux by default for local playback.
-rodio = { path = "external/rodio", default-features = false }
+# - We have to define at least _one_ decoder, otherwise `cargo clippy --all-targets` fails, so we select `symphonia-mp3`.
+rodio = { path = "external/rodio", default-features = false, features = ["symphonia-mp3"] }
 
 rstest = { version = "0.25.0" }
