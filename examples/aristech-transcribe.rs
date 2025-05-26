@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{select, sync::mpsc::channel};
 
-use aristech::transcribe::{AuthConfig, Params as AristechParams};
+use aristech::transcribe::{ApiKeyAuth, AuthConfig, CredentialsAuth, Params as AristechParams};
 use context_switch::{InputModality, OutputModality, services::AristechTranscribe};
 use context_switch_core::{
     AudioFormat, AudioFrame, audio,
@@ -71,18 +71,18 @@ async fn main() -> Result<()> {
     // Create params for Aristech transcribe based on environment variables
     let auth_config = if let Ok(api_key) = env::var("ARISTECH_API_KEY") {
         // API key based authentication
-        AuthConfig::ApiKey { api_key }
+        AuthConfig::ApiKey(ApiKeyAuth { api_key })
     } else {
         // Credentials based authentication
         let host = env::var("ARISTECH_HOST").context("ARISTECH_HOST undefined")?;
         let token = env::var("ARISTECH_TOKEN").context("ARISTECH_TOKEN undefined")?;
         let secret = env::var("ARISTECH_SECRET").context("ARISTECH_SECRET undefined")?;
 
-        AuthConfig::Credentials {
+        AuthConfig::Credentials(CredentialsAuth {
             host,
             token,
             secret,
-        }
+        })
     };
 
     // Create the params with authentication and language settings

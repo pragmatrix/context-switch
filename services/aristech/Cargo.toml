@@ -9,6 +9,7 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 async-stream = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 futures = { workspace = true }
 context-switch-core = { workspace = true }
 aristech-stt-client = "3.1.0"
