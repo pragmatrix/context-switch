@@ -96,9 +96,10 @@ mime_guess2 = { version = "2.3.1" }
 azure-speech = { path = "external/azure-speech-sdk-rs" }
 # openai-api-rs = "5.2.3"
 openai-api-rs = { path = "external/openai-api-rs" }
-# Because 0.21 isn't released yet and we need to convert audio to mono and resample it.
-# `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
-# panics with a few of our testcases.
-rodio = { path = "external/rodio", features = ["symphonia-wav"] }
+# Use a local rodio version because 0.21 isn't released yet and we need to convert audio to mono and resample it.
+# - `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
+#    panics with a few of our testcases.
+# - No default features because we don't want to pull alsa on Linux by default for local playback.
+rodio = { path = "external/rodio", default-features = false }
 
 rstest = { version = "0.25.0" }
