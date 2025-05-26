@@ -10,10 +10,12 @@ azure-speech = { workspace = true }
 
 tracing = { workspace = true }
 anyhow = { workspace = true }
+derive_more = { workspace = true }
 futures = { workspace = true }
 async-trait = { workspace = true }
 async-stream = { workspace = true }
 serde = { workspace = true }
 url = { workspace = true }
 tokio = { workspace = true }
+
 hound = { version = "3.5.1" }
