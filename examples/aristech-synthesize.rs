@@ -143,7 +143,7 @@ impl Iterator for FrameSource {
 }
 
 impl Source for FrameSource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(self.frames.len() - self.position)
     }
 

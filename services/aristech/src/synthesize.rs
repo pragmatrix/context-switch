@@ -77,7 +77,12 @@ impl Service for AristechSynthesize {
                 return Ok(());
             };
 
-            let Input::Text { text } = input else {
+            let Input::Text {
+                request_id,
+                text,
+                text_type: _,
+            } = input
+            else {
                 bail!("Unexpected input");
             };
 
@@ -104,7 +109,7 @@ impl Service for AristechSynthesize {
                 debug!("Received audio: {:?}", frame.duration());
                 output.audio_frame(frame)?;
             }
-            output.request_completed()?;
+            output.request_completed(request_id)?;
         }
     }
 }
