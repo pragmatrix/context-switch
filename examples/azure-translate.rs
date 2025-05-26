@@ -4,10 +4,10 @@ use std::{env, thread, time::Duration};
 
 use anyhow::Result;
 use azure::AzureTranslate;
-use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rodio::{OutputStream, Sink, Source};
+use rodio::{OutputStreamBuilder, Sink, Source};
 
+use context_switch::{InputModality, OutputModality};
 use context_switch_core::{
     AudioFormat, AudioFrame, Service, audio,
     conversation::{Conversation, Input, Output},
@@ -126,9 +126,12 @@ async fn setup_audio_playback(
 
     // Spawn a dedicated audio thread
     let playback_thread = thread::spawn(move || {
-        // Create output stream in the audio thread
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let stream = OutputStreamBuilder::from_default_device()
+            .unwrap()
+            .open_stream()
+            .unwrap();
+
+        let sink = Sink::connect_new(stream.mixer());
 
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {
@@ -203,7 +206,7 @@ impl Iterator for FrameSource {
 }
 
 impl Source for FrameSource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(self.frames.len() - self.position)
     }
 

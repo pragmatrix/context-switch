@@ -6,10 +6,12 @@ edition = "2024"
 [workspace]
 members = [ 
     "audio-knife", 
+    "audio-test",
     "core",
     "services/azure",
     "services/google-transcribe", 
     "services/openai-dialog", 
+    "services/playback",
 ]
 
 [dependencies]
@@ -49,8 +51,7 @@ dotenvy = { workspace = true }
 
 # audio input
 cpal = "0.15.3"
-# audio output
-rodio = "0.20.1"
+rodio = { workspace = true }
 
 azure = { workspace = true }
 google-transcribe = { path = "services/google-transcribe" }
@@ -68,6 +69,7 @@ tracing-subscriber = { version = "0.3.19" }
 
 context-switch-core = { path = "core" }
 azure = { path = "services/azure" }
+playback = { path = "services/playback" }
 
 anyhow = "1.0.93"
 derive_more = { version = "1.0.0", features = ["full"] }
@@ -83,9 +85,20 @@ async-trait = "0.1.83"
 tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
 url = { version = "2.5.4" }
+# mediatype = { version = "0.19.20" }
+reqwest = { version = "0.12.15" }
+mime_guess2 = { version = "2.3.1" }
 
+#
 # external dependencies.
+#
 
 azure-speech = { path = "external/azure-speech-sdk-rs" }
 # openai-api-rs = "5.2.3"
 openai-api-rs = { path = "external/openai-api-rs" }
+# Because 0.21 isn't released yet and we need to convert audio to mono and resample it.
+# `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
+# panics with a few of our testcases.
+rodio = { path = "external/rodio", features = ["symphonia-wav"] }
+
+rstest = { version = "0.25.0" }

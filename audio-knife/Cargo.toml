@@ -17,12 +17,16 @@ tracing = { workspace = true }
 dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-base64 = "0.22.1"
+base64 = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+
+futures-util = { version = "0.3.31" }
+axum = { version = "0.7.9", features = ["ws"] }
+
+#
+# ours
+#
 
 context-switch = { path = ".." }
-
-axum = { version = "0.7.9", features = ["ws"] }
-reqwest = { version = "0.12.5" }
-
-tracing-subscriber = { workspace = true }
-futures-util = { version = "0.3.31" }
+playback = { workspace = true }

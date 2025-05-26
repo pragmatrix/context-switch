@@ -3,10 +3,11 @@
 use std::{env, thread, time::Duration};
 
 use anyhow::{Result, bail};
+use rodio::{OutputStreamBuilder, Sink, Source};
+use tokio::{select, sync::mpsc::channel};
+
 use context_switch::{ClientEvent, ContextSwitch, ConversationId, OutputModality, ServerEvent};
 use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, audio};
-use rodio::{OutputStream, Sink, Source};
-use tokio::{select, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -65,6 +66,7 @@ async fn main() -> Result<()> {
     context_switch.process(ClientEvent::Text {
         id: conversation_id.clone(),
         content: text.into(),
+        content_type: None,
     })?;
     let (output_producer, playback_task) = setup_audio_playback(output_format).await;
 
@@ -123,7 +125,7 @@ impl Iterator for FrameSource {
 }
 
 impl Source for FrameSource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(self.frames.len() - self.position)
     }
 
@@ -156,8 +158,12 @@ async fn setup_audio_playback(
     // Spawn a dedicated audio thread
     let handle = thread::spawn(move || {
         // Create output stream in the audio thread
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let stream = OutputStreamBuilder::from_default_device()
+            .unwrap()
+            .open_stream()
+            .unwrap();
+
+        let sink = Sink::connect_new(stream.mixer());
 
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {

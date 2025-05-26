@@ -5,14 +5,20 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use context_switch_core::conversation::Conversation;
+use crate::{Service, conversation::Conversation};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Registry {
     services: HashMap<&'static str, Box<dyn WrappedService + Send + Sync>>,
 }
 
 impl Registry {
+    pub fn empty() -> Self {
+        Self {
+            services: Default::default(),
+        }
+    }
+
     pub fn service(&self, name: &str) -> Result<&(dyn WrappedService + Send + Sync)> {
         self.services
             .get(name)
@@ -41,7 +47,7 @@ pub trait WrappedService: fmt::Debug {
 #[async_trait]
 impl<T: Sync, P: DeserializeOwned> WrappedService for T
 where
-    T: context_switch_core::Service<Params = P>,
+    T: Service<Params = P>,
 {
     async fn converse(&self, params: Value, conversation: Conversation) -> Result<()> {
         let params = serde_json::from_value(params)?;
