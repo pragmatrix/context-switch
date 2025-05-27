@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::{Context as AnyhowContext, Result};
-use rodio::{OutputStream, Sink, Source};
+use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use std::{thread, time::Duration};
 use tokio::{select, sync::mpsc::channel};
 
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     // Define audio format
     let output_format = AudioFormat {
         channels: 1,
-        sample_rate: 16000,
+        sample_rate: 22050,
     };
 
     // Create params for Aristech synthesize service
@@ -55,7 +55,9 @@ async fn main() -> Result<()> {
     println!("Sending text to be synthesized: \"{}\"", SAMPLE_TEXT);
     conv_input_producer
         .send(Input::Text {
+            request_id: None,
             text: SAMPLE_TEXT.to_string(),
+            text_type: None,
         })
         .await
         .context("Failed to send text input")?;
@@ -88,7 +90,7 @@ async fn main() -> Result<()> {
                             println!("Received {} audio frames...", audio_frames);
                         }
                     }
-                    Some(Output::RequestCompleted) => {
+                    Some(Output::RequestCompleted {..}) => {
                         println!("Text-to-speech conversion completed! Received {} audio frames.", audio_frames);
                         // Close the audio producer to signal end of input
                         drop(audio_producer);
@@ -172,10 +174,12 @@ async fn setup_audio_playback(
     // Spawn a dedicated audio thread
     let handle = thread::spawn(move || {
         // Create output stream in the audio thread
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let stream = OutputStreamBuilder::from_default_device()
+            .unwrap()
+            .open_stream()
+            .unwrap();
 
-        println!("Audio playback system ready");
+        let sink = Sink::connect_new(stream.mixer());
 
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {
