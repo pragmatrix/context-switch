@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod billing_collector;
 pub mod conversation;
 mod duration;
 mod protocol;
