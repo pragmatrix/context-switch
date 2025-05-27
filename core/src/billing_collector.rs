@@ -14,8 +14,6 @@ pub struct BillingRecords {
 
 #[derive(Debug, Default)]
 pub struct BillingCollector {
-    /// Records organized by billing id.
-    /// The outer HashMap uses BillingId as the key.
     /// The inner HashMap uses (service, scope, name) as the key and stores the BillingRecordValue.
     records: HashMap<BillingId, HashMap<(String, String, String), BillingRecordValue>>,
 }
@@ -63,7 +61,6 @@ impl BillingCollector {
                     .push(BillingRecord { name, value });
             }
 
-            // Convert to Vec<ScopedBillingRecords>
             grouped
                 .into_iter()
                 .map(|((service, scope), records)| BillingRecords {
