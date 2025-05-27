@@ -78,6 +78,9 @@ impl Service for AzureTranscribe {
             .recognize(audio_stream, recognizer::AudioFormat::Wav, device)
             .await?;
 
+        // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
+        // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
+
         while let Some(event) = stream.next().await {
             match event? {
                 Event::SessionStarted(_)
