@@ -15,7 +15,7 @@ use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{self, ClientEvent},
     server_event::{self, ServerEvent},
-    types,
+    types::{self, RealtimeVoice},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select};
@@ -37,6 +37,8 @@ pub struct Params {
     pub model: String,
     pub host: Option<String>,
     pub instructions: Option<String>,
+    pub voice: Option<RealtimeVoice>,
+    pub temperature: Option<f32>,
     #[serde(default)]
     pub tools: Vec<types::ToolDefinition>,
 }
@@ -48,6 +50,8 @@ impl Params {
             model: model.into(),
             host: None,
             instructions: None,
+            voice: None,
+            temperature: None,
             tools: vec![],
         }
     }
@@ -86,6 +90,8 @@ impl Service for OpenAIDialog {
                 output_format,
                 params.instructions,
                 params.tools,
+                params.voice,
+                params.temperature,
                 input,
                 output,
                 &params.model,
@@ -186,6 +192,8 @@ impl Client {
         output_format: AudioFormat,
         instructions: Option<String>,
         tools: Vec<types::ToolDefinition>,
+        voice: Option<RealtimeVoice>,
+        temperature: Option<f32>,
         mut input: ConversationInput,
         output: ConversationOutput,
         billing_scope: &str,
@@ -225,6 +233,16 @@ impl Client {
 
             if !tools.is_empty() {
                 session.tools = Some(tools);
+                send_update = true;
+            }
+
+            if let Some(voice) = voice {
+                session.voice = Some(voice);
+                send_update = true;
+            }
+
+            if let Some(temperature) = temperature {
+                session.temperature = Some(temperature);
                 send_update = true;
             }
 
