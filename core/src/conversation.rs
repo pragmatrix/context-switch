@@ -248,11 +248,17 @@ impl ConversationOutput {
         let mut records: Vec<_> = records.into();
         // ADR: Remove zero records early on.
         records.retain(|r| !r.is_zero());
-        self.post(Output::BillingRecords {
-            request_id,
-            scope: scope.into(),
-            records,
-        })
+
+        let Some(billing_context) = &self.billing_context else {
+            // No billing context: Inband.
+            return self.post(Output::BillingRecords {
+                request_id,
+                scope: scope.into(),
+                records,
+            });
+        };
+
+        billing_context.record(scope, records)
     }
 
     fn post(&self, output: Output) -> Result<()> {
@@ -335,12 +341,16 @@ impl BillingContext {
         }
     }
 
-    pub fn record(&self, scope: &str, record: BillingRecord) -> Result<()> {
+    pub fn record(
+        &self,
+        scope: impl Into<Option<String>>,
+        records: Vec<BillingRecord>,
+    ) -> Result<()> {
         self.collector.lock().expect("Lock poinsened").record(
             &self.billing_id,
             &self.service,
-            scope,
-            record,
+            scope.into(),
+            records,
         )
     }
 }

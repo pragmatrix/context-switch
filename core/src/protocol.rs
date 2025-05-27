@@ -104,10 +104,10 @@ pub enum BillingRecordValue {
 
 impl BillingRecordValue {
     pub fn aggregate_with(&mut self, other: &Self) -> Result<()> {
-        match (&self, other) {
+        match (self, other) {
             (BillingRecordValue::Count { count }, BillingRecordValue::Count { count: count_r }) => {
-                let new_count = *count + *count_r;
-                *self = BillingRecordValue::Count { count: new_count }
+                *count += *count_r;
+                Ok(())
             }
             (
                 BillingRecordValue::Duration { duration },
@@ -115,17 +115,11 @@ impl BillingRecordValue {
                     duration: duration_r,
                 },
             ) => {
-                let new_duration = duration.clone() + duration_r.clone();
-                *self = BillingRecordValue::Duration {
-                    duration: new_duration,
-                }
+                *duration = duration.clone() + duration_r.clone();
+                Ok(())
             }
-            _ => {
-                bail!("Internal error: Incompatible billing record values.")
-            }
+            _ => bail!("Internal error: Incompatible billing record values."),
         }
-
-        Ok(())
     }
 }
 
