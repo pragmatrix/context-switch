@@ -193,6 +193,8 @@ impl ConversationInput {
 
 #[derive(Debug)]
 pub struct ConversationOutput {
+    // Architecture: Define OutputModalities and put all the queries in there and make
+    // &OutputMdalities accessible.
     modalities: Vec<OutputModality>,
     output: Sender<Output>,
 }
