@@ -15,11 +15,11 @@ use std::{
 use anyhow::{Context, Result, bail};
 use axum::{
     extract::{
-        WebSocketUpgrade,
+        Path, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    response::IntoResponse,
-    routing::get,
+    response::{IntoResponse, Json},
+    routing::{get, post},
 };
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
@@ -36,7 +36,7 @@ use tracing::{debug, error, info};
 
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
-    ServerEvent, audio,
+    ServerEvent, audio, conversation::BillingId,
 };
 
 const DEFAULT_PORT: u16 = 8123;
@@ -96,6 +96,7 @@ async fn main() -> Result<()> {
 
     let app = axum::Router::new()
         .route("/", get(ws_get))
+        .route("/billing/:billing_id/claim", post(claim_billing_records))
         .with_state(state);
 
     let listener = TcpListener::bind(addr).await?;
@@ -499,4 +500,28 @@ async fn check_health(address: SocketAddr) -> Result<()> {
         bail!("Healthcheck failed with status code {}", status)
     }
     Ok(())
+}
+
+/// Claims billing records by ID
+async fn claim_billing_records(
+    axum::extract::State(state): axum::extract::State<State>,
+    Path(billing_id): Path<String>,
+) -> impl IntoResponse {
+    let billing_id = BillingId::from(billing_id);
+
+    // Get billing records from the context_switch instance
+    let records = state
+        .context_switch
+        .lock()
+        .expect("poisoned lock")
+        .collect_billing_records(&billing_id);
+
+    info!(
+        "Claimed {} billing records for ID: {}",
+        records.len(),
+        billing_id
+    );
+
+    // Return the records as JSON - if the billing_id doesn't exist, this will be an empty array
+    Json(records).into_response()
 }
