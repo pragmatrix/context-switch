@@ -15,7 +15,7 @@ use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{self, ClientEvent},
     server_event::{self, ServerEvent},
-    types::{self, RealtimeVoice},
+    types::{self, ItemContentType, ItemRole, ItemStatus, ItemType, RealtimeVoice, ResponseStatus},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select};
@@ -67,13 +67,15 @@ impl Service for OpenAIDialog {
     async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
         // Only support audio input and output for now
         let input_format = conversation.require_audio_input()?;
-        let output_format = conversation.require_single_audio_output()?;
+        let output_format = conversation.require_one_audio_output()?;
+        // Architexture: this can be derived further down.
+        let output_transcription = conversation.has_one_text_output()?;
         if input_format != output_format {
             bail!("Input and output audio formats must match for OpenAI dialog service");
         }
 
-        let host = if let Some(host) = params.host {
-            Host::new_with_host(&host, &params.api_key, &params.model)
+        let host = if let Some(host) = &params.host {
+            Host::new_with_host(host, &params.api_key, &params.model)
         } else {
             Host::new(&params.api_key, &params.model)
         };
@@ -88,13 +90,10 @@ impl Service for OpenAIDialog {
             .dialog(
                 input_format,
                 output_format,
-                params.instructions,
-                params.tools,
-                params.voice,
-                params.temperature,
+                params,
+                output_transcription,
                 input,
                 output,
-                &params.model,
             )
             .await?;
 
@@ -185,18 +184,14 @@ pub struct Client {
 
 impl Client {
     /// Run an audio dialog.
-    #[allow(clippy::too_many_arguments)]
     pub async fn dialog(
         &mut self,
         input_format: AudioFormat,
         output_format: AudioFormat,
-        instructions: Option<String>,
-        tools: Vec<types::ToolDefinition>,
-        voice: Option<RealtimeVoice>,
-        temperature: Option<f32>,
+        params: Params,
+        output_transcription: bool,
         mut input: ConversationInput,
         output: ConversationOutput,
-        billing_scope: &str,
     ) -> Result<()> {
         let expected_format = AudioFormat::new(1, 24000);
         if input_format != expected_format {
@@ -226,22 +221,22 @@ impl Client {
             let mut send_update = false;
             let mut session = types::Session::default();
 
-            if let Some(instructions) = instructions {
+            if let Some(instructions) = params.instructions {
                 session.instructions = Some(instructions);
                 send_update = true;
             };
 
-            if !tools.is_empty() {
-                session.tools = Some(tools);
+            if !params.tools.is_empty() {
+                session.tools = Some(params.tools);
                 send_update = true;
             }
 
-            if let Some(voice) = voice {
+            if let Some(voice) = params.voice {
                 session.voice = Some(voice);
                 send_update = true;
             }
 
-            if let Some(temperature) = temperature {
+            if let Some(temperature) = params.temperature {
                 session.temperature = Some(temperature);
                 send_update = true;
             }
@@ -270,7 +265,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match Self::process_message(message, output_format, &output, billing_scope).await? {
+                            match Self::process_message(message, output_format, &output, &params.model, output_transcription).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -422,6 +417,7 @@ impl Client {
         output_format: AudioFormat,
         output: &ConversationOutput,
         billing_scope: &str,
+        output_transcription: bool,
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => {
@@ -434,6 +430,7 @@ impl Client {
                     output,
                     output_format,
                     billing_scope,
+                    output_transcription,
                 )?;
             }
 
@@ -456,6 +453,7 @@ fn handle_realtime_server_event(
     output: &ConversationOutput,
     output_format: AudioFormat,
     billing_scope: &str,
+    output_transcription: bool,
 ) -> Result<()> {
     match event {
         ServerEvent::Error(e) => {
@@ -476,7 +474,7 @@ fn handle_realtime_server_event(
             response:
                 types::Response {
                     object,
-                    status: types::ResponseStatus::Completed,
+                    status,
                     output: items,
                     usage,
                     ..
@@ -484,33 +482,58 @@ fn handle_realtime_server_event(
             ..
         }) if object == "realtime.response" => {
             for item in items {
-                if item.r#type != Some(types::ItemType::FunctionCall)
-                    || item.status != Some(types::ItemStatus::Completed)
-                {
-                    continue;
-                }
-                let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
-                    continue;
-                };
-                let arguments: Option<serde_json::Value> = {
-                    match item.arguments {
-                        Some(arguments) => {
-                            let Ok(arguments) = serde_json::from_str(&arguments) else {
-                                continue;
-                            };
-                            Some(arguments)
-                        }
-                        None => None,
+                match (&status, &item.r#type, &item.status, &item.role) {
+                    (
+                        // For now we process function calls only in the completed response.
+                        ResponseStatus::Completed,
+                        Some(ItemType::FunctionCall),
+                        Some(ItemStatus::Completed),
+                        ..,
+                    ) => {
+                        let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
+                            continue;
+                        };
+                        let arguments: Option<serde_json::Value> = {
+                            match item.arguments {
+                                Some(arguments) => {
+                                    let Ok(arguments) = serde_json::from_str(&arguments) else {
+                                        continue;
+                                    };
+                                    Some(arguments)
+                                }
+                                None => None,
+                            }
+                        };
+                        output.service_event(
+                            OutputPath::Control,
+                            ServiceOutputEvent::FunctionCall {
+                                name: name.clone(),
+                                call_id: call_id.clone(),
+                                arguments,
+                            },
+                        )?;
                     }
-                };
-                output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::FunctionCall {
-                        name: name.clone(),
-                        call_id: call_id.clone(),
-                        arguments,
-                    },
-                )?;
+                    (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
+                        if output_transcription =>
+                    {
+                        for transcript in item
+                            .content
+                            .into_iter()
+                            .flatten()
+                            .filter(|c| c.r#type == ItemContentType::Audio)
+                            .filter_map(|c| c.transcript)
+                        {
+                            // Even though we receive partial text (because of a turn, this is not a
+                            // classic non-final, because non-final text is always overwritten with
+                            // a more refined text later, this isn't)
+                            info!("output text: {transcript}");
+                            output.text(true, transcript)?;
+                        }
+                    }
+                    _ => {
+                        debug!("Unprocessed item: {item:?}")
+                    }
+                }
             }
 
             if let Some(usage) = usage {
@@ -551,6 +574,7 @@ fn handle_realtime_server_event(
             OutputPath::Control,
             ServiceOutputEvent::SessionUpdated { tools },
         )?,
+
         response => {
             debug!("Unhandled response: {:?}", response)
         }
