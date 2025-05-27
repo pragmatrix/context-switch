@@ -8,14 +8,19 @@ use crate::{BillingRecord, BillingRecordValue, conversation::BillingId};
 #[derive(Debug, Serialize)]
 pub struct BillingRecords {
     service: String,
-    scope: String,
+    scope: Option<String>,
     records: Vec<BillingRecord>,
 }
+
+/// Type definition for the inner HashMap key in BillingCollector
+/// Contains (service, scope, name)
+type BillingRecordKey = (String, Option<String>, String);
 
 #[derive(Debug, Default)]
 pub struct BillingCollector {
     /// The inner HashMap uses (service, scope, name) as the key and stores the BillingRecordValue.
-    records: HashMap<BillingId, HashMap<(String, String, String), BillingRecordValue>>,
+    /// The scope is optional.
+    records: HashMap<BillingId, HashMap<BillingRecordKey, BillingRecordValue>>,
 }
 
 impl BillingCollector {
@@ -23,40 +28,45 @@ impl BillingCollector {
         &mut self,
         id: &BillingId,
         service: &str,
-        scope: &str,
-        record: BillingRecord,
+        scope: Option<String>,
+        records: Vec<BillingRecord>,
     ) -> Result<()> {
-        let inner_key = (service.to_string(), scope.to_string(), record.name.clone());
+        // Get or create the records map for this billing ID
+        let records_map = match self.records.entry(id.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let map = HashMap::new();
+                entry.insert(map)
+            }
+        };
 
-        match self.records.entry(id.clone()) {
-            Entry::Occupied(mut occupied_entry) => {
-                let records_map = occupied_entry.get_mut();
-                match records_map.entry(inner_key) {
-                    Entry::Occupied(mut occupied_inner) => {
-                        occupied_inner.get_mut().aggregate_with(&record.value)?;
-                    }
-                    Entry::Vacant(vacant_inner) => {
-                        vacant_inner.insert(record.value);
-                    }
+        let scope = scope.map(|s| s.to_string());
+
+        // Process each record
+        for record in records {
+            let inner_key = (service.to_string(), scope.clone(), record.name.clone());
+
+            match records_map.entry(inner_key) {
+                Entry::Occupied(mut occupied_inner) => {
+                    occupied_inner.get_mut().aggregate_with(&record.value)?;
+                }
+                Entry::Vacant(vacant_inner) => {
+                    vacant_inner.insert(record.value);
                 }
             }
-            Entry::Vacant(vacant_entry) => {
-                let mut records_map = HashMap::new();
-                records_map.insert(inner_key, record.value);
-                vacant_entry.insert(records_map);
-            }
         }
+
         Ok(())
     }
 
     pub fn collect(&mut self, id: &BillingId) -> Vec<BillingRecords> {
         if let Some(records_map) = self.records.remove(id) {
             // Group records by service and scope
-            let mut grouped: HashMap<(String, String), Vec<BillingRecord>> = HashMap::new();
+            let mut grouped: HashMap<(String, Option<String>), Vec<BillingRecord>> = HashMap::new();
 
             for ((service, scope, name), value) in records_map {
                 grouped
-                    .entry((service.clone(), scope.clone()))
+                    .entry((service.clone(), scope))
                     .or_default()
                     .push(BillingRecord { name, value });
             }
