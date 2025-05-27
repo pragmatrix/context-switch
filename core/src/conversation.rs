@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, bail};
 use derive_more::derive::{Display, From, Into};
@@ -7,6 +7,7 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::{
     AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
+    billing_collector::BillingCollector,
 };
 
 #[derive(Debug)]
@@ -17,6 +18,7 @@ pub struct Conversation {
     input: Receiver<Input>,
     output: Sender<Output>,
     send_started_event: bool,
+    billing_context: Option<BillingContext>,
 }
 
 impl Conversation {
@@ -34,6 +36,7 @@ impl Conversation {
             input,
             output,
             send_started_event: true,
+            billing_context: None,
         }
     }
 
@@ -48,6 +51,13 @@ impl Conversation {
 
     pub fn with_registry(self, registry: Arc<Registry>) -> Self {
         Self { registry, ..self }
+    }
+
+    pub fn with_billing_context(self, context: BillingContext) -> Self {
+        Self {
+            billing_context: Some(context),
+            ..self
+        }
     }
 
     pub fn with_no_started_event(self) -> Self {
@@ -135,6 +145,7 @@ impl Conversation {
         let output = ConversationOutput {
             modalities: self.output_modalities,
             output: self.output,
+            billing_context: self.billing_context,
         };
         if self.send_started_event {
             output.post(Output::ServiceStarted {
@@ -167,11 +178,11 @@ impl ConversationInput {
     pub async fn converse(
         &self,
         output: &ConversationOutput,
-        service: &str,
+        service_name: &str,
         params: serde_json::Value,
         request: Input,
     ) -> Result<()> {
-        let service = self.registry.service(service)?;
+        let service = self.registry.service(service_name)?;
 
         let (input_tx, input_rx) = channel(1);
         input_tx.try_send(request)?;
@@ -180,12 +191,17 @@ impl ConversationInput {
         // Don't add a registry, so to allow nested only once. Idea: CS should remove this service
         // from the registry passed to this conversation such that we could nest and remove all
         // services that are in use.
-        let conversation = Conversation::new_nested(
+        let mut conversation = Conversation::new_nested(
             self.modality,
             output.modalities.clone(),
             input_rx,
             output.output.clone(),
         );
+
+        if let Some(billing_context) = &output.billing_context {
+            conversation = conversation
+                .with_billing_context(billing_context.clone().with_service(service_name));
+        }
 
         service.converse(params, conversation).await
     }
@@ -197,6 +213,7 @@ pub struct ConversationOutput {
     // &OutputMdalities accessible.
     modalities: Vec<OutputModality>,
     output: Sender<Output>,
+    billing_context: Option<BillingContext>,
 }
 
 impl ConversationOutput {
@@ -261,6 +278,9 @@ pub enum Input {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
 pub struct RequestId(String);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
+pub struct BillingId(String);
+
 #[derive(Debug)]
 pub enum Output {
     ServiceStarted {
@@ -286,4 +306,41 @@ pub enum Output {
         scope: Option<String>,
         records: Vec<BillingRecord>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct BillingContext {
+    billing_id: BillingId,
+    service: String,
+    collector: Arc<Mutex<BillingCollector>>,
+}
+
+impl BillingContext {
+    pub fn new(
+        billing_id: BillingId,
+        service: impl Into<String>,
+        collector: Arc<Mutex<BillingCollector>>,
+    ) -> Self {
+        Self {
+            billing_id,
+            service: service.into(),
+            collector,
+        }
+    }
+
+    fn with_service(self, service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+            ..self
+        }
+    }
+
+    pub fn record(&self, scope: &str, record: BillingRecord) -> Result<()> {
+        self.collector.lock().expect("Lock poinsened").record(
+            &self.billing_id,
+            &self.service,
+            scope,
+            record,
+        )
+    }
 }

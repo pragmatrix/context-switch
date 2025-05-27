@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
             format: output_format,
         }]
         .into(),
+        billing_id: None,
     };
 
     context_switch.process(start)?;

@@ -3,6 +3,7 @@
 
 use std::time;
 
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -99,6 +100,33 @@ pub enum BillingRecordValue {
     Duration { duration: Duration },
     /// A counter, tokens for example.
     Count { count: usize },
+}
+
+impl BillingRecordValue {
+    pub fn aggregate_with(&mut self, other: &Self) -> Result<()> {
+        match (&self, other) {
+            (BillingRecordValue::Count { count }, BillingRecordValue::Count { count: count_r }) => {
+                let new_count = *count + *count_r;
+                *self = BillingRecordValue::Count { count: new_count }
+            }
+            (
+                BillingRecordValue::Duration { duration },
+                BillingRecordValue::Duration {
+                    duration: duration_r,
+                },
+            ) => {
+                let new_duration = duration.clone() + duration_r.clone();
+                *self = BillingRecordValue::Duration {
+                    duration: new_duration,
+                }
+            }
+            _ => {
+                bail!("Internal error: Incompatible billing record values.")
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
