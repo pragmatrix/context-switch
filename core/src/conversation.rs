@@ -71,6 +71,37 @@ impl Conversation {
         }
     }
 
+    /// Extract the audio format of a single audio output. If there are more than one audio output
+    /// modalities, this function will fail.
+    pub fn require_one_audio_output(&self) -> Result<AudioFormat> {
+        let mut audio_outputs = self
+            .output_modalities
+            .iter()
+            .filter(|m| matches!(m, OutputModality::Audio { .. }));
+        let Some(OutputModality::Audio { format }) = audio_outputs.next() else {
+            bail!("Expecting one audio output");
+        };
+        if audio_outputs.next().is_some() {
+            bail!("Expecting one audio output");
+        }
+        Ok(*format)
+    }
+
+    /// Returns `true` if there is one single `Text` output. Interim text is not considered. If
+    /// there is none, this function returns `false`, if there is more than one, this function fails.
+    pub fn has_one_text_output(&self) -> Result<bool> {
+        let count = self
+            .output_modalities
+            .iter()
+            .filter(|m| matches!(m, OutputModality::Text))
+            .count();
+        match count {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => bail!("Expecting at most one text output"),
+        }
+    }
+
     pub fn require_single_audio_output(&self) -> Result<AudioFormat> {
         match self.output_modalities.as_slice() {
             [OutputModality::Audio { format }] => Ok(*format),

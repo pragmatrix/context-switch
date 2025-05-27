@@ -67,13 +67,14 @@ impl Service for OpenAIDialog {
     async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
         // Only support audio input and output for now
         let input_format = conversation.require_audio_input()?;
-        let output_format = conversation.require_single_audio_output()?;
+        let output_format = conversation.require_one_audio_output()?;
+        let send_text_output = conversation.has_one_text_output()?;
         if input_format != output_format {
             bail!("Input and output audio formats must match for OpenAI dialog service");
         }
 
-        let host = if let Some(host) = params.host {
-            Host::new_with_host(&host, &params.api_key, &params.model)
+        let host = if let Some(host) = &params.host {
+            Host::new_with_host(host, &params.api_key, &params.model)
         } else {
             Host::new(&params.api_key, &params.model)
         };
@@ -85,17 +86,7 @@ impl Service for OpenAIDialog {
         let (input, output) = conversation.start()?;
 
         client
-            .dialog(
-                input_format,
-                output_format,
-                params.instructions,
-                params.tools,
-                params.voice,
-                params.temperature,
-                input,
-                output,
-                &params.model,
-            )
+            .dialog(input_format, output_format, params, input, output)
             .await?;
 
         Ok(())
@@ -185,18 +176,13 @@ pub struct Client {
 
 impl Client {
     /// Run an audio dialog.
-    #[allow(clippy::too_many_arguments)]
     pub async fn dialog(
         &mut self,
         input_format: AudioFormat,
         output_format: AudioFormat,
-        instructions: Option<String>,
-        tools: Vec<types::ToolDefinition>,
-        voice: Option<RealtimeVoice>,
-        temperature: Option<f32>,
+        params: Params,
         mut input: ConversationInput,
         output: ConversationOutput,
-        billing_scope: &str,
     ) -> Result<()> {
         let expected_format = AudioFormat::new(1, 24000);
         if input_format != expected_format {
@@ -226,22 +212,22 @@ impl Client {
             let mut send_update = false;
             let mut session = types::Session::default();
 
-            if let Some(instructions) = instructions {
+            if let Some(instructions) = params.instructions {
                 session.instructions = Some(instructions);
                 send_update = true;
             };
 
-            if !tools.is_empty() {
-                session.tools = Some(tools);
+            if !params.tools.is_empty() {
+                session.tools = Some(params.tools);
                 send_update = true;
             }
 
-            if let Some(voice) = voice {
+            if let Some(voice) = params.voice {
                 session.voice = Some(voice);
                 send_update = true;
             }
 
-            if let Some(temperature) = temperature {
+            if let Some(temperature) = params.temperature {
                 session.temperature = Some(temperature);
                 send_update = true;
             }
@@ -270,7 +256,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match Self::process_message(message, output_format, &output, billing_scope).await? {
+                            match Self::process_message(message, output_format, &output, &params.model).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
