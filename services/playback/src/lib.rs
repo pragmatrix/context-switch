@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use context_switch_core::audio;
+use context_switch_core::{BillingRecord, audio};
 use rodio::{
     Decoder, Sample, Source,
     conversions::{ChannelCountConverter, SampleRateConverter},
@@ -83,9 +83,15 @@ impl Service for Playback {
                             })
                             .await??;
 
+                            let duration = frames.iter().map(|f| f.duration()).sum();
                             for frame in frames {
                                 output.audio_frame(frame)?;
                             }
+                            output.billing_records(
+                                request_id.clone(),
+                                None,
+                                [BillingRecord::duration("playback:file", duration)],
+                            )?;
                             output.request_completed(request_id)?;
                         }
                         PlaybackMethod::Remote(url) => {
@@ -103,9 +109,15 @@ impl Service for Playback {
                                 read_to_one_second_frames(cursor, output_format)
                             })
                             .await??;
+                            let duration = frames.iter().map(|f| f.duration()).sum();
                             for frame in frames {
                                 output.audio_frame(frame)?;
                             }
+                            output.billing_records(
+                                request_id.clone(),
+                                None,
+                                [BillingRecord::duration("playback:remote", duration)],
+                            )?;
                             output.request_completed(request_id)?;
                         }
                     }
