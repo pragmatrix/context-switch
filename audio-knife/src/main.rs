@@ -15,7 +15,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use axum::{
     extract::{
-        Path, WebSocketUpgrade,
+        self, Path, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     response::{IntoResponse, Json},
@@ -507,7 +507,7 @@ async fn check_health(address: SocketAddr) -> Result<()> {
 
 /// Takes billing records by ID
 async fn take_billing_records(
-    axum::extract::State(state): axum::extract::State<State>,
+    extract::State(state): extract::State<State>,
     Path(billing_id): Path<String>,
 ) -> impl IntoResponse {
     let billing_id = BillingId::from(billing_id);
