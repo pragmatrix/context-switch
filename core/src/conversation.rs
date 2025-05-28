@@ -207,7 +207,9 @@ impl ConversationInput {
     }
 }
 
-#[derive(Debug)]
+// For billing, or other purposes, it's very convenient the the output can be cloned. See
+// azure-transcribe for example.
+#[derive(Debug, Clone)]
 pub struct ConversationOutput {
     // Architecture: Define OutputModalities and put all the queries in there and make
     // &OutputMdalities accessible.
