@@ -108,7 +108,7 @@ impl Service for AzureSynthesize {
                         output.billing_records(
                             request_id.clone(),
                             billing_scope.to_string(),
-                            [BillingRecord::duration("audio:synthesized", duration)],
+                            [BillingRecord::duration("output:audio", duration)],
                         )?;
                     }
                     event => {
