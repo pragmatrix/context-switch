@@ -1,6 +1,6 @@
 /// A custom `Duration` type that wraps `std::time::Duration` and always serializes/deserializes
 /// to and from the string format `HH:MM:SS.mmm`, where:
-/// - `HH` is hours (zero-padded, can be more than two digits)
+/// - `HH` is hours
 /// - `MM` is minutes (zero-padded, 00-59)
 /// - `SS` is seconds (zero-padded, 00-59)
 /// - `mmm` is milliseconds (zero-padded, 000-999)
@@ -42,6 +42,7 @@ impl<'de> Deserialize<'de> for Duration {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
+        // Robustness: Splitting '.' should only be possible for the last part.
         let parts: Vec<&str> = s.split([':', '.']).collect();
         if parts.len() != 4 {
             return Err(serde::de::Error::custom("Invalid duration format"));
