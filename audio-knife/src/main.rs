@@ -19,7 +19,7 @@ use axum::{
         ws::{Message, WebSocket},
     },
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::get,
 };
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};

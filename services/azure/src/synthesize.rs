@@ -1,11 +1,9 @@
-use std::time::Duration;
-
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use azure_speech::{
     stream::StreamExt,
     synthesizer::{
-        self, AudioFormat, message,
+        self, AudioFormat,
         ssml::{self, ToSSML, ssml::SerializeOptions},
     },
 };
@@ -80,7 +78,7 @@ impl Service for AzureSynthesize {
             let Input::Text {
                 request_id,
                 text,
-                // TODO: Verify text_type.
+                // Robustness: Verify text_type.
                 text_type: _,
             } = input
             else {
@@ -101,25 +99,18 @@ impl Service for AzureSynthesize {
                 match event {
                     Event::Synthesising(_uuid, audio) => {
                         let frame = AudioFrame::from_le_bytes(output_format, &audio);
-                        debug!("Received audio: {:?}", frame.duration());
-                        output.audio_frame(frame)?;
-                    }
-                    Event::AudioMetadata(_uud, metadata) => {
-                        for m in metadata {
-                            if let message::Metadata::SessionEnd { offset } = m {
-                                let record = BillingRecord::duration(
-                                    "audio:synthesized",
-                                    Duration::from_nanos(offset as u64 * 100),
-                                );
-                                output.billing_records(
-                                    request_id.clone(),
-                                    billing_scope.to_string(),
-                                    [record],
-                                )?;
-                            }
-                        }
-                    }
+                        let duration = frame.duration();
+                        debug!("Received audio: {duration:?}");
 
+                        // Robustness: Output max size of 1seconds frame. Moreover define the
+                        // granularity of the frames somewhere.
+                        output.audio_frame(frame)?;
+                        output.billing_records(
+                            request_id.clone(),
+                            billing_scope.to_string(),
+                            [BillingRecord::duration("audio:synthesized", duration)],
+                        )?;
+                    }
                     event => {
                         debug!("Received: {event:?}")
                     }
