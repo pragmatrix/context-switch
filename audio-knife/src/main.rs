@@ -96,7 +96,10 @@ async fn main() -> Result<()> {
 
     let app = axum::Router::new()
         .route("/", get(ws_get))
-        .route("/billing/:billing_id/claim", post(claim_billing_records))
+        .route(
+            "/billing-records/:billing_id/take",
+            get(take_billing_records),
+        )
         .with_state(state);
 
     let listener = TcpListener::bind(addr).await?;
@@ -502,8 +505,8 @@ async fn check_health(address: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-/// Claims billing records by ID
-async fn claim_billing_records(
+/// Takes billing records by ID
+async fn take_billing_records(
     axum::extract::State(state): axum::extract::State<State>,
     Path(billing_id): Path<String>,
 ) -> impl IntoResponse {
@@ -517,7 +520,7 @@ async fn claim_billing_records(
         .collect_billing_records(&billing_id);
 
     info!(
-        "Claimed {} billing records for ID: {}",
+        "Took {} billing records for ID: {}",
         records.len(),
         billing_id
     );
