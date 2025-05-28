@@ -4,10 +4,11 @@ use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use futures::StreamExt;
 use serde::Deserialize;
+use tracing::error;
 
 use crate::Host;
 use context_switch_core::{
-    Service,
+    BillingRecord, Service,
     conversation::{Conversation, Input},
 };
 
@@ -54,18 +55,26 @@ impl Service for AzureTranscribe {
 
         let (mut input, output) = conversation.start()?;
 
-        let wav_header = hound::WavSpec {
-            sample_rate: input_format.sample_rate,
-            channels: input_format.channels,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        }
-        .into_header_for_infinite_file();
-
-        let audio_stream = stream! {
-            yield wav_header;
-            while let Some(Input::Audio{frame}) = input.recv().await {
-                yield frame.to_le_bytes();
+        let audio_stream = {
+            let billing_output = output.clone();
+            let wav_header = hound::WavSpec {
+                sample_rate: input_format.sample_rate,
+                channels: input_format.channels,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            }
+            .into_header_for_infinite_file();
+            stream! {
+                yield wav_header;
+                while let Some(Input::Audio{frame}) = input.recv().await {
+                    yield frame.to_le_bytes();
+                    // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
+                    // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
+                    // No `Result<>` context, we can't fail here, instead log an error.
+                    if let Err(e) = billing_output.billing_records(None, None, [BillingRecord::duration("input:audio", frame.duration())]) {
+                        error!("Internal error: Failed to output billing records: {e}");
+                    }
+                }
             }
         };
 
@@ -77,9 +86,6 @@ impl Service for AzureTranscribe {
         let mut stream = client
             .recognize(audio_stream, recognizer::AudioFormat::Wav, device)
             .await?;
-
-        // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
-        // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
 
         while let Some(event) = stream.next().await {
             match event? {

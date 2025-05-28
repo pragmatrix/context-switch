@@ -162,7 +162,7 @@ impl AudioFrame {
         Self { format, samples }
     }
 
-    pub fn to_le_bytes(self) -> Vec<u8> {
+    pub fn to_le_bytes(&self) -> Vec<u8> {
         audio::to_le_bytes(&self.samples)
     }
 
