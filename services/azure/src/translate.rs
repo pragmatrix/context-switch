@@ -4,11 +4,11 @@ use async_trait::async_trait;
 use azure_speech::translator::{self, Event};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::Host;
 use context_switch_core::{
-    AudioFormat, AudioFrame, OutputModality, OutputPath, Service,
+    AudioFormat, AudioFrame, BillingRecord, OutputModality, OutputPath, Service,
     conversation::{Conversation, Input},
 };
 
@@ -77,18 +77,28 @@ impl Service for AzureTranslate {
 
         let (mut input, output) = conversation.start()?;
 
-        let wav_header = hound::WavSpec {
-            sample_rate: input_format.sample_rate,
-            channels: input_format.channels,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        }
-        .into_header_for_infinite_file();
+        let audio_stream = {
+            let wav_header = hound::WavSpec {
+                sample_rate: input_format.sample_rate,
+                channels: input_format.channels,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            }
+            .into_header_for_infinite_file();
 
-        let audio_stream = stream! {
-            yield wav_header;
-            while let Some(Input::Audio{frame}) = input.recv().await {
-                yield frame.to_le_bytes();
+            let billing_output = output.clone();
+
+            stream! {
+                yield wav_header;
+                while let Some(Input::Audio{frame}) = input.recv().await {
+                    yield frame.to_le_bytes();
+                    // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
+                    // This price includes 1 audio input and output, up to 2 text translation language using standard or custom Speech to Text and standard Translation.
+                    // No `Result<>` context, we can't fail here, instead log an error.
+                    if let Err(e) = billing_output.billing_records(None, None, [BillingRecord::duration("input:audio", frame.duration())]) {
+                        error!("Internal error: Failed to output billing records: {e}");
+                    }
+                }
             }
         };
 
@@ -131,6 +141,12 @@ impl Service for AzureTranslate {
                     };
                     debug!("Event: TranslationSynthesis {:?}", frame.duration());
                     output.service_event(OutputPath::Media, ServiceEvent::AudioStart)?;
+                    // I don't think that Azure bills us for this, but we bill it anyway and decide later what to do.
+                    output.billing_records(
+                        None,
+                        None,
+                        [BillingRecord::duration("output:audio", frame.duration())],
+                    )?;
                     output.audio_frame(frame)?;
                     output.service_event(OutputPath::Media, ServiceEvent::AudioStop)?;
                 }

@@ -32,6 +32,7 @@ async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
         params: Value::Null,
         input_modality: InputModality::Text,
         output_modalities: Vec::new(),
+        billing_id: None,
     })
     .unwrap();
 
@@ -77,6 +78,7 @@ async fn output_events_can_be_sent_after_shutdown() {
         params: Value::Null,
         input_modality: InputModality::Text,
         output_modalities: Vec::new(),
+        billing_id: None,
     })
     .unwrap();
 
