@@ -270,7 +270,7 @@ impl ContextSwitch {
                 // We don't bail here and confuse clients with an error. After all, dropping the
                 // conversation must always be reliable. The graceful shutdown is just for closing
                 // internet connections and keeping services from panicking too much.
-                error!("Graceful shutdown peroid expired after waiting for {}ms", shutdown_timeout.as_millis());
+                error!("Graceful shutdown period expired after waiting for {}ms", shutdown_timeout.as_millis());
             }
         }
 
