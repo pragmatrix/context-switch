@@ -69,14 +69,18 @@ impl ContextSwitch {
                 // to support audio broadcasting on multiple backends.
                 let ClientEvent::Start {
                     ref id,
+                    ref service,
                     input_modality,
+                    ref output_modalities,
                     ..
                 } = event
                 else {
                     bail!("Expected start event for a new conversation id");
                 };
 
-                info!("Conversation starting: {id}");
+                info!(
+                    "Conversation starting: {id}, {service}, input: {input_modality:?}, output: {output_modalities:?}"
+                );
 
                 // TODO: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
