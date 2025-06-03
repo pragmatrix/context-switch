@@ -21,3 +21,4 @@ async-fn-stream = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }
+uuid = { workspace = true }
