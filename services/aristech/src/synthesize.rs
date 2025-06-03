@@ -38,7 +38,7 @@ impl Service for AristechSynthesize {
         // `get_voices` function if no voice_id is provided.
         let voice_id = params.voice_id.unwrap_or_else(|| "anne_de_DE".to_string());
 
-        // TLS options
+        // The TLS options struct is needed to provide authentication details
         let tls_options = get_tls_options(params.token, params.secret);
 
         // Create client
@@ -106,7 +106,6 @@ impl Service for AristechSynthesize {
                 .context("Error receiving speech stream chunk")?
             {
                 let frame = AudioFrame::from_le_bytes(output_format, &response.data);
-                debug!("Received audio: {:?}", frame.duration());
                 output.audio_frame(frame)?;
             }
             output.request_completed(request_id)?;

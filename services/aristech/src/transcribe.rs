@@ -1,10 +1,9 @@
 use anyhow::{Result, anyhow};
 use aristech_stt_client::{
-    Auth, SttClientBuilder,
     stt_service::{
-        RecognitionConfig, RecognitionSpec, StreamingRecognitionRequest,
-        recognition_spec::AudioEncoding, streaming_recognition_request,
-    },
+        recognition_spec::AudioEncoding, streaming_recognition_request::{self, StreamingRequest},
+        RecognitionConfig, RecognitionSpec, StreamingRecognitionRequest
+    }, Auth, SttClientBuilder
 };
 use async_stream::stream;
 use async_trait::async_trait;
@@ -48,6 +47,8 @@ pub enum AuthConfig {
 pub struct Params {
     #[serde(flatten)]
     pub auth_config: AuthConfig,
+    /// N.B. This is expected to be in locale format, e.g. "en_GB" or "de_DE".
+    /// A BCP 47 language code (e.g. "en-US") is not expected here.
     pub language_code: String,
     // TODO: Determine whether this could really be used in practice, in the future.
     // It seems that the language code used, automatically chooses the appropriate model. TBC.
@@ -77,20 +78,20 @@ impl Service for AristechTranscribe {
                 secret,
             }) => SttClientBuilder::default()
                 .host(&host)
-                .map_err(|e| anyhow!("Failed to set host: {}", e))?
+                .map_err(|e| anyhow!("Failed to set Aristech STT host: {}", e))?
                 .auth(Some(Auth { token, secret }))
                 .build()
                 .await
-                .map_err(|e| anyhow!("Failed to build STT client with credentials: {}", e))?,
+                .map_err(|e| anyhow!("Failed to build Aristech STT client with credentials: {}", e))?,
             AuthConfig::ApiKey(ApiKeyAuth { api_key }) => SttClientBuilder::default()
                 .api_key(&api_key)
                 .map_err(|e| anyhow!("Failed to set API key: {}", e))?
                 .build()
                 .await
-                .map_err(|e| anyhow!("Failed to build STT client with API key: {}", e))?,
+                .map_err(|e| anyhow!("Failed to build Aristech STT client with API key: {}", e))?,
         };
 
-        // Build the client with the auth and language
+        // Now that the client is built with authentication and language, configure the gzip compression
         let mut client = client
             .accept_compressed(CompressionEncoding::Gzip)
             .send_compressed(CompressionEncoding::Gzip);
@@ -121,7 +122,7 @@ impl Service for AristechTranscribe {
                 let pcm_data = frame.to_le_bytes();
                 yield StreamingRecognitionRequest {
                     streaming_request: Some(
-                        streaming_recognition_request::StreamingRequest::AudioContent(pcm_data),
+                        StreamingRequest::AudioContent(pcm_data),
                     ),
                 };
             }
