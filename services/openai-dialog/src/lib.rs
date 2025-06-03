@@ -2,7 +2,7 @@
 //!
 //! Based on <https://github.com/dongri/openai-api-rs/blob/main/examples/realtime/src/main.rs>
 
-use std::fmt;
+use std::{collections::VecDeque, fmt, future::pending};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
@@ -23,12 +23,13 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
     conversation::{Conversation, ConversationInput, ConversationOutput, Input},
 };
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,16 +174,33 @@ impl Host {
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
 
-        Ok(Client { read, write })
+        Ok(Client::new(read, write))
     }
 }
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+
+    realtime_response_counter: usize,
+    inflight_prompt: Option<(String, PromptRequest)>,
+    pending_prompts: VecDeque<PromptRequest>,
 }
 
 impl Client {
+    fn new(
+        read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+        write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    ) -> Self {
+        Self {
+            read,
+            write,
+            realtime_response_counter: 0,
+            inflight_prompt: None,
+            pending_prompts: Default::default(),
+        }
+    }
+
     /// Run an audio dialog.
     pub async fn dialog(
         &mut self,
@@ -251,6 +269,8 @@ impl Client {
             }
         }
 
+        let mut response_counter = 0;
+
         loop {
             select! {
                 input = input.recv() => {
@@ -265,7 +285,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match Self::process_message(message, output_format, &output, &params.model, output_transcription).await? {
+                            match self.process_message(message, output_format, &output, &params.model, output_transcription, &mut response_counter).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -387,14 +407,11 @@ impl Client {
                             .await?;
                     }
                     ServiceInputEvent::Prompt { text } => {
-                        let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
-                            response: Some(types::Session {
-                                instructions: Some(text),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        });
-                        self.send_client_event(response).await?;
+                        info!(
+                            "Received prompt (response counter: {})",
+                            self.realtime_response_counter
+                        );
+                        self.push_prompt(PromptRequest(text)).await?;
                     }
                     ServiceInputEvent::SessionUpdate { tools } => {
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
@@ -413,25 +430,28 @@ impl Client {
     }
 
     async fn process_message(
+        &mut self,
         message: Message,
         output_format: AudioFormat,
         output: &ConversationOutput,
         billing_scope: &str,
         output_transcription: bool,
+        response_counter: &mut usize,
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => {
                 let api_event = serde_json::from_str(&str)
                     .with_context(|| format!("Deserialization failed: `{str}`"))?;
 
-                handle_realtime_server_event(
+                self.handle_realtime_server_event(
                     &str,
                     api_event,
                     output,
                     output_format,
                     billing_scope,
                     output_transcription,
-                )?;
+                )
+                .await?;
             }
 
             Message::Ping(data) => {
@@ -445,148 +465,231 @@ impl Client {
 
         Ok(FlowControl::Continue)
     }
-}
 
-fn handle_realtime_server_event(
-    raw: &str,
-    event: ServerEvent,
-    output: &ConversationOutput,
-    output_format: AudioFormat,
-    billing_scope: &str,
-    output_transcription: bool,
-) -> Result<()> {
-    match event {
-        ServerEvent::Error(e) => {
-            bail!(format!("{e:?}, raw: {raw}"));
-        }
-        ServerEvent::ResponseAudioDelta(audio_delta) => {
-            let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
-            let samples = audio::from_le_bytes(&decoded);
-            debug!("Sending {} samples", samples.len());
-            let frame = AudioFrame {
-                format: output_format,
-                samples,
-            };
-            output.audio_frame(frame)?;
-        }
-        ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
-        ServerEvent::ResponseDone(server_event::ResponseDone {
-            response:
-                types::Response {
-                    object,
-                    status,
-                    output: items,
-                    usage,
-                    ..
-                },
-            ..
-        }) if object == "realtime.response" => {
-            for item in items {
-                match (&status, &item.r#type, &item.status, &item.role) {
-                    (
-                        // For now we process function calls only in the completed response.
-                        ResponseStatus::Completed,
-                        Some(ItemType::FunctionCall),
-                        Some(ItemStatus::Completed),
-                        ..,
-                    ) => {
-                        let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
-                            continue;
-                        };
-                        let arguments: Option<serde_json::Value> = {
-                            match item.arguments {
-                                Some(arguments) => {
-                                    let Ok(arguments) = serde_json::from_str(&arguments) else {
-                                        continue;
-                                    };
-                                    Some(arguments)
+    async fn handle_realtime_server_event(
+        &mut self,
+        raw: &str,
+        event: ServerEvent,
+        output: &ConversationOutput,
+        output_format: AudioFormat,
+        billing_scope: &str,
+        output_transcription: bool,
+    ) -> Result<()> {
+        let event_for_log = match &event {
+            ServerEvent::ResponseAudioDelta(delta) => {
+                ServerEvent::ResponseAudioDelta(server_event::ResponseAudioDelta {
+                    delta: "[REMOVED]".to_string(),
+                    ..delta.clone()
+                })
+            }
+            event => event.clone(),
+        };
+
+        info!("Server Event: {event_for_log:?}");
+
+        match event {
+            ServerEvent::Error(e) => {
+                bail!(format!("{e:?}, raw: {raw}"));
+            }
+            ServerEvent::ResponseAudioDelta(audio_delta) => {
+                let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
+                let samples = audio::from_le_bytes(&decoded);
+                debug!("Sending {} samples", samples.len());
+                let frame = AudioFrame {
+                    format: output_format,
+                    samples,
+                };
+                output.audio_frame(frame)?;
+            }
+            ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+            ServerEvent::ResponseCreated(server_event::ResponseCreated {
+                response: types::Response { object, .. },
+                ..
+            }) if object == "realtime.response" => {
+                self.realtime_response_counter += 1;
+            }
+            ServerEvent::ResponseDone(server_event::ResponseDone {
+                response:
+                    types::Response {
+                        object,
+                        status,
+                        output: items,
+                        usage,
+                        ..
+                    },
+                ..
+            }) if object == "realtime.response" => {
+                self.realtime_response_counter -= 1;
+
+                let mut any_function_call_request = false;
+                for item in items {
+                    match (&status, &item.r#type, &item.status, &item.role) {
+                        (
+                            // For now we process function calls only in the completed response.
+                            ResponseStatus::Completed,
+                            Some(ItemType::FunctionCall),
+                            Some(ItemStatus::Completed),
+                            ..,
+                        ) => {
+                            let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
+                                continue;
+                            };
+                            let arguments: Option<serde_json::Value> = {
+                                match &item.arguments {
+                                    Some(arguments) => {
+                                        let Ok(arguments) = serde_json::from_str(arguments) else {
+                                            continue;
+                                        };
+                                        Some(arguments)
+                                    }
+                                    None => None,
                                 }
-                                None => None,
-                            }
-                        };
-                        output.service_event(
-                            OutputPath::Control,
-                            ServiceOutputEvent::FunctionCall {
-                                name: name.clone(),
-                                call_id: call_id.clone(),
-                                arguments,
-                            },
-                        )?;
-                    }
-                    (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
-                        if output_transcription =>
-                    {
-                        for transcript in item
-                            .content
-                            .into_iter()
-                            .flatten()
-                            .filter(|c| c.r#type == ItemContentType::Audio)
-                            .filter_map(|c| c.transcript)
+                            };
+                            output.service_event(
+                                OutputPath::Control,
+                                ServiceOutputEvent::FunctionCall {
+                                    name: name.clone(),
+                                    call_id: call_id.clone(),
+                                    arguments,
+                                },
+                            )?;
+                            any_function_call_request = true;
+                        }
+                        (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
+                            if output_transcription =>
                         {
-                            // Even though we receive partial text (because of a turn, this is not a
-                            // classic non-final, because non-final text is always overwritten with
-                            // a more refined text later, this isn't)
-                            info!("output text: {transcript}");
-                            output.text(true, transcript)?;
+                            for transcript in item
+                                .content
+                                .into_iter()
+                                .flatten()
+                                .filter(|c| c.r#type == ItemContentType::Audio)
+                                .filter_map(|c| c.transcript)
+                            {
+                                // Even though we receive partial text (because of a turn, this is not a
+                                // classic non-final, because non-final text is always overwritten with
+                                // a more refined text later, this isn't)
+                                info!("output text: {transcript}");
+                                output.text(true, transcript)?;
+                            }
+                        }
+                        _ => {
+                            debug!("Unprocessed item: {item:?}")
                         }
                     }
-                    _ => {
-                        debug!("Unprocessed item: {item:?}")
+                }
+
+                // Flush a pending prompt?
+                if self.realtime_response_counter == 0 && !any_function_call_request {
+                    self.flush_prompt().await?;
+                }
+
+                if let Some(usage) = usage {
+                    let input_details = &usage.input_token_details;
+                    let output_details = &usage.output_token_details;
+                    let cached_tokens = &usage.input_token_details.cached_tokens_details;
+                    if input_details.audio_tokens < cached_tokens.audio_tokens {
+                        bail!("Internal error: less audio tokens than cached text tokens");
                     }
+                    if input_details.text_tokens < cached_tokens.text_tokens {
+                        bail!("Internal error: less text tokens than cached text tokens");
+                    }
+
+                    let input_audio_tokens =
+                        input_details.audio_tokens - cached_tokens.audio_tokens;
+                    let input_text_tokens = input_details.text_tokens - cached_tokens.text_tokens;
+
+                    let records = [
+                        BillingRecord::count("tokens:input:audio", input_audio_tokens as _),
+                        BillingRecord::count("tokens:input:text", input_text_tokens as _),
+                        BillingRecord::count(
+                            "tokens:input:audio:cached",
+                            cached_tokens.audio_tokens as _,
+                        ),
+                        BillingRecord::count(
+                            "tokens:input:text:cached",
+                            cached_tokens.text_tokens as _,
+                        ),
+                        BillingRecord::count(
+                            "tokens:output:audio",
+                            output_details.audio_tokens as _,
+                        ),
+                        BillingRecord::count("tokens:output:text", output_details.text_tokens as _),
+                    ];
+                    output.billing_records(None, Some(billing_scope.into()), records)?;
                 }
             }
+            ServerEvent::SessionUpdated(server_event::SessionUpdated {
+                session: types::Session { tools, .. },
+                ..
+            }) => output.service_event(
+                OutputPath::Control,
+                ServiceOutputEvent::SessionUpdated { tools },
+            )?,
 
-            if let Some(usage) = usage {
-                let input_details = &usage.input_token_details;
-                let output_details = &usage.output_token_details;
-                let cached_tokens = &usage.input_token_details.cached_tokens_details;
-                if input_details.audio_tokens < cached_tokens.audio_tokens {
-                    bail!("Internal error: less audio tokens than cached text tokens");
-                }
-                if input_details.text_tokens < cached_tokens.text_tokens {
-                    bail!("Internal error: less text tokens than cached text tokens");
-                }
-
-                let input_audio_tokens = input_details.audio_tokens - cached_tokens.audio_tokens;
-                let input_text_tokens = input_details.text_tokens - cached_tokens.text_tokens;
-
-                let records = [
-                    BillingRecord::count("tokens:input:audio", input_audio_tokens as _),
-                    BillingRecord::count("tokens:input:text", input_text_tokens as _),
-                    BillingRecord::count(
-                        "tokens:input:audio:cached",
-                        cached_tokens.audio_tokens as _,
-                    ),
-                    BillingRecord::count(
-                        "tokens:input:text:cached",
-                        cached_tokens.text_tokens as _,
-                    ),
-                    BillingRecord::count("tokens:output:audio", output_details.audio_tokens as _),
-                    BillingRecord::count("tokens:output:text", output_details.text_tokens as _),
-                ];
-                output.billing_records(None, Some(billing_scope.into()), records)?;
+            response => {
+                debug!("Unhandled response: {:?}", response)
             }
         }
-        ServerEvent::SessionUpdated(server_event::SessionUpdated {
-            session: types::Session { tools, .. },
-            ..
-        }) => output.service_event(
-            OutputPath::Control,
-            ServiceOutputEvent::SessionUpdated { tools },
-        )?,
 
-        response => {
-            debug!("Unhandled response: {:?}", response)
-        }
+        Ok(())
+    }
+}
+
+/// State management.
+impl Client {
+    /// Either send the prompt immediately if possible, or schedule it until it's safe to do.
+    async fn push_prompt(&mut self, request: PromptRequest) -> Result<()> {
+        self.pending_prompts.push_back(request);
+        self.flush_prompt().await
     }
 
-    Ok(())
+    async fn flush_prompt(&mut self) -> Result<()> {
+        info!("Flusing prompt ...");
+        if !self.should_send_prompt_now() {
+            info!("... not now");
+            return Ok(());
+        }
+
+        let request = self.pending_prompts.pop_front().unwrap();
+        info!("Sending prompt: {request:?}");
+
+        let event_id = Uuid::new_v4().to_string();
+
+        let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
+            event_id: Some(event_id.clone()),
+            response: Some(types::Session {
+                instructions: Some(request.0.clone()),
+                ..Default::default()
+            }),
+        });
+        self.send_client_event(response).await?;
+        self.inflight_prompt = Some((event_id, request));
+        Ok(())
+    }
+
+    fn should_send_prompt_now(&self) -> bool {
+        self.realtime_response_counter == 0
+            && self.inflight_prompt.is_none()
+            && !self.pending_prompts.is_empty()
+    }
 }
 
 enum FlowControl {
     Continue,
     PongAndContinue(Bytes),
     End,
+}
+
+#[derive(Default)]
+struct StateManager {}
+
+impl StateManager {}
+
+#[derive(Debug, Clone)]
+struct PromptRequest(String);
+
+struct PromptErrorQueue {
+    prompts: VecDeque<String>,
 }
 
 #[cfg(test)]

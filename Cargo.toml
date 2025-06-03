@@ -108,3 +108,4 @@ openai-api-rs = { path = "external/openai-api-rs" }
 rodio = { path = "external/rodio", default-features = false, features = ["symphonia-mp3"] }
 
 rstest = { version = "0.25.0" }
+uuid = { version = "1.17.0", features = ["v4"] }
