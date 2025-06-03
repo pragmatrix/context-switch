@@ -73,7 +73,7 @@ impl Service for AristechSynthesize {
 
         loop {
             let Some(input) = input.recv().await else {
-                debug!("No more input, exiting");
+                debug!("No more text to synthesize from input stream, exiting");
                 return Ok(());
             };
 

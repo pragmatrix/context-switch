@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::{Context as AnyhowContext, Result};
-use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
+use rodio::{OutputStreamBuilder, Sink, Source};
 use std::{thread, time::Duration};
 use tokio::{select, sync::mpsc::channel};
 
@@ -219,7 +219,7 @@ fn get_aristech_params() -> Result<AristechParams> {
     let endpoint =
         env::var("ARISTECH_ENDPOINT").context("ARISTECH_ENDPOINT environment variable not set")?;
 
-    let voice_id = env::var("ARISTECH_VOICE_ID").unwrap_or_else(|_| "anne_en_GB".to_string());
+    let voice_id = env::var("ARISTECH_VOICE_ID").unwrap_or_else(|_| "anne_de_DE".to_string());
 
     let token =
         env::var("ARISTECH_TOKEN").context("ARISTECH_TOKEN environment variable not set")?;

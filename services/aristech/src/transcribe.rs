@@ -31,6 +31,11 @@ pub struct CredentialsAuth {
     pub secret: String,
 }
 
+/// Currently there are two authentication methods supported.
+/// In future, it is likely that `ApiKey` will be the only supported method.
+/// This is the method we currently use and the crate documentation describes how the `ApiKey`
+/// can be derived from the credentials anyway.
+/// See https://www.aristech.de/api-key-generator/?type=stt
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum AuthConfig {
@@ -44,8 +49,11 @@ pub struct Params {
     #[serde(flatten)]
     pub auth_config: AuthConfig,
     pub language_code: String,
+    // TODO: Determine whether this could really be used in practice, in the future.
+    // It seems that the language code used, automatically chooses the appropriate model. TBC.
     #[serde(default)]
     pub model: String,
+    // TODO: Determine whether this could really be used in practice, in the future.
     #[serde(default)]
     pub prompt: String,
 }
@@ -97,16 +105,11 @@ impl Service for AristechTranscribe {
                         audio_encoding: AudioEncoding::Unspecified as i32, // Defaults to LINEAR16_PCM encoding
                         sample_rate_hertz: input_format.sample_rate as i64,
                         locale: params.language_code,
-                        graph: "".to_string(),
-                        grammar: "".to_string(),
                         partial_results: true,
                         single_utterance: false,
-                        normalization: None,
-                        phones: false,
                         model: params.model,
-                        endpointing: None,
-                        vad: None,
                         prompt: params.prompt,
+                        ..RecognitionSpec::default()
                     }),
                 },
             )),
@@ -137,6 +140,8 @@ impl Service for AristechTranscribe {
         {
             for chunk in response.chunks {
                 // Determine if this is a final result
+                // TODO: Find out if this is really the correct way to determine finality
+                // The `r#final` does not appear to be set.
                 let is_final = chunk.end_of_utterance;
 
                 // Instead of processing all alternatives, just take the first one
@@ -169,8 +174,11 @@ mod tests {
         let params: Params = serde_json::from_str(json_str).expect("Failed to parse API key JSON");
 
         // Check auth config
-        assert!(matches!(params.auth_config, AuthConfig::ApiKey(_)), 
-                "Expected ApiKey, got {:?}", params.auth_config);
+        assert!(
+            matches!(params.auth_config, AuthConfig::ApiKey(_)),
+            "Expected ApiKey, got {:?}",
+            params.auth_config
+        );
 
         if let AuthConfig::ApiKey(api_key_auth) = params.auth_config {
             assert_eq!(api_key_auth.api_key, "test_api_key_123");
