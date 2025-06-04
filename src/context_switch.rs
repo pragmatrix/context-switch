@@ -43,6 +43,8 @@ pub fn registry() -> Registry {
         .add_service("azure-synthesize", azure::AzureSynthesize)
         .add_service("azure-translate", azure::AzureTranslate)
         .add_service("openai-dialog", openai_dialog::OpenAIDialog)
+        .add_service("aristech-transcribe", aristech::AristechTranscribe)
+        .add_service("aristech-synthesize", aristech::AristechSynthesize)
 }
 
 impl ContextSwitch {
