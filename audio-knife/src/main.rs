@@ -129,7 +129,7 @@ async fn server_event_dispatcher(
     loop {
         match receiver.recv().await {
             Some(event) => {
-                if let Err(e) = distributor.lock().expect("poisened").dispatch(event) {
+                if let Err(e) = distributor.lock().expect("poisoned").dispatch(event) {
                     // Because of the asynchronous nature of cross-conversation events, events not
                     // reaching their conversations may happen.
                     //

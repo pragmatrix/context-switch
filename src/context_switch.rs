@@ -125,7 +125,7 @@ impl ContextSwitch {
     pub fn collect_billing_records(&self, billing_id: &BillingId) -> Vec<BillingRecords> {
         self.billing_collector
             .lock()
-            .expect("poisened")
+            .expect("poisoned")
             .collect(billing_id)
     }
 }

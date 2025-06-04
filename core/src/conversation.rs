@@ -348,7 +348,7 @@ impl BillingContext {
         scope: impl Into<Option<String>>,
         records: Vec<BillingRecord>,
     ) -> Result<()> {
-        self.collector.lock().expect("Lock poinsened").record(
+        self.collector.lock().expect("Lock poisoned").record(
             &self.billing_id,
             &self.service,
             scope.into(),
