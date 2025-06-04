@@ -211,8 +211,8 @@ impl ConversationInput {
 // azure-transcribe for example.
 #[derive(Debug, Clone)]
 pub struct ConversationOutput {
-    // Architecture: Define OutputModalities and put all the queries in there and make
-    // &OutputMdalities accessible.
+    // Architecture: Define `OutputModalities` and put all the queries in there and make
+    // `&OutputModalities` accessible.
     modalities: Vec<OutputModality>,
     output: Sender<Output>,
     billing_context: Option<BillingContext>,
