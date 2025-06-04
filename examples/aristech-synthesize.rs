@@ -229,7 +229,7 @@ fn get_aristech_params() -> Result<AristechParams> {
 
     Ok(AristechParams {
         endpoint,
-        voice_id: Some(voice_id),
+        voice: Some(voice_id),
         token,
         secret,
     })

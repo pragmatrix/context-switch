@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
     stream.play().expect("Failed to play stream");
 
     // Language code for Aristech transcription
-    let language_code = "en";
+    let language = "en";
 
     // Create params for Aristech transcribe based on environment variables
     let auth_config = if let Ok(api_key) = env::var("ARISTECH_API_KEY") {
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     // Create the params with authentication and language settings
     let params = AristechParams {
         auth_config,
-        language_code: language_code.into(),
+        language: language.into(),
         model: String::new(),  // Optional: Specify a model if needed
         prompt: String::new(), // Optional: Specify a prompt if needed
     };

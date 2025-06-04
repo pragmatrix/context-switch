@@ -17,7 +17,7 @@ use context_switch_core::{
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub endpoint: String,
-    pub voice_id: Option<String>,
+    pub voice: Option<String>,
     pub token: String,
     pub secret: String,
 }
@@ -36,7 +36,7 @@ impl Service for AristechSynthesize {
         // Resolve default voice if none is set
         // TODO: Add the possibility to determine this from a language parameter and the
         // `get_voices` function if no voice_id is provided.
-        let voice_id = params.voice_id.unwrap_or_else(|| "anne_de_DE".to_string());
+        let voice_id = params.voice.unwrap_or_else(|| "anne_de_DE".to_string());
 
         // The TLS options struct is needed to provide authentication details
         let tls_options = get_tls_options(params.token, params.secret);

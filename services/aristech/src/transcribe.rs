@@ -49,7 +49,7 @@ pub struct Params {
     pub auth_config: AuthConfig,
     /// N.B. This is expected to be in locale format, e.g. "en_GB" or "de_DE".
     /// A BCP 47 language code (e.g. "en-US") is not expected here.
-    pub language_code: String,
+    pub language: String,
     // TODO: Determine whether this could really be used in practice, in the future.
     // It seems that the language code used, automatically chooses the appropriate model. TBC.
     #[serde(default)]
@@ -105,7 +105,7 @@ impl Service for AristechTranscribe {
                     specification: Some(RecognitionSpec {
                         audio_encoding: AudioEncoding::Unspecified as i32, // Defaults to LINEAR16_PCM encoding
                         sample_rate_hertz: input_format.sample_rate as i64,
-                        locale: params.language_code,
+                        locale: params.language,
                         partial_results: true,
                         single_utterance: false,
                         model: params.model,
@@ -166,7 +166,7 @@ mod tests {
         let json_str = r#"
         {
             "apiKey": "test_api_key_123",
-            "languageCode": "en_GB",
+            "language": "en_GB",
             "model": "default_model",
             "prompt": "test prompt"
         }
@@ -186,7 +186,7 @@ mod tests {
         }
 
         // Check other fields
-        assert_eq!(params.language_code, "en_GB");
+        assert_eq!(params.language, "en_GB");
         assert_eq!(params.model, "default_model");
         assert_eq!(params.prompt, "test prompt");
     }
@@ -198,7 +198,7 @@ mod tests {
             "host": "https://example.com",
             "token": "test_token",
             "secret": "test_secret",
-            "languageCode": "de_DE",
+            "language": "de_DE",
             "model": "german_model", 
             "prompt": "Testen"
         }
@@ -218,14 +218,14 @@ mod tests {
         }
 
         // Check other fields
-        assert_eq!(params.language_code, "de_DE");
+        assert_eq!(params.language, "de_DE");
         assert_eq!(params.model, "german_model");
         assert_eq!(params.prompt, "Testen");
     }
 
     #[test]
     fn test_deserialize_minimal_api_key() {
-        let json_str = r#"{"apiKey": "test_api_key_456", "languageCode": "en_US"}"#;
+        let json_str = r#"{"apiKey": "test_api_key_456", "language": "en_US"}"#;
 
         let params: Params =
             serde_json::from_str(json_str).expect("Failed to parse minimal API key JSON");
@@ -239,7 +239,7 @@ mod tests {
         }
 
         // Check other fields
-        assert_eq!(params.language_code, "en_US");
+        assert_eq!(params.language, "en_US");
         assert_eq!(params.model, ""); // Default value for model
         assert_eq!(params.prompt, ""); // Default value for prompt
     }
@@ -251,7 +251,7 @@ mod tests {
             "host": "https://example.org",
             "token": "test_token",
             "secret": "test_secret",
-            "languageCode": "fr_FR"
+            "language": "fr_FR"
         }
         "#;
 
@@ -269,7 +269,7 @@ mod tests {
         }
 
         // Check other fields
-        assert_eq!(params.language_code, "fr_FR");
+        assert_eq!(params.language, "fr_FR");
         assert_eq!(params.model, ""); // Default value for model
         assert_eq!(params.prompt, ""); // Default value for prompt
     }
@@ -315,7 +315,7 @@ mod tests {
         let json_str = r#"
         {
             "apiKey": "test_api_key_extra",
-            "languageCode": "en_GB",
+            "language": "en_GB",
             "model": "test_model",
             "prompt": "You are HAL900",
             "extraField": "should be ignored"
@@ -332,7 +332,7 @@ mod tests {
             _ => panic!("Expected ApiKey"),
         }
 
-        assert_eq!(params.language_code, "en_GB");
+        assert_eq!(params.language, "en_GB");
         assert_eq!(params.model, "test_model");
         assert_eq!(params.prompt, "You are HAL900");
     }
@@ -343,7 +343,7 @@ mod tests {
         let json_str = r#"
         {
             "apiKey": "test_key",
-            "languageCode": "en_US",
+            "language": "en_US",
             "model": "",
             "prompt": ""
         }
@@ -359,7 +359,7 @@ mod tests {
             _ => panic!("Expected ApiKey"),
         }
 
-        assert_eq!(params.language_code, "en_US");
+        assert_eq!(params.language, "en_US");
         assert_eq!(params.model, "");
         assert_eq!(params.prompt, "");
     }
