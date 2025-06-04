@@ -1,9 +1,11 @@
 use anyhow::{Result, anyhow};
 use aristech_stt_client::{
+    Auth, SttClientBuilder,
     stt_service::{
-        recognition_spec::AudioEncoding, streaming_recognition_request::{self, StreamingRequest},
-        RecognitionConfig, RecognitionSpec, StreamingRecognitionRequest
-    }, Auth, SttClientBuilder
+        RecognitionConfig, RecognitionSpec, StreamingRecognitionRequest,
+        recognition_spec::AudioEncoding,
+        streaming_recognition_request::{self, StreamingRequest},
+    },
 };
 use async_stream::stream;
 use async_trait::async_trait;
@@ -82,7 +84,12 @@ impl Service for AristechTranscribe {
                 .auth(Some(Auth { token, secret }))
                 .build()
                 .await
-                .map_err(|e| anyhow!("Failed to build Aristech STT client with credentials: {}", e))?,
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to build Aristech STT client with credentials: {}",
+                        e
+                    )
+                })?,
             AuthConfig::ApiKey(ApiKeyAuth { api_key }) => SttClientBuilder::default()
                 .api_key(&api_key)
                 .map_err(|e| anyhow!("Failed to set API key: {}", e))?
