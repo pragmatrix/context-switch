@@ -381,6 +381,7 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             path,
             value,
         },
+        // Disabled for now.
         Output::BillingRecords {
             request_id,
             scope,

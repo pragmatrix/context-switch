@@ -105,6 +105,9 @@ pub enum ServerEvent {
         value: serde_json::Value,
     },
     /// Billing
+    ///
+    /// Architecture: Perhaps inband billing records are a bad idea. Currently they are
+    /// disabled. For billing set `billing_id` and use the billing collector to collect them.
     #[serde(rename_all = "camelCase")]
     BillingRecords {
         id: ConversationId,

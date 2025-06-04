@@ -243,7 +243,7 @@ impl ConversationOutput {
 
     pub fn billing_records(
         &self,
-        request_id: Option<RequestId>,
+        _request_id: Option<RequestId>,
         scope: impl Into<Option<String>>,
         records: impl Into<Vec<BillingRecord>>,
     ) -> Result<()> {
@@ -252,12 +252,13 @@ impl ConversationOutput {
         records.retain(|r| !r.is_zero());
 
         let Some(billing_context) = &self.billing_context else {
-            // No billing context: Inband.
-            return self.post(Output::BillingRecords {
-                request_id,
-                scope: scope.into(),
-                records,
-            });
+            // No billing context: Ignore (for now).
+            // return self.post(Output::BillingRecords {
+            //     request_id,
+            //     scope: scope.into(),
+            //     records,
+            // });
+            return Ok(());
         };
 
         billing_context.record(scope, records)
