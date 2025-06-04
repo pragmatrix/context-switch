@@ -7,12 +7,13 @@ use azure_speech::{
         ssml::{self, ToSSML, ssml::SerializeOptions},
     },
 };
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::Host;
 use context_switch_core::{
-    AudioFrame, Service,
+    AudioFrame, BillingRecord, Service,
     conversation::{Conversation, Input},
 };
 
@@ -43,6 +44,8 @@ impl Service for AzureSynthesize {
             Some(voice) => voice,
             None => resolve_default_voice(&params.language)?.to_string(),
         };
+
+        let billing_scope = voice_to_billing_scope(&voice)?;
 
         // Host / Auth is lightweight, so we can create this every time.
         let host = {
@@ -75,7 +78,7 @@ impl Service for AzureSynthesize {
             let Input::Text {
                 request_id,
                 text,
-                // TODO: Verify text_type.
+                // Robustness: Verify text_type.
                 text_type: _,
             } = input
             else {
@@ -96,8 +99,17 @@ impl Service for AzureSynthesize {
                 match event {
                     Event::Synthesising(_uuid, audio) => {
                         let frame = AudioFrame::from_le_bytes(output_format, &audio);
-                        debug!("Received audio: {:?}", frame.duration());
+                        let duration = frame.duration();
+                        debug!("Received audio: {duration:?}");
+
+                        // Robustness: Output max size of 1seconds frame. Moreover define the
+                        // granularity of the frames somewhere.
                         output.audio_frame(frame)?;
+                        output.billing_records(
+                            request_id.clone(),
+                            billing_scope.to_string(),
+                            [BillingRecord::duration("output:audio", duration)],
+                        )?;
                     }
                     event => {
                         debug!("Received: {event:?}")
@@ -172,5 +184,47 @@ fn resolve_default_voice(language: &str) -> Result<&'static str> {
         _ => bail!(
             "No default voice for this language defined, select one from here: <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts>"
         ),
+    }
+}
+
+#[derive(Debug, Default, Display)]
+enum BillingScope {
+    #[default]
+    TurboMultilingualNeural,
+    MultilingualNeuralHD,
+    MultilingualNeural,
+    DragonHDFlashLatestNeural,
+    DragonHDLatestNeural,
+    Neural,
+}
+
+fn voice_to_billing_scope(voice: &str) -> Result<BillingScope> {
+    // The voice name typically follows a pattern like "en-US-JennyNeural" or "en-US-JennyMultilingualNeural"
+    match voice {
+        v if v.ends_with("TurboMultilingualNeural") => Ok(BillingScope::TurboMultilingualNeural),
+        v if v.ends_with("MultilingualNeuralHD") => Ok(BillingScope::MultilingualNeuralHD),
+        v if v.ends_with("MultilingualNeural") => Ok(BillingScope::MultilingualNeural),
+        v if v.ends_with(":DragonHDFlashLatestNeural") => {
+            Ok(BillingScope::DragonHDFlashLatestNeural)
+        }
+        v if v.ends_with(":DragonHDLatestNeural") => Ok(BillingScope::DragonHDLatestNeural),
+        v if v.ends_with("Neural") => Ok(BillingScope::Neural),
+        _ => bail!(
+            "Unknown voice format: {}. Cannot determine billing scope.",
+            voice
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BillingScope;
+
+    #[test]
+    fn billing_scope_to_string() {
+        assert_eq!(
+            BillingScope::DragonHDFlashLatestNeural.to_string(),
+            "DragonHDFlashLatestNeural"
+        );
     }
 }

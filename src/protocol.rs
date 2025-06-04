@@ -3,7 +3,8 @@ use derive_more::derive::{Deref, Display, From, Into};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use context_switch_core::{
-    BillingRecord, InputModality, OutputModality, OutputPath, audio, conversation::RequestId,
+    BillingRecord, InputModality, OutputModality, OutputPath, audio,
+    conversation::{BillingId, RequestId},
 };
 
 /// Conversation identifier.
@@ -24,6 +25,9 @@ pub enum ClientEvent {
         input_modality: InputModality,
         /// The output modalities including the specification of the exact formats a client expects.
         output_modalities: Vec<OutputModality>,
+        /// Optional billing id. If set billing records are sent to the billing collector and can be
+        /// collected from there.
+        billing_id: Option<BillingId>,
     },
     Stop {
         id: ConversationId,
@@ -101,6 +105,9 @@ pub enum ServerEvent {
         value: serde_json::Value,
     },
     /// Billing
+    ///
+    /// Architecture: Perhaps inband billing records are a bad idea. Currently they are
+    /// disabled. For billing set `billing_id` and use the billing collector to collect them.
     #[serde(rename_all = "camelCase")]
     BillingRecords {
         id: ConversationId,

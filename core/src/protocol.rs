@@ -3,6 +3,7 @@
 
 use std::time;
 
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -60,9 +61,10 @@ pub enum OutputModality {
     InterimText,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BillingRecord {
     pub name: String,
+    #[serde(flatten)]
     pub value: BillingRecordValue,
 }
 
@@ -70,31 +72,55 @@ impl BillingRecord {
     pub fn count(name: impl Into<String>, count: usize) -> Self {
         Self {
             name: name.into(),
-            value: BillingRecordValue::Count(count),
+            value: BillingRecordValue::Count { count },
         }
     }
 
     pub fn duration(name: impl Into<String>, duration: time::Duration) -> Self {
         Self {
             name: name.into(),
-            value: BillingRecordValue::Duration(duration.into()),
+            value: BillingRecordValue::Duration {
+                duration: duration.into(),
+            },
         }
     }
 
     pub fn is_zero(&self) -> bool {
         match &self.value {
-            BillingRecordValue::Duration(duration) => duration.is_zero(),
-            BillingRecordValue::Count(count) => *count == 0,
+            BillingRecordValue::Duration { duration } => duration.is_zero(),
+            BillingRecordValue::Count { count } => *count == 0,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum BillingRecordValue {
     /// A duration.
-    Duration(Duration),
+    Duration { duration: Duration },
     /// A counter, tokens for example.
-    Count(usize),
+    Count { count: usize },
+}
+
+impl BillingRecordValue {
+    pub fn aggregate_with(&mut self, other: &Self) -> Result<()> {
+        match (self, other) {
+            (BillingRecordValue::Count { count }, BillingRecordValue::Count { count: count_r }) => {
+                *count += *count_r;
+                Ok(())
+            }
+            (
+                BillingRecordValue::Duration { duration },
+                BillingRecordValue::Duration {
+                    duration: duration_r,
+                },
+            ) => {
+                *duration = duration.clone() + duration_r.clone();
+                Ok(())
+            }
+            _ => bail!("Internal error: Incompatible billing record values."),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -106,4 +132,53 @@ pub enum OutputPath {
     Control,
     /// Deliver the event to media path. Enqueued and sequenced with the audio and text output.
     Media,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn test_billing_record_count_deserialization() {
+        let record_count = json!(
+            {
+                "name": "rname",
+                "count": 10
+            }
+        );
+
+        let record_count: BillingRecord = serde_json::from_value(record_count).unwrap();
+        assert_eq!(
+            record_count,
+            BillingRecord {
+                name: "rname".to_string(),
+                value: BillingRecordValue::Count { count: 10 }
+            }
+        )
+    }
+
+    #[test]
+    fn test_billing_record_duration_deserialization() {
+        let duration = time::Duration::from_secs_f64(10. * 60. * 60. + 10. * 60. + 10. + 0.1);
+        let secs = duration.as_secs_f64();
+        let record_duration = json!(
+            {
+                "name": "rname",
+                "duration": secs
+            }
+        );
+
+        let record_duration: BillingRecord = serde_json::from_value(record_duration).unwrap();
+        assert_eq!(
+            record_duration,
+            BillingRecord {
+                name: "rname".to_string(),
+                value: BillingRecordValue::Duration {
+                    duration: duration.into()
+                }
+            }
+        )
+    }
 }

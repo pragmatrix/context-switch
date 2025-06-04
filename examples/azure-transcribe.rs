@@ -14,6 +14,7 @@ use context_switch_core::{
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
+    tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
     let device = host

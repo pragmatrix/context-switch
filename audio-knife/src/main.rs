@@ -15,10 +15,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use axum::{
     extract::{
-        WebSocketUpgrade,
+        self, Path, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    response::IntoResponse,
+    response::{IntoResponse, Json},
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose};
@@ -36,7 +36,7 @@ use tracing::{debug, error, info};
 
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
-    ServerEvent, audio,
+    ServerEvent, audio, conversation::BillingId,
 };
 
 const DEFAULT_PORT: u16 = 8123;
@@ -96,6 +96,10 @@ async fn main() -> Result<()> {
 
     let app = axum::Router::new()
         .route("/", get(ws_get))
+        .route(
+            "/billing-records/:billing_id/take",
+            get(take_billing_records),
+        )
         .with_state(state);
 
     let listener = TcpListener::bind(addr).await?;
@@ -125,7 +129,7 @@ async fn server_event_dispatcher(
     loop {
         match receiver.recv().await {
             Some(event) => {
-                if let Err(e) = distributor.lock().expect("poisened").dispatch(event) {
+                if let Err(e) = distributor.lock().expect("poisoned").dispatch(event) {
                     // Because of the asynchronous nature of cross-conversation events, events not
                     // reaching their conversations may happen.
                     //
@@ -499,4 +503,28 @@ async fn check_health(address: SocketAddr) -> Result<()> {
         bail!("Healthcheck failed with status code {}", status)
     }
     Ok(())
+}
+
+/// Takes billing records by ID
+async fn take_billing_records(
+    extract::State(state): extract::State<State>,
+    Path(billing_id): Path<String>,
+) -> impl IntoResponse {
+    let billing_id = BillingId::from(billing_id);
+
+    // Get billing records from the context_switch instance
+    let records = state
+        .context_switch
+        .lock()
+        .expect("poisoned lock")
+        .collect_billing_records(&billing_id);
+
+    info!(
+        "Took {} billing records for ID: {}",
+        records.len(),
+        billing_id
+    );
+
+    // Return the records as JSON - if the billing_id doesn't exist, this will be an empty array
+    Json(records).into_response()
 }
