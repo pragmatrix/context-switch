@@ -161,10 +161,12 @@ mod tests {
 
     #[test]
     fn test_billing_record_duration_deserialization() {
+        let duration = time::Duration::from_secs_f64(10. * 60. * 60. + 10. * 60. + 10. + 0.1);
+        let secs = duration.as_secs_f64();
         let record_duration = json!(
             {
                 "name": "rname",
-                "duration": "10:10:10.100"
+                "duration": secs
             }
         );
 
@@ -174,10 +176,7 @@ mod tests {
             BillingRecord {
                 name: "rname".to_string(),
                 value: BillingRecordValue::Duration {
-                    duration: time::Duration::from_secs_f64(
-                        10. * 60. * 60. + 10. * 60. + 10. + 0.1
-                    )
-                    .into()
+                    duration: duration.into()
                 }
             }
         )
