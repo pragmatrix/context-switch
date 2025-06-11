@@ -54,11 +54,9 @@ pub struct Params {
     pub language: String,
     // TODO: Determine whether this could really be used in practice, in the future.
     // It seems that the language code used, automatically chooses the appropriate model. TBC.
-    #[serde(default)]
-    pub model: String,
+    pub model: Option<String>,
     // TODO: Determine whether this could really be used in practice, in the future.
-    #[serde(default)]
-    pub prompt: String,
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug)]
@@ -115,8 +113,8 @@ impl Service for AristechTranscribe {
                         locale: params.language,
                         partial_results: true,
                         single_utterance: false,
-                        model: params.model,
-                        prompt: params.prompt,
+                        model: params.model.unwrap_or_default(),
+                        prompt: params.prompt.unwrap_or_default(),
                         ..RecognitionSpec::default()
                     }),
                 },
@@ -194,8 +192,8 @@ mod tests {
 
         // Check other fields
         assert_eq!(params.language, "en_GB");
-        assert_eq!(params.model, "default_model");
-        assert_eq!(params.prompt, "test prompt");
+        assert_eq!(params.model, Some("default_model".to_string()));
+        assert_eq!(params.prompt, Some("test prompt".to_string()));
     }
 
     #[test]
@@ -226,8 +224,8 @@ mod tests {
 
         // Check other fields
         assert_eq!(params.language, "de_DE");
-        assert_eq!(params.model, "german_model");
-        assert_eq!(params.prompt, "Testen");
+        assert_eq!(params.model, Some("german_model".to_string()));
+        assert_eq!(params.prompt, Some("Testen".to_string()));
     }
 
     #[test]
@@ -247,8 +245,8 @@ mod tests {
 
         // Check other fields
         assert_eq!(params.language, "en_US");
-        assert_eq!(params.model, ""); // Default value for model
-        assert_eq!(params.prompt, ""); // Default value for prompt
+        assert_eq!(params.model, None); // Default value for model
+        assert_eq!(params.prompt, None); // Default value for prompt
     }
 
     #[test]
@@ -277,8 +275,8 @@ mod tests {
 
         // Check other fields
         assert_eq!(params.language, "fr_FR");
-        assert_eq!(params.model, ""); // Default value for model
-        assert_eq!(params.prompt, ""); // Default value for prompt
+        assert_eq!(params.model, None); // Default value for model
+        assert_eq!(params.prompt, None); // Default value for prompt
     }
 
     #[test]
@@ -340,8 +338,8 @@ mod tests {
         }
 
         assert_eq!(params.language, "en_GB");
-        assert_eq!(params.model, "test_model");
-        assert_eq!(params.prompt, "You are HAL900");
+        assert_eq!(params.model, Some("test_model".into()));
+        assert_eq!(params.prompt, Some("You are HAL900".into()));
     }
 
     #[test]
@@ -367,7 +365,7 @@ mod tests {
         }
 
         assert_eq!(params.language, "en_US");
-        assert_eq!(params.model, "");
-        assert_eq!(params.prompt, "");
+        assert_eq!(params.model, Some("".into()));
+        assert_eq!(params.prompt, Some("".into()));
     }
 }

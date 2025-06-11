@@ -89,8 +89,8 @@ async fn main() -> Result<()> {
     let params = AristechParams {
         auth_config,
         language: language.into(),
-        model: String::new(),  // Optional: Specify a model if needed
-        prompt: String::new(), // Optional: Specify a prompt if needed
+        model: None,  // Optional: Specify a model if needed
+        prompt: None, // Optional: Specify a prompt if needed
     };
 
     let (output_producer, mut output_consumer) = channel(32);
