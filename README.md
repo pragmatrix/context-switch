@@ -30,6 +30,10 @@ Context Switch is a Rust-based framework for building real-time conversational a
   - OpenAI API key
   - Azure Speech Services subscription key
   - Google Cloud API key (for Google transcription)
+- For Aristech services:
+  - Install protoc
+    - macOS: `brew install protobuf`
+    - Linux: `apt-get install protobuf-compiler`
 
 ### Installation
 
