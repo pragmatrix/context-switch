@@ -94,7 +94,7 @@ impl Service for AzureSynthesize {
                 TYPE_SSML => TextOrSSML::Ssml(text),
                 ty => {
                     bail!(
-                        "Unsupported text type: {ty}, expect either `{TYPE_TEXT}` or `{TYPE_SSML}`"
+                        "Unsupported text type: {ty}, expecting either `{TYPE_TEXT}` or `{TYPE_SSML}`"
                     )
                 }
             };
@@ -108,10 +108,8 @@ impl Service for AzureSynthesize {
             let mut stream = client.synthesize(azure_request).await?;
             while let Some(event) = stream.next().await {
                 let event = event.context("Azure synthesizer event error")?;
-
-                use synthesizer::Event;
                 match event {
-                    Event::Synthesising(_uuid, audio) => {
+                    synthesizer::Event::Synthesising(_uuid, audio) => {
                         let frame = AudioFrame::from_le_bytes(output_format, &audio);
                         let duration = frame.duration();
                         debug!("Received audio: {duration:?}");
@@ -157,16 +155,14 @@ impl ToSSML for AzureSynthesizeRequest {
         _language: azure_speech::synthesizer::Language,
         _voice: azure_speech::synthesizer::Voice,
     ) -> azure_speech::Result<String> {
-        match &self.text {
-            TextOrSSML::Text(text) => serialize_to_ssml(&ssml::speak(
-                Some(self.language.as_str()),
-                [ssml::voice(self.voice.as_str(), [text.clone()])],
-            )),
-            TextOrSSML::Ssml(ssml) => serialize_to_ssml(&ssml::speak(
-                Some(self.language.as_str()),
-                [ssml::voice(self.voice.as_str(), [ssml::Meta::new(ssml)])],
-            )),
-        }
+        let content: ssml::Element = match &self.text {
+            TextOrSSML::Text(text) => text.into(),
+            TextOrSSML::Ssml(ssml) => ssml::Meta::new(ssml).into(),
+        };
+        serialize_to_ssml(&ssml::speak(
+            Some(self.language.as_str()),
+            [ssml::voice(self.voice.as_str(), [content])],
+        ))
     }
 }
 
