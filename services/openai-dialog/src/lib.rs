@@ -23,7 +23,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
@@ -486,7 +486,7 @@ impl Client {
             event => event.clone(),
         };
 
-        info!("Server Event: {event_for_log:?}");
+        trace!("Server Event: {event_for_log:?}");
 
         match event {
             ServerEvent::Error(e) => {
@@ -495,7 +495,7 @@ impl Client {
             ServerEvent::ResponseAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                 let samples = audio::from_le_bytes(&decoded);
-                debug!("Sending {} samples", samples.len());
+                trace!("Sending {} samples", samples.len());
                 let frame = AudioFrame {
                     format: output_format,
                     samples,
@@ -632,7 +632,7 @@ impl Client {
             )?,
 
             response => {
-                debug!("Unhandled response: {:?}", response)
+                trace!("Unhandled response: {:?}", response)
             }
         }
 
