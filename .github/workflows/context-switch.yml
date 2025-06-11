@@ -18,7 +18,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev  # Required for ALSA audio support
+          # libasound2-dev Required for ALSA audio support, protobuf-compiler for Aristech
+          sudo apt-get install -y libasound2-dev protobuf-compiler
+      
+      - name: Verify protoc installation
+        run: protoc --version
       
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -49,7 +53,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev  # Required for ALSA audio support
+          # libasound2-dev Required for ALSA audio support, protobuf-compiler for Aristech
+          sudo apt-get install -y libasound2-dev protobuf-compiler
+      
+      - name: Verify protoc installation
+        run: protoc --version
       
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -73,7 +81,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev  # Required for ALSA audio support
+          # libasound2-dev Required for ALSA audio support, protobuf-compiler for Aristech
+          sudo apt-get install -y libasound2-dev protobuf-compiler
+      
+      - name: Verify protoc installation
+        run: protoc --version
       
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1

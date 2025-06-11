@@ -1,0 +1,19 @@
+[package]
+name = "aristech"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+context-switch-core = { workspace = true }
+aristech-stt-client = "3.1.0"
+aristech-tts-client = "1.0.7"
+tokio-stream = "0.1.17"
+tonic = "0.13.0"
+tracing = { workspace = true }
