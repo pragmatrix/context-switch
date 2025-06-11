@@ -33,14 +33,14 @@ async fn main() -> Result<()> {
         },
         cpal::SampleFormat::F32,
     );
-    let sample_rate = stream_config.sample_rate().0 as i64;
+    let sample_rate = stream_config.sample_rate().0;
     let config = stream_config.config();
 
-    println!("config: {:?}", config);
+    println!("Config: {config:?}");
 
     let channels = config.channels;
     //let sample_rate = config.sample_rate;
-    let format = AudioFormat::new(channels, sample_rate as u32);
+    let format = AudioFormat::new(channels, sample_rate);
 
     let (producer, mut input_consumer) = format.new_channel();
 
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
                 }
             },
             move |err| {
-                eprintln!("Error occurred on stream: {}", err);
+                eprintln!("Error occurred on stream: {err}");
             },
             // timeout
             Some(Duration::from_secs(1)),

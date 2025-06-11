@@ -1,8 +1,7 @@
-use std::env;
+use std::{env, thread, time::Duration};
 
 use anyhow::{Context as AnyhowContext, Result};
 use rodio::{OutputStreamBuilder, Sink, Source};
-use std::{thread, time::Duration};
 use tokio::{select, sync::mpsc::channel};
 
 use aristech::synthesize::{AristechSynthesize, Params as AristechParams};
@@ -52,7 +51,7 @@ async fn main() -> Result<()> {
     );
 
     // Send the text to be synthesized
-    println!("Sending text to be synthesized: \"{}\"", SAMPLE_TEXT);
+    println!("Sending text to be synthesized: \"{SAMPLE_TEXT}\"");
     conv_input_producer
         .send(Input::Text {
             request_id: None,
@@ -87,11 +86,11 @@ async fn main() -> Result<()> {
                         audio_producer.produce(frame)?;
                         audio_frames += 1;
                         if audio_frames % 10 == 0 {
-                            println!("Received {} audio frames...", audio_frames);
+                            println!("Received {audio_frames} audio frames...");
                         }
                     }
                     Some(Output::RequestCompleted {..}) => {
-                        println!("Text-to-speech conversion completed! Received {} audio frames.", audio_frames);
+                        println!("Text-to-speech conversion completed! Received {audio_frames} audio frames.");
                         // Close the audio producer to signal end of input
                         drop(audio_producer);
                         break;
@@ -109,7 +108,7 @@ async fn main() -> Result<()> {
     // Wait for audio playback to complete
     println!("Waiting for audio playback to complete...");
     if let Err(e) = playback_handle.await {
-        println!("Error waiting for playback: {:?}", e);
+        println!("Error waiting for playback: {e:?}");
     }
 
     println!("Example completed successfully!");
