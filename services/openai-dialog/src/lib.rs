@@ -2,7 +2,7 @@
 //!
 //! Based on <https://github.com/dongri/openai-api-rs/blob/main/examples/realtime/src/main.rs>
 
-use std::{collections::VecDeque, fmt, future::pending};
+use std::{collections::VecDeque, fmt};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
@@ -182,9 +182,16 @@ pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 
-    realtime_response_counter: usize,
+    response_state: ResponseState,
     inflight_prompt: Option<(String, PromptRequest)>,
     pending_prompts: VecDeque<PromptRequest>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseState {
+    Idle,
+    ExpectingFunctionResult,
+    Responding,
 }
 
 impl Client {
@@ -195,7 +202,7 @@ impl Client {
         Self {
             read,
             write,
-            realtime_response_counter: 0,
+            response_state: ResponseState::Idle,
             inflight_prompt: None,
             pending_prompts: Default::default(),
         }
@@ -269,8 +276,6 @@ impl Client {
             }
         }
 
-        let mut response_counter = 0;
-
         loop {
             select! {
                 input = input.recv() => {
@@ -285,7 +290,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match self.process_message(message, output_format, &output, &params.model, output_transcription, &mut response_counter).await? {
+                            match self.process_message(message, output_format, &output, &params.model, output_transcription).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -407,10 +412,7 @@ impl Client {
                             .await?;
                     }
                     ServiceInputEvent::Prompt { text } => {
-                        info!(
-                            "Received prompt (response counter: {})",
-                            self.realtime_response_counter
-                        );
+                        info!("Received prompt");
                         self.push_prompt(PromptRequest(text)).await?;
                     }
                     ServiceInputEvent::SessionUpdate { tools } => {
@@ -436,7 +438,6 @@ impl Client {
         output: &ConversationOutput,
         billing_scope: &str,
         output_transcription: bool,
-        response_counter: &mut usize,
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => {
@@ -506,7 +507,8 @@ impl Client {
                 response: types::Response { object, .. },
                 ..
             }) if object == "realtime.response" => {
-                self.realtime_response_counter += 1;
+                self.update_response_state(ResponseState::Responding)
+                    .await?;
             }
             ServerEvent::ResponseDone(server_event::ResponseDone {
                 response:
@@ -519,8 +521,6 @@ impl Client {
                     },
                 ..
             }) if object == "realtime.response" => {
-                self.realtime_response_counter -= 1;
-
                 let mut any_function_call_request = false;
                 for item in items {
                     match (&status, &item.r#type, &item.status, &item.role) {
@@ -546,7 +546,10 @@ impl Client {
                                 }
                             };
                             output.service_event(
-                                OutputPath::Control,
+                                // We send out the function call via the media path. For example if
+                                // we use a prompt to initiate a function call, this might overtake
+                                // currently pending audio output.
+                                OutputPath::Media,
                                 ServiceOutputEvent::FunctionCall {
                                     name: name.clone(),
                                     call_id: call_id.clone(),
@@ -576,11 +579,6 @@ impl Client {
                             debug!("Unprocessed item: {item:?}")
                         }
                     }
-                }
-
-                // Flush a pending prompt?
-                if self.realtime_response_counter == 0 && !any_function_call_request {
-                    self.flush_prompt().await?;
                 }
 
                 if let Some(usage) = usage {
@@ -617,6 +615,13 @@ impl Client {
                     ];
                     output.billing_records(None, Some(billing_scope.into()), records)?;
                 }
+
+                self.update_response_state(if any_function_call_request {
+                    ResponseState::ExpectingFunctionResult
+                } else {
+                    ResponseState::Idle
+                })
+                .await?;
             }
             ServerEvent::SessionUpdated(server_event::SessionUpdated {
                 session: types::Session { tools, .. },
@@ -643,34 +648,46 @@ impl Client {
         self.flush_prompt().await
     }
 
+    async fn update_response_state(&mut self, state: ResponseState) -> Result<()> {
+        info!("{:?} -> {state:?}", self.response_state);
+
+        if self.inflight_prompt.is_some() && state == ResponseState::Idle {
+            debug!("{state:?}: Clearing inflight prompt");
+            self.inflight_prompt = None
+        }
+
+        let previous = self.response_state;
+        self.response_state = state;
+
+        if previous != ResponseState::Idle && state == ResponseState::Idle {
+            self.flush_prompt().await?;
+        }
+
+        Ok(())
+    }
+
     async fn flush_prompt(&mut self) -> Result<()> {
-        info!("Flusing prompt ...");
-        if !self.should_send_prompt_now() {
-            info!("... not now");
+        if self.inflight_prompt.is_some() || self.response_state != ResponseState::Idle {
             return Ok(());
         }
 
-        let request = self.pending_prompts.pop_front().unwrap();
-        info!("Sending prompt: {request:?}");
+        let Some(prompt_request) = self.pending_prompts.pop_front() else {
+            return Ok(());
+        };
+        info!("Sending prompt: {prompt_request:?}");
 
         let event_id = Uuid::new_v4().to_string();
 
         let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
             event_id: Some(event_id.clone()),
             response: Some(types::Session {
-                instructions: Some(request.0.clone()),
+                instructions: Some(prompt_request.0.clone()),
                 ..Default::default()
             }),
         });
         self.send_client_event(response).await?;
-        self.inflight_prompt = Some((event_id, request));
+        self.inflight_prompt = Some((event_id, prompt_request));
         Ok(())
-    }
-
-    fn should_send_prompt_now(&self) -> bool {
-        self.realtime_response_counter == 0
-            && self.inflight_prompt.is_none()
-            && !self.pending_prompts.is_empty()
     }
 }
 
@@ -680,17 +697,8 @@ enum FlowControl {
     End,
 }
 
-#[derive(Default)]
-struct StateManager {}
-
-impl StateManager {}
-
 #[derive(Debug, Clone)]
 struct PromptRequest(String);
-
-struct PromptErrorQueue {
-    prompts: VecDeque<String>,
-}
 
 #[cfg(test)]
 mod tests {
