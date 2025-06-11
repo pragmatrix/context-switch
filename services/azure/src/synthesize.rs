@@ -78,7 +78,6 @@ impl Service for AzureSynthesize {
             let Input::Text {
                 request_id,
                 text,
-                // Robustness: Verify text_type.
                 text_type,
             } = input
             else {
