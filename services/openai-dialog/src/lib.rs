@@ -490,7 +490,22 @@ impl Client {
 
         match event {
             ServerEvent::Error(e) => {
-                bail!(format!("{e:?}, raw: {raw}"));
+                let mut ignore_error = false;
+                if let Some((inflight_prompt_event_id, prompt_request)) = &self.inflight_prompt {
+                    let api_error = &e.error;
+                    if api_error.code == Some("conversation_already_has_active_response".into())
+                        && api_error.event_id == Some(inflight_prompt_event_id.into())
+                    {
+                        debug!("Rescheduling inflight prompt");
+                        self.pending_prompts.push_front(prompt_request.clone());
+                        self.inflight_prompt = None;
+                        ignore_error = true;
+                    }
+                }
+
+                if !ignore_error {
+                    bail!(format!("{e:?}, raw: {raw}"));
+                }
             }
             ServerEvent::ResponseAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
