@@ -4,7 +4,7 @@ use azure_speech::{
     stream::StreamExt,
     synthesizer::{
         self, AudioFormat,
-        ssml::{self, ToSSML, ssml::SerializeOptions},
+        ssml::{ToSSML, ssml, ssml::SerializeOptions},
     },
 };
 use derive_more::Display;
@@ -79,10 +79,24 @@ impl Service for AzureSynthesize {
                 request_id,
                 text,
                 // Robustness: Verify text_type.
-                text_type: _,
+                text_type,
             } = input
             else {
                 bail!("Unexpected input");
+            };
+
+            const TYPE_TEXT: &str = "text/plain";
+            const TYPE_SSML: &str = "application/ssml+xml";
+
+            let text_type = text_type.as_deref().unwrap_or(TYPE_TEXT);
+            let text = match text_type {
+                TYPE_TEXT => TextOrSSML::Text(text),
+                TYPE_SSML => TextOrSSML::Ssml(text),
+                ty => {
+                    bail!(
+                        "Unsupported text type: {ty}, expect either `{TYPE_TEXT}` or `{TYPE_SSML}`"
+                    )
+                }
             };
 
             let azure_request = AzureSynthesizeRequest {
@@ -128,7 +142,13 @@ impl Service for AzureSynthesize {
 struct AzureSynthesizeRequest {
     language: String,
     voice: String,
-    text: String,
+    text: TextOrSSML,
+}
+
+#[derive(Debug)]
+enum TextOrSSML {
+    Text(String),
+    Ssml(String),
 }
 
 impl ToSSML for AzureSynthesizeRequest {
@@ -137,18 +157,24 @@ impl ToSSML for AzureSynthesizeRequest {
         _language: azure_speech::synthesizer::Language,
         _voice: azure_speech::synthesizer::Voice,
     ) -> azure_speech::Result<String> {
-        serialize_to_ssml(&ssml::ssml::speak(
-            Some(self.language.as_str()),
-            [ssml::ssml::voice(self.voice.as_str(), [self.text.clone()])],
-        ))
+        match &self.text {
+            TextOrSSML::Text(text) => serialize_to_ssml(&ssml::speak(
+                Some(self.language.as_str()),
+                [ssml::voice(self.voice.as_str(), [text.clone()])],
+            )),
+            TextOrSSML::Ssml(ssml) => serialize_to_ssml(&ssml::speak(
+                Some(self.language.as_str()),
+                [ssml::voice(self.voice.as_str(), [ssml::Meta::new(ssml)])],
+            )),
+        }
     }
 }
 
-fn serialize_to_ssml(speak: &impl ssml::ssml::Serialize) -> azure_speech::Result<String> {
+fn serialize_to_ssml(speak: &impl ssml::Serialize) -> azure_speech::Result<String> {
     speak
         .serialize_to_string(
             &SerializeOptions::default()
-                .flavor(ssml::ssml::Flavor::MicrosoftAzureCognitiveSpeechServices),
+                .flavor(ssml::Flavor::MicrosoftAzureCognitiveSpeechServices),
         )
         .map_err(|e| azure_speech::Error::InternalError(e.to_string()))
 }
@@ -218,7 +244,7 @@ fn voice_to_billing_scope(voice: &str) -> Result<BillingScope> {
 
 #[cfg(test)]
 mod tests {
-    use super::BillingScope;
+    use super::*;
 
     #[test]
     fn billing_scope_to_string() {
@@ -226,5 +252,35 @@ mod tests {
             BillingScope::DragonHDFlashLatestNeural.to_string(),
             "DragonHDFlashLatestNeural"
         );
+    }
+
+    #[test]
+    fn meta_does_what_it_is_supposed_to_do() {
+        let serialized = serialize_to_ssml(&ssml::speak(
+            Some("language"),
+            [ssml::voice(
+                "voice",
+                [ssml::Meta::new("Hello<x>inside</x>Outside")],
+            )],
+        ))
+        .unwrap();
+
+        assert_eq!(
+            serialized,
+            r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="language" xmlns:mstts="http://www.w3.org/2001/mstts"><voice name="voice">Hello<x>inside</x>Outside</voice></speak>"#
+        )
+    }
+
+    #[test]
+    fn text_is_properly_escaped() {
+        let serialized = serialize_to_ssml(&ssml::speak(
+            Some("language"),
+            [ssml::voice("voice", ["Hello<x>inside</x>Outside"])],
+        ))
+        .unwrap();
+        assert_eq!(
+            serialized,
+            r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="language" xmlns:mstts="http://www.w3.org/2001/mstts"><voice name="voice">Hello&lt;x&gt;inside&lt;/x&gt;Outside</voice></speak>"#
+        )
     }
 }
