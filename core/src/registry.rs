@@ -18,9 +18,7 @@ impl Registry {
             services: Default::default(),
         }
     }
-}
 
-impl Registry {
     pub fn service(&self, name: &str) -> Result<&(dyn WrappedService + Send + Sync)> {
         self.services
             .get(name)
