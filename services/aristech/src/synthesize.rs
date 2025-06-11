@@ -1,14 +1,17 @@
 use anyhow::{Context, Result, anyhow, bail};
-use aristech_tts_client::tts_services::speech_audio_format::{Codec, Container};
-use aristech_tts_client::tts_services::{SpeechAudioFormat, SpeechRequest, SpeechRequestOption};
-use aristech_tts_client::{Auth, TlsOptions, get_client, get_voices};
+use aristech_tts_client::{
+    Auth, TlsOptions, get_client, get_voices,
+    tts_services::{
+        SpeechAudioFormat, SpeechRequest, SpeechRequestOption,
+        speech_audio_format::{Codec, Container},
+    },
+};
 use async_trait::async_trait;
-use context_switch_core::AudioFormat;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use context_switch_core::{
-    AudioFrame, Service,
+    AudioFormat, AudioFrame, Service,
     conversation::{Conversation, Input},
 };
 
@@ -36,35 +39,36 @@ impl Service for AristechSynthesize {
         // Resolve default voice if none is set
         // TODO: Add the possibility to determine this from a language parameter and the
         // `get_voices` function if no voice_id is provided.
-        let voice_id = params.voice.unwrap_or_else(|| "anne_de_DE".to_string());
+        let voice = params.voice.unwrap_or_else(|| "anne_de_DE".to_string());
 
         // The TLS options struct is needed to provide authentication details
         let tls_options = get_tls_options(params.token, params.secret);
 
         // Create client
-        let mut client = get_client(params.endpoint, tls_options)
+        let mut client = get_client(params.endpoint, Some(tls_options))
             .await
             .map_err(|e| anyhow!("Failed to create Aristech TTS client: {}", e))?;
 
+        // Performance: Measure and find out if this should be cached.
         let available_voices = get_voices(&mut client, None)
             .await
             .map_err(|e| anyhow!("Failed to find any available voices for TTS client: {}", e))?;
 
         let sample_rate = available_voices
             .iter()
-            .find(|v| v.voice_id == voice_id)
-            .context(format!("Voice {} not available", voice_id))?
+            .find(|v| v.voice_id == voice)
+            .with_context(|| format!("Voice {} not available", voice))?
             .audio
             .unwrap_or_default()
             .samplerate;
 
         // Now update the output_format with this sample_rate
         // TODO: If this does not match with the original sample rate, there should be an
-        // option to just display a warning rather than failing in AudioProducer::produce
+        // option to just display a warning rather than failing in `AudioProducer::produce`
         let output_format = AudioFormat::new(output_format.channels, sample_rate as u32);
 
         let speech_request_option = SpeechRequestOption {
-            voice_id: voice_id.clone(),
+            voice_id: voice.clone(),
             audio: Some(import_output_audio_format(output_format)),
             ..SpeechRequestOption::default()
         };
@@ -125,9 +129,9 @@ pub fn import_output_audio_format(
     }
 }
 
-pub fn get_tls_options(token: String, secret: String) -> Option<TlsOptions> {
-    Some(TlsOptions {
+pub fn get_tls_options(token: String, secret: String) -> TlsOptions {
+    TlsOptions {
         ca_certificate: None,
         auth: Some(Auth { token, secret }),
-    })
+    }
 }
