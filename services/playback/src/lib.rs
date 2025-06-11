@@ -101,7 +101,13 @@ impl Service for Playback {
                                 bail!("Download of `{url}` failed with status {status}");
                             }
 
-                            check_supported_audio_type(url.path())?;
+                            // Get the content-type header from the response if available
+                            let mime_type = response
+                                .headers()
+                                .get(reqwest::header::CONTENT_TYPE)
+                                .and_then(|v| v.to_str().ok());
+
+                            check_supported_audio_type(url.path(), mime_type)?;
                             // Performance: convert to frames while downloading.
                             let bytes = response.bytes().await?;
                             let cursor = Cursor::new(bytes);
@@ -135,7 +141,7 @@ impl Service for Playback {
 
 /// Render the file into 1 second audio frames frames mono.
 fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
-    check_supported_audio_type(&path.to_string_lossy())?;
+    check_supported_audio_type(&path.to_string_lossy(), None)?;
     let file = File::open(path).inspect_err(|e| {
         // We don't want to provide the resolved path to the user in an error message. Therefore we
         // rather log it.
@@ -248,21 +254,29 @@ impl PlaybackMethod {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AudioType {
     Wav,
     MP3,
 }
 
-pub fn check_supported_audio_type(path: &str) -> Result<AudioType> {
-    let Some(mime_type) = mime_guess2::from_path(path).first() else {
-        bail!("Invalid audio url (should end in `.mp3` or `.wav`)")
+pub fn check_supported_audio_type(
+    path: &str,
+    mime_type_override: Option<&str>,
+) -> Result<AudioType> {
+    let mime_type = if let Some(mime) = mime_type_override {
+        mime.to_string()
+    } else {
+        let guessed_mime = mime_guess2::from_path(path)
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Invalid audio url (should end in `.mp3` or `.wav`)"))?;
+        guessed_mime.essence_str().to_string()
     };
-    let mime_type = mime_type.essence_str();
-    match mime_type {
+
+    match mime_type.as_str() {
         "audio/wav" => Ok(AudioType::Wav),
         "audio/mpeg" => Ok(AudioType::MP3),
-        mime => bail!("Invalid audio url, guessed mime type: {mime}"),
+        mime => bail!("Invalid audio url, guessed or provided mime type: {mime}"),
     }
 }
 
@@ -271,7 +285,7 @@ mod tests {
     use rstest::rstest;
     use url::Url;
 
-    use crate::check_supported_audio_type;
+    use crate::{AudioType, check_supported_audio_type};
 
     #[rstest]
     #[case("http://test.wav", false)]
@@ -282,7 +296,7 @@ mod tests {
     #[case("http://test.com/test.ogg", false)]
     fn supported_file_formats(#[case] url: &str, #[case] acceptable: bool) {
         let url = Url::parse(url).unwrap();
-        match check_supported_audio_type(url.path()) {
+        match check_supported_audio_type(url.path(), None) {
             Ok(_) => {
                 assert!(acceptable);
             }
@@ -290,5 +304,17 @@ mod tests {
                 assert!(!acceptable, "{e}");
             }
         }
+    }
+
+    #[rstest]
+    #[case("http://test.com/audio-file", "audio/wav", AudioType::Wav)]
+    #[case("http://test.com/audio-file", "audio/mpeg", AudioType::MP3)]
+    #[case("http://test.com/audio.unknown", "audio/wav", AudioType::Wav)]
+    #[case("http://test.com/audio.ogg", "audio/mpeg", AudioType::MP3)]
+    fn mime_type_override(#[case] url: &str, #[case] mime: &str, #[case] expected: AudioType) {
+        let url = Url::parse(url).unwrap();
+        let result = check_supported_audio_type(url.path(), Some(mime));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected);
     }
 }
