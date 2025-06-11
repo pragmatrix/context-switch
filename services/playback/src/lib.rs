@@ -63,7 +63,7 @@ impl Service for Playback {
                         self.local_files.as_deref(),
                     )?;
                     match method {
-                        PlaybackMethod::Synthesize(text) => {
+                        PlaybackMethod::Synthesize { text, text_type } => {
                             input
                                 .converse(
                                     &output,
@@ -72,7 +72,7 @@ impl Service for Playback {
                                     Input::Text {
                                         request_id,
                                         text,
-                                        text_type: Some(text_type.into()),
+                                        text_type: Some(text_type),
                                     },
                                 )
                                 .await?;
@@ -190,7 +190,7 @@ pub fn read_to_one_second_frames(
 }
 
 enum PlaybackMethod {
-    Synthesize(String),
+    Synthesize { text: String, text_type: String },
     File(PathBuf),
     Remote(Url),
 }
@@ -202,7 +202,14 @@ impl PlaybackMethod {
         local_root: Option<&Path>,
     ) -> Result<PlaybackMethod> {
         Ok(match mime {
-            "text/plain" => PlaybackMethod::Synthesize(text),
+            "text/plain" => PlaybackMethod::Synthesize {
+                text,
+                text_type: mime.into(),
+            },
+            "application/ssml+xml" => PlaybackMethod::Synthesize {
+                text,
+                text_type: mime.into(),
+            },
             "text/uri-list" => {
                 let lines: Vec<&str> = text.lines().collect();
                 if lines.len() != 1 {
