@@ -164,6 +164,24 @@ pub fn read_to_one_second_frames(
     reader: impl io::Read + io::Seek + Send + Sync + 'static,
     format: AudioFormat,
 ) -> Result<Vec<AudioFrame>> {
+    let mut output_frames = Vec::new();
+
+    read_with_frame_callback(reader, format, |frame| {
+        output_frames.push(frame);
+        Ok(())
+    })?;
+
+    Ok(output_frames)
+}
+
+pub fn read_with_frame_callback<F>(
+    reader: impl io::Read + io::Seek + Send + Sync + 'static,
+    format: AudioFormat,
+    mut callback: F,
+) -> Result<()>
+where
+    F: FnMut(AudioFrame) -> Result<()>,
+{
     if format.channels != 1 {
         bail!("Only mono output is supported");
     }
@@ -188,7 +206,6 @@ pub fn read_to_one_second_frames(
         };
 
     let samples_per_frame = format.sample_rate;
-    let mut output_frames = Vec::new();
 
     loop {
         // Collect one second of samples at a time
@@ -208,11 +225,13 @@ pub fn read_to_one_second_frames(
         // Convert to i16 samples
         let i16_samples = audio::into_i16(&frame_samples);
 
-        // Add the frame
-        output_frames.push(AudioFrame {
+        // Create the frame and pass it to the callback
+        let frame = AudioFrame {
             format,
             samples: i16_samples,
-        });
+        };
+
+        callback(frame)?;
 
         // If we didn't get a full frame, we're done
         if frame_samples.len() < samples_per_frame as usize {
@@ -220,7 +239,7 @@ pub fn read_to_one_second_frames(
         }
     }
 
-    Ok(output_frames)
+    Ok(())
 }
 
 enum PlaybackMethod {
