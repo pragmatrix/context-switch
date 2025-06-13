@@ -82,7 +82,7 @@ impl Service for Playback {
                         }
                         PlaybackMethod::File(path) => {
                             let frames = task::spawn_blocking(move || {
-                                audio_file_to_one_second_frames(&path, output_format)
+                                audio_file_to_frames(&path, output_format)
                             })
                             .await??;
 
@@ -116,7 +116,7 @@ impl Service for Playback {
                             let stream_reader = StreamReader::new(byte_stream);
 
                             let frames = task::spawn_blocking(move || {
-                                read_to_one_second_frames(stream_reader, output_format)
+                                read_to_frames(stream_reader, output_format)
                             })
                             .await??;
 
@@ -144,8 +144,8 @@ impl Service for Playback {
     }
 }
 
-/// Render the file into 1 second audio frames frames mono.
-fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
+/// Render the file into 100ms audio frames frames mono.
+fn audio_file_to_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
     check_supported_audio_type(&path.to_string_lossy(), None)?;
     let file = File::open(path).inspect_err(|e| {
         // We don't want to provide the resolved path to the user in an error message. Therefore we
@@ -157,10 +157,10 @@ fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<V
         error!("Failed to open audio file: `{path:?}`: {e:?}");
     })?;
     let buf_reader = BufReader::new(file);
-    read_to_one_second_frames(buf_reader, format)
+    read_to_frames(buf_reader, format)
 }
 
-pub fn read_to_one_second_frames(
+pub fn read_to_frames(
     reader: impl io::Read + io::Seek + Send + Sync + 'static,
     format: AudioFormat,
 ) -> Result<Vec<AudioFrame>> {
@@ -205,10 +205,11 @@ where
             Box::new(converter)
         };
 
-    let samples_per_frame = format.sample_rate;
+    // Calculate samples for 100ms frame (10 frames per second)
+    let samples_per_frame = format.sample_rate / 10;
 
     loop {
-        // Collect one second of samples at a time
+        // Collect 100ms of samples at a time
         let mut frame_samples = Vec::with_capacity(samples_per_frame as usize);
         for _ in 0..samples_per_frame {
             match source_iterator.next() {
