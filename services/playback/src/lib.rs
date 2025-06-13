@@ -2,6 +2,7 @@ use std::{
     fs::{self, File},
     io::{self, BufReader},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -115,21 +116,31 @@ impl Service for Playback {
                             let byte_stream = response.bytes_stream();
                             let stream_reader = StreamReader::new(byte_stream);
 
-                            let frames = task::spawn_blocking(move || {
-                                read_to_frames(stream_reader, output_format)
+                            // Create a clone of output for use in the closure
+                            let output = output.clone();
+
+                            // Process frames directly as they're read
+                            task::spawn_blocking(move || -> Result<()> {
+                                let mut total_duration = Duration::ZERO;
+
+                                read_with_frame_callback(stream_reader, output_format, |frame| {
+                                    total_duration += frame.duration();
+                                    // Send the frame directly to output
+                                    output.audio_frame(frame)
+                                })?;
+
+                                // Write billing records and complete the request inside the spawn_blocking
+                                output.billing_records(
+                                    request_id.clone(),
+                                    None,
+                                    [BillingRecord::duration("playback:remote", total_duration)],
+                                )?;
+
+                                output.request_completed(request_id)?;
+
+                                Ok(())
                             })
                             .await??;
-
-                            let duration = frames.iter().map(|f| f.duration()).sum();
-                            for frame in frames {
-                                output.audio_frame(frame)?;
-                            }
-                            output.billing_records(
-                                request_id.clone(),
-                                None,
-                                [BillingRecord::duration("playback:remote", duration)],
-                            )?;
-                            output.request_completed(request_id)?;
                         }
                     }
                 }
