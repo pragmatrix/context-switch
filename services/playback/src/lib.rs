@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use context_switch_core::{BillingRecord, audio};
 use rodio::{
-    Decoder, Sample, Source,
+    Decoder, Source,
     conversions::{ChannelCountConverter, SampleRateConverter},
 };
 use serde::{Deserialize, Serialize};
@@ -259,23 +259,52 @@ pub fn read_to_one_second_frames(
     let source_channels = source.channels();
     // Correctness: This does not seem to actually mix the channels it just extracts one channel.
     let converter = ChannelCountConverter::new(source, source_channels, 1);
-    let samples_f32: Vec<Sample> = if format.sample_rate != source_sample_rate {
-        // Quality: This resampler is a simple linear resampler.
-        SampleRateConverter::new(converter, source_sample_rate, format.sample_rate, 1).collect()
-    } else {
-        converter.collect()
-    };
-    let samples = audio::into_i16(&samples_f32);
 
-    let mut output_frames = Vec::new();
+    // Create the appropriate source based on whether we need resampling
+    let mut source_iterator: Box<dyn Iterator<Item = f32> + Send> =
+        if format.sample_rate != source_sample_rate {
+            // Quality: This resampler is a simple linear resampler.
+            Box::new(SampleRateConverter::new(
+                converter,
+                source_sample_rate,
+                format.sample_rate,
+                1,
+            ))
+        } else {
+            Box::new(converter)
+        };
 
     let samples_per_frame = format.sample_rate;
-    // Split into frames
-    for chunk in samples.chunks(samples_per_frame as _) {
+    let mut output_frames = Vec::new();
+
+    loop {
+        // Collect one second of samples at a time
+        let mut frame_samples = Vec::with_capacity(samples_per_frame as usize);
+        for _ in 0..samples_per_frame {
+            match source_iterator.next() {
+                Some(sample) => frame_samples.push(sample),
+                None => break,
+            }
+        }
+
+        // If we didn't get any samples, we're done
+        if frame_samples.is_empty() {
+            break;
+        }
+
+        // Convert to i16 samples
+        let i16_samples = audio::into_i16(&frame_samples);
+
+        // Add the frame
         output_frames.push(AudioFrame {
             format,
-            samples: chunk.to_vec(),
+            samples: i16_samples,
         });
+
+        // If we didn't get a full frame, we're done
+        if frame_samples.len() < samples_per_frame as usize {
+            break;
+        }
     }
 
     Ok(output_frames)
