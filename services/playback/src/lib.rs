@@ -2,7 +2,6 @@ use std::{
     fs::{self, File},
     io::{self, BufReader},
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -121,24 +120,24 @@ impl Service for Playback {
 
                             // Process frames directly as they're read
                             task::spawn_blocking(move || -> Result<()> {
-                                let mut total_duration = Duration::ZERO;
+                                read_with_frame_callback(
+                                    stream_reader,
+                                    output_format,
+                                    |frame| -> Result<()> {
+                                        let duration = frame.duration();
+                                        // Send the frame directly to output
+                                        output.audio_frame(frame)?;
 
-                                read_with_frame_callback(stream_reader, output_format, |frame| {
-                                    total_duration += frame.duration();
-                                    // Send the frame directly to output
-                                    output.audio_frame(frame)
-                                })?;
-
-                                // Write billing records and complete the request inside the spawn_blocking
-                                output.billing_records(
-                                    request_id.clone(),
-                                    None,
-                                    [BillingRecord::duration("playback:remote", total_duration)],
+                                        // Write billing records and complete the request inside the spawn_blocking
+                                        output.billing_records(
+                                            request_id.clone(),
+                                            None,
+                                            [BillingRecord::duration("playback:remote", duration)],
+                                        )
+                                    },
                                 )?;
 
-                                output.request_completed(request_id)?;
-
-                                Ok(())
+                                output.request_completed(request_id)
                             })
                             .await??;
                         }
