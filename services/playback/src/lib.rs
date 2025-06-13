@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, BufReader, Cursor},
+    io::{self, BufReader},
     path::{Path, PathBuf},
 };
 
@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use context_switch_core::{BillingRecord, audio};
 use rodio::{
-    Decoder, Sample, Source,
+    Decoder, Source,
     conversions::{ChannelCountConverter, SampleRateConverter},
 };
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,9 @@ use context_switch_core::{
     AudioFormat, AudioFrame, Service,
     conversation::{Conversation, Input},
 };
+
+mod stream_reader;
+use stream_reader::StreamReader;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,7 +82,7 @@ impl Service for Playback {
                         }
                         PlaybackMethod::File(path) => {
                             let frames = task::spawn_blocking(move || {
-                                audio_file_to_one_second_frames(&path, output_format)
+                                audio_file_to_frames(&path, output_format)
                             })
                             .await??;
 
@@ -101,30 +104,42 @@ impl Service for Playback {
                                 bail!("Download of `{url}` failed with status {status}");
                             }
 
-                            // Get the content-type header from the response if available
                             let mime_type = response
                                 .headers()
                                 .get(reqwest::header::CONTENT_TYPE)
                                 .and_then(|v| v.to_str().ok());
 
                             check_supported_audio_type(url.path(), mime_type)?;
-                            // Performance: convert to frames while downloading.
-                            let bytes = response.bytes().await?;
-                            let cursor = Cursor::new(bytes);
-                            let frames = task::spawn_blocking(move || {
-                                read_to_one_second_frames(cursor, output_format)
+
+                            // Create a streaming reader that implements Read + Seek
+                            let byte_stream = response.bytes_stream();
+                            let stream_reader = StreamReader::new(byte_stream);
+
+                            // Create a clone of output for use in the closure
+                            let output = output.clone();
+
+                            // Process frames directly as they're read
+                            task::spawn_blocking(move || -> Result<()> {
+                                read_with_frame_callback(
+                                    stream_reader,
+                                    output_format,
+                                    |frame| -> Result<()> {
+                                        let duration = frame.duration();
+                                        // Send the frame directly to output
+                                        output.audio_frame(frame)?;
+
+                                        // Write billing records and complete the request inside the spawn_blocking
+                                        output.billing_records(
+                                            request_id.clone(),
+                                            None,
+                                            [BillingRecord::duration("playback:remote", duration)],
+                                        )
+                                    },
+                                )?;
+
+                                output.request_completed(request_id)
                             })
                             .await??;
-                            let duration = frames.iter().map(|f| f.duration()).sum();
-                            for frame in frames {
-                                output.audio_frame(frame)?;
-                            }
-                            output.billing_records(
-                                request_id.clone(),
-                                None,
-                                [BillingRecord::duration("playback:remote", duration)],
-                            )?;
-                            output.request_completed(request_id)?;
                         }
                     }
                 }
@@ -139,8 +154,8 @@ impl Service for Playback {
     }
 }
 
-/// Render the file into 1 second audio frames frames mono.
-fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
+/// Render the file into 100ms audio frames mono.
+fn audio_file_to_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
     check_supported_audio_type(&path.to_string_lossy(), None)?;
     let file = File::open(path).inspect_err(|e| {
         // We don't want to provide the resolved path to the user in an error message. Therefore we
@@ -152,13 +167,31 @@ fn audio_file_to_one_second_frames(path: &Path, format: AudioFormat) -> Result<V
         error!("Failed to open audio file: `{path:?}`: {e:?}");
     })?;
     let buf_reader = BufReader::new(file);
-    read_to_one_second_frames(buf_reader, format)
+    read_to_frames(buf_reader, format)
 }
 
-pub fn read_to_one_second_frames(
+pub fn read_to_frames(
     reader: impl io::Read + io::Seek + Send + Sync + 'static,
     format: AudioFormat,
 ) -> Result<Vec<AudioFrame>> {
+    let mut output_frames = Vec::new();
+
+    read_with_frame_callback(reader, format, |frame| {
+        output_frames.push(frame);
+        Ok(())
+    })?;
+
+    Ok(output_frames)
+}
+
+pub fn read_with_frame_callback<F>(
+    reader: impl io::Read + io::Seek + Send + Sync + 'static,
+    format: AudioFormat,
+    mut callback: F,
+) -> Result<()>
+where
+    F: FnMut(AudioFrame) -> Result<()>,
+{
     if format.channels != 1 {
         bail!("Only mono output is supported");
     }
@@ -167,26 +200,57 @@ pub fn read_to_one_second_frames(
     let source_channels = source.channels();
     // Correctness: This does not seem to actually mix the channels it just extracts one channel.
     let converter = ChannelCountConverter::new(source, source_channels, 1);
-    let samples_f32: Vec<Sample> = if format.sample_rate != source_sample_rate {
-        // Quality: This resampler is a simple linear resampler.
-        SampleRateConverter::new(converter, source_sample_rate, format.sample_rate, 1).collect()
-    } else {
-        converter.collect()
-    };
-    let samples = audio::into_i16(&samples_f32);
 
-    let mut output_frames = Vec::new();
+    // Create the appropriate source based on whether we need resampling
+    let mut source_iterator: Box<dyn Iterator<Item = f32> + Send> =
+        if format.sample_rate != source_sample_rate {
+            // Quality: This resampler is a simple linear resampler.
+            Box::new(SampleRateConverter::new(
+                converter,
+                source_sample_rate,
+                format.sample_rate,
+                1,
+            ))
+        } else {
+            Box::new(converter)
+        };
 
-    let samples_per_frame = format.sample_rate;
-    // Split into frames
-    for chunk in samples.chunks(samples_per_frame as _) {
-        output_frames.push(AudioFrame {
+    // Calculate samples for 100ms frame (10 frames per second)
+    let samples_per_frame = format.sample_rate / 10;
+
+    loop {
+        // Collect 100ms of samples at a time
+        let mut frame_samples = Vec::with_capacity(samples_per_frame as usize);
+        for _ in 0..samples_per_frame {
+            match source_iterator.next() {
+                Some(sample) => frame_samples.push(sample),
+                None => break,
+            }
+        }
+
+        // If we didn't get any samples, we're done
+        if frame_samples.is_empty() {
+            break;
+        }
+
+        // Convert to i16 samples
+        let i16_samples = audio::into_i16(&frame_samples);
+
+        // Create the frame and pass it to the callback
+        let frame = AudioFrame {
             format,
-            samples: chunk.to_vec(),
-        });
+            samples: i16_samples,
+        };
+
+        callback(frame)?;
+
+        // If we didn't get a full frame, we're done
+        if frame_samples.len() < samples_per_frame as usize {
+            break;
+        }
     }
 
-    Ok(output_frames)
+    Ok(())
 }
 
 enum PlaybackMethod {

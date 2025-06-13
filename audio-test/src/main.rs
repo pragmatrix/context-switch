@@ -12,7 +12,7 @@ use clap::Parser;
 use context_switch_core::{AudioFormat, AudioFrame};
 use indicatif::{ProgressBar, ProgressStyle};
 
-use playback::{check_supported_audio_type, read_to_one_second_frames};
+use playback::{check_supported_audio_type, read_to_frames};
 use tracing::{error, info};
 use walkdir::WalkDir;
 
@@ -217,6 +217,6 @@ fn process_audio_file(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame
 
     check_supported_audio_type(&path.to_string_lossy(), None)?;
 
-    read_to_one_second_frames(reader, format)
+    read_to_frames(reader, format)
         .with_context(|| format!("Failed to process audio: {}", path.display()))
 }
