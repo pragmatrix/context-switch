@@ -8,7 +8,7 @@ pub mod service;
 
 use std::time;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use duration::Duration;
@@ -131,7 +131,9 @@ impl AudioProducer {
                 frame.format
             );
         }
-        Ok(self.sender.try_send(frame.samples)?)
+        self.sender
+            .try_send(frame.samples)
+            .context("Sending samples")
     }
 }
 

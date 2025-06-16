@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
@@ -265,7 +265,7 @@ impl ConversationOutput {
     }
 
     fn post(&self, output: Output) -> Result<()> {
-        Ok(self.output.try_send(output)?)
+        self.output.try_send(output).context("Sending output event")
     }
 }
 

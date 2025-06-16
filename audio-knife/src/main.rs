@@ -10,6 +10,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -34,6 +35,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
+use crate::event_scheduler::MediaEventScheduler;
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
     ServerEvent, audio, conversation::BillingId,
@@ -199,7 +201,14 @@ async fn ws_session(
     let (ws_sender, mut ws_receiver) = websocket.split();
 
     // Channel from event_scheduler to websocket dispatcher
-    let (scheduler_sender, scheduler_receiver) = channel(32);
+    let (scheduler_sender, scheduler_receiver) = channel(
+        MediaEventScheduler::recommended_channel_capacity(Duration::from_millis(20)),
+    );
+
+    debug!(
+        "Media event scheduler channel capacity: {}",
+        scheduler_receiver.max_capacity()
+    );
 
     let (pong_sender, pong_receiver) = channel(4);
 
@@ -227,24 +236,14 @@ async fn ws_session(
                 }
             }
             r = &mut dispatcher => {
-                if let Err(r) = r {
-                    error!("Dispatcher error, ending channel");
-                    bail!(r);
-                }
-                else {
-                    info!("Dispatcher ended");
-                    return Ok(())
-                }
+                r.context("Dispatcher")?;
+                info!("Dispatcher ended");
+                return Ok(())
             }
             r = &mut scheduler => {
-                if let Err(r) = r {
-                    error!("Scheduler error, ending channel");
-                    bail!(r);
-                }
-                else {
-                    info!("Scheduler ended");
-                    return Ok(())
-                }
+                r.context("Event scheduler")?;
+                info!("Scheduler ended");
+                return Ok(())
             }
         }
     }
@@ -398,7 +397,9 @@ impl SessionState {
             }
             Message::Ping(payload) => {
                 info!("Received ping message: {payload:02X?}");
-                pong_sender.try_send(Pong(payload))?;
+                pong_sender
+                    .try_send(Pong(payload))
+                    .context("Sending pong event")?;
                 Ok(())
             }
             Message::Pong(msg) => {
