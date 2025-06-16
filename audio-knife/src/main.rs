@@ -6,7 +6,7 @@ mod mod_audio_fork;
 mod server_event_router;
 
 use std::{
-    env,
+    env, mem,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -32,12 +32,17 @@ use tokio::{
     pin, select,
     sync::mpsc::{Receiver, Sender, channel},
 };
-use tracing::{debug, error, info};
+use tracing::{
+    Level, Span, debug, error, info, info_span,
+    span::{self, EnteredSpan},
+};
 
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
     ServerEvent, audio, conversation::BillingId,
 };
+use tracing_subscriber::fmt::format::FmtSpan;
+use uuid::Uuid;
 
 const DEFAULT_PORT: u16 = 8123;
 
@@ -45,7 +50,11 @@ const DEFAULT_PORT: u16 = 8123;
 async fn main() -> Result<()> {
     let env_path = dotenvy::dotenv_override();
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        // With instrument() spans are entered and exited all the time, so we log NEW and CLOSE only
+        // for now.
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        .init();
 
     if let Ok(env_path) = env_path {
         info!("Environment variables loaded from {env_path:?}");
@@ -182,6 +191,24 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
         Some(msg) => {
             let msg = msg?;
             let (session_state, cs_receiver) = SessionState::start_session(state, msg)?;
+
+            let short_conversation_id = {
+                let id = session_state.conversation().as_str();
+                match Uuid::parse_str(id) {
+                    Ok(uuid) => {
+                        let bytes = uuid.as_bytes();
+                        &format!(
+                            "{:02x}{:02x}{:02x}{:02x}",
+                            bytes[0], bytes[1], bytes[2], bytes[3]
+                        )
+                    }
+                    Err(_) => id,
+                }
+            };
+
+            let _conversation_span = info_span!("", cid = %short_conversation_id);
+            let _entered = _conversation_span.enter();
+
             ws_session(session_state, cs_receiver, websocket).await
         }
         None => {
@@ -345,6 +372,10 @@ impl SessionState {
             },
             se_receiver,
         ))
+    }
+
+    fn conversation(&self) -> &ConversationId {
+        return &self.conversation;
     }
 
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {

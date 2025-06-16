@@ -41,6 +41,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
+tracing-futures = "0.2.5"
 
 # todo: is this needed?
 uuid = "1.11.0"
