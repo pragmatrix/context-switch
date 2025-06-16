@@ -161,8 +161,8 @@ impl MediaEventScheduler {
                         // A control event is not in the front and blocks _all_ further audio until
                         // it's time to send it out.
                         //
-                        // This also in consequence means that a large number of audio pakets can
-                        // now build up here until all audio that has been sent gets played back.
+                        // This means that a large number of audio pakets can now build up here
+                        // until all audio that has been sent gets played back.
                         return Ok(Some(self.audio_finished - now));
                     }
                 }
