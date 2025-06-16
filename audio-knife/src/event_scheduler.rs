@@ -94,7 +94,7 @@ impl MediaEventScheduler {
     pub fn recommended_channel_capacity(min_audio_frame_duration: Duration) -> usize {
         let max_audio_frames_pending =
             MAX_BUFFERED_AUDIO.as_secs_f64() / min_audio_frame_duration.as_secs_f64();
-        // multiply with 2 to include some safety margin and control pakets.
+        // Multiply with 2 to include some safety margin and control packets.
         (max_audio_frames_pending as usize) * 2
     }
 
