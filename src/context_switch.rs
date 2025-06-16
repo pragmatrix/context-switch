@@ -116,7 +116,11 @@ impl ContextSwitch {
                     // causes the conversation to shut down gracefully.
                     occupied_entry.remove();
                 } else {
-                    occupied_entry.get().client_sender.try_send(event)?;
+                    occupied_entry
+                        .get()
+                        .client_sender
+                        .try_send(event)
+                        .context("Sending client event to active conversation")?;
                 };
             }
         }
@@ -175,7 +179,7 @@ async fn process_conversation(
     info!("Conversation ended: {:?}", final_event);
     if let Result::Err(e) = output.try_send(final_event) {
         warn!(
-            "Failed to deliver the final event of the conversation, output receiver is gone: `{id}`: {e:?}"
+            "Failed to deliver the final event of the conversation, output receiver may be gone: `{id}`: {e:?}"
         )
     }
 }
@@ -274,7 +278,7 @@ async fn process_conversation_protected(
                         }
                     },
                     ClientEvent::Service { value, ..} => {
-                        input_sender.try_send(Input::ServiceEvent { value })?;
+                        input_sender.try_send(Input::ServiceEvent { value }).context("Sending service event")?;
                     }
                 }
             }
@@ -283,7 +287,7 @@ async fn process_conversation_protected(
             output = output_receiver.recv() => {
                 if let Some(output) = output {
                     let event = output_to_server_event(&conversation_id, output);
-                    server_output.try_send(event)?;
+                    server_output.try_send(event).context("Forwarding output server event")?;
                 } else {
                     bail!("Service output channel closed.")
                 }
@@ -327,10 +331,13 @@ impl ContextSwitch {
         match self.conversations.get(conversation_id) {
             Some(conversation) => {
                 if conversation.input_modality.can_receive_audio(frame.format) {
-                    Ok(conversation.client_sender.try_send(ClientEvent::Audio {
-                        id: conversation_id.clone(),
-                        samples: frame.samples.into(),
-                    })?)
+                    Ok(conversation
+                        .client_sender
+                        .try_send(ClientEvent::Audio {
+                            id: conversation_id.clone(),
+                            samples: frame.samples.into(),
+                        })
+                        .context("Sending audio frame")?)
                 } else {
                     bail!("Conversation's input modality does not match format of the audio frame");
                 }
@@ -346,12 +353,15 @@ impl ContextSwitch {
         for (id, conversation) in &self.conversations {
             if conversation.input_modality.can_receive_audio(frame.format) {
                 // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
-                conversation.client_sender.try_send(ClientEvent::Audio {
-                    id: id.clone(),
-                    // TODO: If there is only one conversation that accepts this frame, we should
-                    // move it into the event.
-                    samples: frame.samples.clone().into(),
-                })?;
+                conversation
+                    .client_sender
+                    .try_send(ClientEvent::Audio {
+                        id: id.clone(),
+                        // TODO: If there is only one conversation that accepts this frame, we should
+                        // move it into the event.
+                        samples: frame.samples.clone().into(),
+                    })
+                    .context("Broadcasting audio client event")?;
             }
         }
         Ok(())

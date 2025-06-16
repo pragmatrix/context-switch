@@ -4,7 +4,7 @@
 //! Conceptually, this is similar to a reverse proxy.
 use std::collections::{HashMap, hash_map::Entry};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::Sender;
 
 use context_switch::{ConversationId, OutputPath, ServerEvent};
@@ -24,14 +24,20 @@ impl ServerEventRouter {
                 Some(redirect_output) if event.output_path() == OutputPath::Media => {
                     if let Some(redir_target) = self.conversation_targets.get(redirect_output) {
                         event.set_conversation_id(redirect_output.clone());
-                        redir_target.target.try_send(event)?
+                        redir_target
+                            .target
+                            .try_send(event)
+                            .context("Sending redirected server event")?
                     } else {
                         bail!(
                             "Conversation does not exist: {redirect_output}, event redirected from {conversation}"
                         )
                     }
                 }
-                _ => target.target.try_send(event)?,
+                _ => target
+                    .target
+                    .try_send(event)
+                    .context("Sending server event")?,
             },
             None => bail!("Conversation does not exist: {conversation}"),
         };

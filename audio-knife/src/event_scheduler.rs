@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
@@ -59,7 +59,7 @@ pub async fn event_scheduler(
                         media_scheduler.notify_started(modalities)?;
                     }
                     // Control events are sent out immediately.
-                    sender.try_send(event)?;
+                    sender.try_send(event).context("Sending control event")?;
                     // Even though only a control event was short circuited we need to kick the the
                     // media scheduler.
                 }
@@ -91,6 +91,13 @@ const MAX_BUFFERED_AUDIO: Duration = Duration::from_secs(5);
 const WAKEUP_DELAY_WHEN_BUFFERS_ARE_FULL: Duration = Duration::from_secs(1);
 
 impl MediaEventScheduler {
+    pub fn recommended_channel_capacity(min_audio_frame_duration: Duration) -> usize {
+        let max_audio_frames_pending =
+            MAX_BUFFERED_AUDIO.as_secs_f64() / min_audio_frame_duration.as_secs_f64();
+        // Multiply with 2 to include some safety margin and control packets.
+        (max_audio_frames_pending as usize) * 2
+    }
+
     pub fn new() -> Self {
         Self {
             audio_finished: Instant::now(),
@@ -151,12 +158,19 @@ impl MediaEventScheduler {
                 }
                 _ => {
                     if now < self.audio_finished {
-                        // Some audio is pending, call me again if it's played back.
+                        // A control event is not in the front and blocks _all_ further audio until
+                        // it's time to send it out.
+                        //
+                        // This means that a large number of audio pakets can now build up here
+                        // until all audio that has been sent gets played back.
                         return Ok(Some(self.audio_finished - now));
                     }
                 }
             }
-            sender.try_send(self.pending_media_events.pop_front().unwrap())?;
+
+            sender
+                .try_send(self.pending_media_events.pop_front().unwrap())
+                .context("Sending media event")?;
         }
     }
 }
