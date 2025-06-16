@@ -120,7 +120,7 @@ impl ContextSwitch {
                         .get()
                         .client_sender
                         .try_send(event)
-                        .context("sending client event to running conversation failed")?;
+                        .context("Sending client event to active conversation")?;
                 };
             }
         }
