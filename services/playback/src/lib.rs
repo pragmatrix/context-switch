@@ -58,6 +58,7 @@ impl Service for Playback {
                     request_id,
                     text,
                     text_type,
+                    billing_scope,
                 } => {
                     let text_type = text_type.as_deref().unwrap_or("text/plain");
                     let method = PlaybackMethod::from_text_and_mime_type(
@@ -76,6 +77,7 @@ impl Service for Playback {
                                         request_id,
                                         text,
                                         text_type: Some(text_type),
+                                        billing_scope: None,
                                     },
                                 )
                                 .await?;
@@ -131,7 +133,7 @@ impl Service for Playback {
                                         // Write billing records and complete the request inside the spawn_blocking
                                         output.billing_records(
                                             request_id.clone(),
-                                            None,
+                                            billing_scope.clone(),
                                             [BillingRecord::duration("playback:remote", duration)],
                                         )
                                     },

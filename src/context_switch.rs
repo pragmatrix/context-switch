@@ -269,10 +269,10 @@ async fn process_conversation_protected(
                             bail!("Received unexpected Audio");
                         }
                     },
-                    ClientEvent::Text { content, content_type, .. } => {
+                    ClientEvent::Text { content, content_type, billing_scope,.. } => {
                         if let InputModality::Text = input_modality {
                             input_sender
-                                .try_send(Input::Text { request_id: None, text: content, text_type: content_type })
+                                .try_send(Input::Text { request_id: None, text: content, text_type: content_type, billing_scope })
                                 .context("Sending input text to conversation")?;
                         } else {
                             bail!("Received unexpected Text");

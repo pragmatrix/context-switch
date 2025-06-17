@@ -79,6 +79,7 @@ impl Service for AzureSynthesize {
                 request_id,
                 text,
                 text_type,
+                ..
             } = input
             else {
                 bail!("Unexpected input");
