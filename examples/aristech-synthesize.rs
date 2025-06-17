@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
             request_id: None,
             text: SAMPLE_TEXT.to_string(),
             text_type: None,
+            billing_scope: None,
         })
         .await
         .context("Failed to send text input")?;

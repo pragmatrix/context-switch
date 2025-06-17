@@ -278,6 +278,7 @@ pub enum Input {
         request_id: Option<RequestId>,
         text: String,
         text_type: Option<String>,
+        billing_scope: Option<String>,
     },
     ServiceEvent {
         value: serde_json::Value,

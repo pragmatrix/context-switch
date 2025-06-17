@@ -82,9 +82,7 @@ impl Service for AristechSynthesize {
             };
 
             let Input::Text {
-                request_id,
-                text,
-                text_type: _,
+                request_id, text, ..
             } = input
             else {
                 bail!("Unexpected input");

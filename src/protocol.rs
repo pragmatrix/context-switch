@@ -48,6 +48,7 @@ pub enum ClientEvent {
         id: ConversationId,
         content: String,
         content_type: Option<String>,
+        billing_scope: Option<String>,
     },
     Service {
         id: ConversationId,
