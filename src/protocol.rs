@@ -11,6 +11,13 @@ use context_switch_core::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Display, Serialize, Deserialize)]
 pub struct ConversationId(String);
 
+impl ConversationId {
+    /// Returns a string slice of the underlying string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ClientEvent {

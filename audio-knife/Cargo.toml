@@ -18,8 +18,9 @@ dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 reqwest = { workspace = true }
+uuid = { workspace = true }
 
 futures-util = { version = "0.3.31" }
 axum = { version = "0.7.9", features = ["ws"] }

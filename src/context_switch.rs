@@ -11,7 +11,8 @@ use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
     time,
 };
-use tracing::{Level, error, info, span, warn};
+use tracing::{Span, error, info, warn};
+use tracing_futures::Instrument;
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{
@@ -97,14 +98,17 @@ impl ContextSwitch {
 
                 // The task is expected to handle all circumstances and so its never required to abort it or
                 // inspect its return value.
-                tokio::spawn(process_conversation(
-                    self.registry.clone(),
-                    self.shutdown_timeout,
-                    event,
-                    billing_context,
-                    receiver,
-                    self.output.clone(),
-                ));
+                tokio::spawn(
+                    process_conversation(
+                        self.registry.clone(),
+                        self.shutdown_timeout,
+                        event,
+                        billing_context,
+                        receiver,
+                        self.output.clone(),
+                    )
+                    .instrument(Span::current()),
+                );
                 vacant_entry.insert(ActiveConversation {
                     input_modality,
                     client_sender: sender,
@@ -147,9 +151,6 @@ async fn process_conversation(
     output: Sender<ServerEvent>,
 ) {
     let id = initial_event.conversation_id().clone();
-
-    let span = span!(Level::INFO, "process-conversation", id = %id);
-    let _ = span.enter();
 
     let final_event = match process_conversation_protected(
         registry,

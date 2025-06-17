@@ -33,13 +33,15 @@ use tokio::{
     pin, select,
     sync::mpsc::{Receiver, Sender, channel},
 };
-use tracing::{debug, error, info};
+use tracing::{Instrument, Span, debug, error, info, info_span};
 
 use crate::event_scheduler::MediaEventScheduler;
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
     ServerEvent, audio, conversation::BillingId,
 };
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
+use uuid::Uuid;
 
 const DEFAULT_PORT: u16 = 8123;
 
@@ -47,7 +49,13 @@ const DEFAULT_PORT: u16 = 8123;
 async fn main() -> Result<()> {
     let env_path = dotenvy::dotenv_override();
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        // With instrument() spans are entered and exited all the time, so we log NEW and CLOSE only
+        // for now.
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        // The rest is equivalent to fmt::init().
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
     if let Ok(env_path) = env_path {
         info!("Environment variables loaded from {env_path:?}");
@@ -183,8 +191,12 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
     match websocket.recv().await {
         Some(msg) => {
             let msg = msg?;
-            let (session_state, cs_receiver) = SessionState::start_session(state, msg)?;
-            ws_session(session_state, cs_receiver, websocket).await
+            let (session_state, conversation_span, cs_receiver) =
+                SessionState::start_session(state, msg)?;
+
+            ws_session(session_state, cs_receiver, websocket)
+                .instrument(conversation_span)
+                .await
         }
         None => {
             info!("WebSocket closed before first message was received");
@@ -288,7 +300,7 @@ impl Drop for SessionState {
 }
 
 impl SessionState {
-    fn start_session(state: State, msg: Message) -> Result<(Self, Receiver<ServerEvent>)> {
+    fn start_session(state: State, msg: Message) -> Result<(Self, Span, Receiver<ServerEvent>)> {
         let Message::Text(msg) = msg else {
             // What about Ping?
             bail!("Expecting first WebSocket message to be text");
@@ -304,6 +316,26 @@ impl SessionState {
         else {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
+
+        // Set up logging
+
+        let short_conversation_id = {
+            let id = start_event.conversation_id().as_str();
+            match Uuid::parse_str(id) {
+                Ok(uuid) => {
+                    let bytes = uuid.as_bytes();
+                    &format!(
+                        "{:02x}{:02x}{:02x}{:02x}",
+                        bytes[0], bytes[1], bytes[2], bytes[3]
+                    )
+                }
+                Err(_) => id,
+            }
+        };
+
+        let conversation_span = info_span!("", cid = %short_conversation_id);
+        // We enter here, so that ContextSwitch picks the span up via `Span::current()`.
+        let entered_conversation_span = conversation_span.enter();
 
         // Extract audio-knife specific fields from the start event.
         let start_aux: StartEventAuxiliary = serde_json::from_value(json_value)?;
@@ -336,12 +368,15 @@ impl SessionState {
             .expect("Poison error")
             .process(start_event)?;
 
+        drop(entered_conversation_span);
+
         Ok((
             Self {
                 state,
                 conversation,
                 input_audio_format,
             },
+            conversation_span,
             se_receiver,
         ))
     }
