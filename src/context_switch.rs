@@ -11,7 +11,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
     time,
 };
-use tracing::{Level, Span, error, info, span, warn};
+use tracing::{Span, error, info, warn};
 use tracing_futures::Instrument;
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
