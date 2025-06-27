@@ -89,8 +89,8 @@ async fn main() -> Result<()> {
 
     // Channel from context_switch to event_scheduler.
     //
-    // Since we can't block audio data that is sent here, we need an unbounded channel here, for
-    // now.
+    // Because it's not possible to block audio data that is sent, yet, an unbounded channel is
+    // needed.
     let (cs_sender, cs_receiver) = unbounded_channel();
 
     let server_event_distributor = Arc::new(Mutex::new(ServerEventRouter::default()));
