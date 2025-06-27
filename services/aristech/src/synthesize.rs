@@ -57,7 +57,7 @@ impl Service for AristechSynthesize {
         let sample_rate = available_voices
             .iter()
             .find(|v| v.voice_id == voice)
-            .with_context(|| format!("Voice {} not available", voice))?
+            .with_context(|| format!("Voice {voice} not available"))?
             .audio
             .unwrap_or_default()
             .samplerate;

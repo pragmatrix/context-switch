@@ -31,7 +31,7 @@ use server_event_router::ServerEventRouter;
 use tokio::{
     net::TcpListener,
     pin, select,
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel},
 };
 use tracing::{Instrument, Span, debug, error, info, info_span};
 
@@ -87,8 +87,11 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Channel from context_switch to event_scheduler
-    let (cs_sender, cs_receiver) = channel(32);
+    // Channel from context_switch to event_scheduler.
+    //
+    // Because it's not possible to block audio data that is sent, yet, an unbounded channel is
+    // needed.
+    let (cs_sender, cs_receiver) = unbounded_channel();
 
     let server_event_distributor = Arc::new(Mutex::new(ServerEventRouter::default()));
 
@@ -133,7 +136,7 @@ async fn main() -> Result<()> {
 }
 
 async fn server_event_dispatcher(
-    mut receiver: Receiver<ServerEvent>,
+    mut receiver: UnboundedReceiver<ServerEvent>,
     distributor: Arc<Mutex<ServerEventRouter>>,
 ) -> Result<()> {
     loop {
@@ -207,7 +210,7 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
 
 async fn ws_session(
     mut session_state: SessionState,
-    cs_receiver: Receiver<ServerEvent>,
+    cs_receiver: UnboundedReceiver<ServerEvent>,
     websocket: WebSocket,
 ) -> Result<()> {
     let (ws_sender, mut ws_receiver) = websocket.split();
@@ -300,7 +303,10 @@ impl Drop for SessionState {
 }
 
 impl SessionState {
-    fn start_session(state: State, msg: Message) -> Result<(Self, Span, Receiver<ServerEvent>)> {
+    fn start_session(
+        state: State,
+        msg: Message,
+    ) -> Result<(Self, Span, UnboundedReceiver<ServerEvent>)> {
         let Message::Text(msg) = msg else {
             // What about Ping?
             bail!("Expecting first WebSocket message to be text");
@@ -350,7 +356,8 @@ impl SessionState {
             None
         };
 
-        let (se_sender, se_receiver) = channel(32);
+        // Output path is unbounded for now.
+        let (se_sender, se_receiver) = unbounded_channel();
 
         state
             .server_event_distributor

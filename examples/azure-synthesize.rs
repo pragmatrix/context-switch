@@ -4,7 +4,7 @@ use std::{env, thread, time::Duration};
 
 use anyhow::{Result, bail};
 use rodio::{OutputStreamBuilder, Sink, Source};
-use tokio::{select, sync::mpsc::channel};
+use tokio::{select, sync::mpsc::unbounded_channel};
 
 use context_switch::{ClientEvent, ContextSwitch, ConversationId, OutputModality, ServerEvent};
 use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, audio};
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
 
     let text = "In a small village, surrounded by dense forests and gentle hills, there once lived an inventive tinkerer who built machines that amazed people.";
 
-    let (server_events_tx, mut server_events_rx) = channel(16);
+    let (server_events_tx, mut server_events_rx) = unbounded_channel();
 
     let conversation_id = ConversationId::from("synthesize-conversation".to_string());
 

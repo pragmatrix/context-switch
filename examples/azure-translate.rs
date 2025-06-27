@@ -14,7 +14,7 @@ use context_switch_core::{
 };
 use tokio::{
     select,
-    sync::mpsc::{Receiver, channel},
+    sync::mpsc::{UnboundedReceiver, channel, unbounded_channel},
 };
 
 #[tokio::main]
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
         .default_input_config()
         .expect("Failed to get default input config");
 
-    println!("Audio device input config: {:?}", input_config);
+    println!("Audio device input config: {input_config:?}");
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
                 }
             },
             move |err| {
-                eprintln!("Error occurred on stream: {}", err);
+                eprintln!("Error occurred on stream: {err}");
             },
             // timeout
             Some(Duration::from_secs(1)),
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         target_voice: None,
     };
 
-    let (output_sender, output_receiver) = channel(256);
+    let (output_sender, output_receiver) = unbounded_channel();
 
     let conversation = Conversation::new(
         InputModality::Audio { format },
@@ -120,7 +120,7 @@ enum AudioCommand {
 
 async fn setup_audio_playback(
     format: AudioFormat,
-    mut output: Receiver<Output>,
+    mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = ()> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 

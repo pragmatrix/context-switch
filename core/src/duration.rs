@@ -15,7 +15,7 @@ impl fmt::Display for Duration {
         let hours = total_seconds / 3600;
         let minutes = (total_seconds % 3600) / 60;
         let seconds = total_seconds % 60;
-        write!(f, "{}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
+        write!(f, "{hours}:{minutes:02}:{seconds:02}.{millis:03}")
     }
 }
 

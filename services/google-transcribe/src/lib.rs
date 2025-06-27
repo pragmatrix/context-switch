@@ -145,7 +145,7 @@ impl TranscribeClient {
 
         let recognizer = format!("projects/{}/locations/eu/recognizers/_", self.project_id);
 
-        println!("recognizer: {}", recognizer);
+        println!("recognizer: {recognizer}");
 
         let config_request = StreamingRecognizeRequest {
             recognizer: recognizer.clone(),
