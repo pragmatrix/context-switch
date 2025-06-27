@@ -4,10 +4,7 @@ use std::{env, thread, time::Duration};
 
 use anyhow::{Result, bail};
 use rodio::{OutputStreamBuilder, Sink, Source};
-use tokio::{
-    select,
-    sync::mpsc::{channel, unbounded_channel},
-};
+use tokio::{select, sync::mpsc::unbounded_channel};
 
 use context_switch::{ClientEvent, ContextSwitch, ConversationId, OutputModality, ServerEvent};
 use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, audio};

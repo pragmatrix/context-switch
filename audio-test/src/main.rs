@@ -154,7 +154,7 @@ fn main() -> Result<()> {
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
-        progress.set_message(format!("Processing {}", file_name));
+        progress.set_message(format!("Processing {file_name}"));
 
         let start_time = Instant::now();
         match process_audio_file(&path, output_format) {

@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
         .default_input_config()
         .expect("Failed to get default input config");
 
-    println!("config: {:?}", config);
+    println!("config: {config:?}");
 
     let channels = config.channels();
     let sample_rate = config.sample_rate();
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
                 }
             },
             move |err| {
-                eprintln!("Error occurred on stream: {}", err);
+                eprintln!("Error occurred on stream: {err}");
             },
             // timeout
             Some(Duration::from_secs(1)),
