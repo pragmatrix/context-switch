@@ -2,7 +2,10 @@ use std::{env, time::Duration};
 
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use tokio::{select, sync::mpsc::channel};
+use tokio::{
+    select,
+    sync::mpsc::{channel, unbounded_channel},
+};
 
 use aristech::transcribe::{ApiKeyAuth, AuthConfig, CredentialsAuth, Params as AristechParams};
 use context_switch::{InputModality, OutputModality, services::AristechTranscribe};
@@ -93,7 +96,7 @@ async fn main() -> Result<()> {
         prompt: None, // Optional: Specify a prompt if needed
     };
 
-    let (output_producer, mut output_consumer) = channel(32);
+    let (output_producer, mut output_consumer) = unbounded_channel();
     let (conv_input_producer, conv_input_consumer) = channel(32);
 
     let aristech = AristechTranscribe;

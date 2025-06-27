@@ -5,7 +5,7 @@
 use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{Context, Result, bail};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use context_switch::{ConversationId, OutputPath, ServerEvent};
 
@@ -26,7 +26,7 @@ impl ServerEventRouter {
                         event.set_conversation_id(redirect_output.clone());
                         redir_target
                             .target
-                            .try_send(event)
+                            .send(event)
                             .context("Sending redirected server event")?
                     } else {
                         bail!(
@@ -34,10 +34,7 @@ impl ServerEventRouter {
                         )
                     }
                 }
-                _ => target
-                    .target
-                    .try_send(event)
-                    .context("Sending server event")?,
+                _ => target.target.send(event).context("Sending server event")?,
             },
             None => bail!("Conversation does not exist: {conversation}"),
         };
@@ -48,7 +45,7 @@ impl ServerEventRouter {
     pub fn add_conversation_target(
         &mut self,
         conversation: impl Into<ConversationId>,
-        target: Sender<ServerEvent>,
+        target: UnboundedSender<ServerEvent>,
         redirect_output_to: Option<ConversationId>,
     ) -> Result<()> {
         match self.conversation_targets.entry(conversation.into()) {
@@ -76,6 +73,6 @@ impl ServerEventRouter {
 
 #[derive(Debug)]
 struct ConversationTarget {
-    target: Sender<ServerEvent>,
+    target: UnboundedSender<ServerEvent>,
     redirect_output_to: Option<ConversationId>,
 }

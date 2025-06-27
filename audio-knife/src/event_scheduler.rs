@@ -14,7 +14,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use tokio::{
     select,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::{Sender, UnboundedReceiver},
     time::sleep,
 };
 use tracing::{debug, warn};
@@ -26,7 +26,7 @@ use context_switch::{AudioFormat, OutputModality, OutputPath, ServerEvent};
 /// This delays audio pakets if more than 5 seconds are pending, and control pakets if currently
 /// audio is being assumed to be played back.
 pub async fn event_scheduler(
-    mut receiver: Receiver<ServerEvent>,
+    mut receiver: UnboundedReceiver<ServerEvent>,
     sender: Sender<ServerEvent>,
 ) -> Result<()> {
     let mut media_scheduler = MediaEventScheduler::new();

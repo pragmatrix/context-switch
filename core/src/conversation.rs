@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result, bail};
 use derive_more::derive::{Display, From, Into};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::mpsc::{Receiver, UnboundedSender, channel};
 
 use crate::{
     AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
@@ -16,7 +16,7 @@ pub struct Conversation {
     pub input_modality: InputModality,
     pub output_modalities: Vec<OutputModality>,
     input: Receiver<Input>,
-    output: Sender<Output>,
+    output: UnboundedSender<Output>,
     send_started_event: bool,
     billing_context: Option<BillingContext>,
 }
@@ -27,7 +27,7 @@ impl Conversation {
         input_modality: InputModality,
         output_modalities: impl Into<Vec<OutputModality>>,
         input: Receiver<Input>,
-        output: Sender<Output>,
+        output: UnboundedSender<Output>,
     ) -> Self {
         Self {
             registry: Registry::empty().into(),
@@ -44,7 +44,7 @@ impl Conversation {
         input_modality: InputModality,
         output_modalities: impl Into<Vec<OutputModality>>,
         input: Receiver<Input>,
-        output: Sender<Output>,
+        output: UnboundedSender<Output>,
     ) -> Self {
         Self::new(input_modality, output_modalities, input, output).with_no_started_event()
     }
@@ -214,7 +214,7 @@ pub struct ConversationOutput {
     // Architecture: Define `OutputModalities` and put all the queries in there and make
     // `&OutputModalities` accessible.
     modalities: Vec<OutputModality>,
-    output: Sender<Output>,
+    output: UnboundedSender<Output>,
     billing_context: Option<BillingContext>,
 }
 
@@ -265,7 +265,7 @@ impl ConversationOutput {
     }
 
     fn post(&self, output: Output) -> Result<()> {
-        self.output.try_send(output).context("Sending output event")
+        self.output.send(output).context("Sending output event")
     }
 }
 

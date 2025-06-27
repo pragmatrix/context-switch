@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use static_assertions::assert_impl_all;
 use tokio::{
     select,
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::mpsc::{Receiver, Sender, UnboundedSender, channel, unbounded_channel},
     time,
 };
 use tracing::{Span, error, info, warn};
@@ -25,7 +25,7 @@ use context_switch_core::{
 pub struct ContextSwitch {
     registry: Arc<Registry>,
     conversations: HashMap<ConversationId, ActiveConversation>,
-    output: Sender<ServerEvent>,
+    output: UnboundedSender<ServerEvent>,
     shutdown_timeout: Duration,
     billing_collector: Arc<Mutex<BillingCollector>>,
 }
@@ -52,7 +52,7 @@ impl ContextSwitch {
     /// This should be enough to terminate all connections gracefully to all servers world-wide.
     pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub fn new(registry: Arc<Registry>, sender: Sender<ServerEvent>) -> Self {
+    pub fn new(registry: Arc<Registry>, sender: UnboundedSender<ServerEvent>) -> Self {
         Self {
             registry,
             conversations: Default::default(),
@@ -148,7 +148,7 @@ async fn process_conversation(
     initial_event: ClientEvent,
     billing_context: Option<BillingContext>,
     input: Receiver<ClientEvent>,
-    output: Sender<ServerEvent>,
+    output: UnboundedSender<ServerEvent>,
 ) {
     let id = initial_event.conversation_id().clone();
 
@@ -178,7 +178,7 @@ async fn process_conversation(
         }
     };
     info!("Conversation ended: {:?}", final_event);
-    if let Result::Err(e) = output.try_send(final_event) {
+    if let Result::Err(e) = output.send(final_event) {
         warn!(
             "Failed to deliver the final event of the conversation, output receiver may be gone: `{id}`: {e:?}"
         )
@@ -193,7 +193,7 @@ async fn process_conversation_protected(
     initial_event: ClientEvent,
     billing_context: Option<BillingContext>,
     mut input: Receiver<ClientEvent>,
-    server_output: &Sender<ServerEvent>,
+    server_output: &UnboundedSender<ServerEvent>,
 ) -> Result<ServerEvent> {
     let ClientEvent::Start {
         id: conversation_id,
@@ -215,7 +215,9 @@ async fn process_conversation_protected(
     // event in case the service does not exist.
     let service = registry.service(&service_name)?;
 
-    let (output_sender, mut output_receiver) = channel(256);
+    // Temporarily use an unbounded channel for output forwarding because we may process rather
+    // large audio files (local playback for example) in one go are are not yet able to block sends.
+    let (output_sender, mut output_receiver) = unbounded_channel();
     // We might receive a large number of audio frames before the service can process them.
     let (input_sender, input_receiver) = channel(256);
 
@@ -288,7 +290,7 @@ async fn process_conversation_protected(
             output = output_receiver.recv() => {
                 if let Some(output) = output {
                     let event = output_to_server_event(&conversation_id, output);
-                    server_output.try_send(event).context("Forwarding output server event")?;
+                    server_output.send(event).context("Forwarding output server event")?;
                 } else {
                     bail!("Service output channel closed.")
                 }

@@ -9,17 +9,17 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use openai_api_rs::realtime::types;
 use openai_dialog::{OpenAIDialog, ServiceInputEvent, ServiceOutputEvent};
 use rodio::{OutputStreamBuilder, Sink, Source};
+use serde_json::json;
+use tokio::{
+    select,
+    sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
+};
+use tracing::info;
 
 use context_switch_core::{
     AudioFormat, AudioFrame, Service, audio,
     conversation::{Conversation, Input, Output},
 };
-use serde_json::json;
-use tokio::{
-    select,
-    sync::mpsc::{Receiver, Sender, channel},
-};
-use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     let mut params = openai_dialog::Params::new(key, model);
     params.tools.push(get_time_function_definition());
 
-    let (output_sender, output_receiver) = channel(256);
+    let (output_sender, output_receiver) = unbounded_channel();
 
     let conversation = Conversation::new(
         InputModality::Audio { format },
@@ -115,7 +115,7 @@ enum AudioCommand {
 async fn setup_audio_playback(
     format: AudioFormat,
     input: Sender<Input>,
-    mut output: Receiver<Output>,
+    mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = Result<()>> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 

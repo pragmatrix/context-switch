@@ -2,7 +2,10 @@ use std::{env, thread, time::Duration};
 
 use anyhow::{Context as AnyhowContext, Result};
 use rodio::{OutputStreamBuilder, Sink, Source};
-use tokio::{select, sync::mpsc::channel};
+use tokio::{
+    select,
+    sync::mpsc::{channel, unbounded_channel},
+};
 
 use aristech::synthesize::{AristechSynthesize, Params as AristechParams};
 use context_switch::{InputModality, OutputModality};
@@ -33,7 +36,7 @@ async fn main() -> Result<()> {
     let params = get_aristech_params()?;
 
     // Set up channels for the conversation
-    let (output_producer, mut output_consumer) = channel(32);
+    let (output_producer, mut output_consumer) = unbounded_channel();
     let (conv_input_producer, conv_input_consumer) = channel(32);
 
     // Create the service and conversation
