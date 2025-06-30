@@ -114,7 +114,7 @@ pub enum ServerEvent {
     },
     /// Billing
     ///
-    /// Inband Billing records are _only_ send through the media path. All other billing
+    /// Inband Billing records are _only_ sent through the media path. All other billing
     /// records are sent to the billing collector directly from within the service.
     #[serde(rename_all = "camelCase")]
     BillingRecords {
