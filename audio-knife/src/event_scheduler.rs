@@ -82,7 +82,7 @@ pub struct MediaEventScheduler {
     /// The Timestamp audio playback is finished.
     audio_finished: Instant,
     /// All media events.
-    pending_media_events: VecDeque<ServerEvent>,
+    pending_media_path_events: VecDeque<ServerEvent>,
     /// Latest audio format seen.
     audio_format: Option<AudioFormat>,
 }
@@ -101,7 +101,7 @@ impl MediaEventScheduler {
     pub fn new() -> Self {
         Self {
             audio_finished: Instant::now(),
-            pending_media_events: VecDeque::new(),
+            pending_media_path_events: VecDeque::new(),
             audio_format: None,
         }
     }
@@ -118,15 +118,15 @@ impl MediaEventScheduler {
     }
 
     pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
-        // Don't give me anothing other than media events!
+        // Don't give me anothing other than media path events!
         debug_assert!(event.output_path() == OutputPath::Media);
         if let ServerEvent::ClearAudio { .. } = event {
-            self.pending_media_events
+            self.pending_media_path_events
                 .retain(|e| !matches!(e, ServerEvent::Audio { .. }));
             // All the non-audio event before `ClearAudio` must be sent asap, too.
             self.audio_finished = now;
         }
-        self.pending_media_events.push_back(event);
+        self.pending_media_path_events.push_back(event);
     }
 
     pub fn process(
@@ -138,7 +138,7 @@ impl MediaEventScheduler {
         self.audio_finished = max(now, self.audio_finished);
 
         loop {
-            let Some(next_event) = self.pending_media_events.front() else {
+            let Some(next_event) = self.pending_media_path_events.front() else {
                 return Ok(None);
             };
             match next_event {
@@ -169,7 +169,7 @@ impl MediaEventScheduler {
             }
 
             sender
-                .try_send(self.pending_media_events.pop_front().unwrap())
+                .try_send(self.pending_media_path_events.pop_front().unwrap())
                 .context("Sending media event")?;
         }
     }
