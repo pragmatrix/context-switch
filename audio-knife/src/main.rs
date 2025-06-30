@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
 
     let state = State {
         context_switch: Arc::new(Mutex::new(ContextSwitch::new(registry.into(), cs_sender))),
-        server_event_distributor: server_event_distributor.clone(),
+        server_event_router: server_event_distributor.clone(),
     };
 
     let app = axum::Router::new()
@@ -160,7 +160,7 @@ async fn server_event_dispatcher(
 #[derive(Debug, Clone)]
 struct State {
     context_switch: Arc<Mutex<ContextSwitch>>,
-    server_event_distributor: Arc<Mutex<ServerEventRouter>>,
+    server_event_router: Arc<Mutex<ServerEventRouter>>,
 }
 
 async fn ws_get(
@@ -276,7 +276,7 @@ impl Drop for SessionState {
     fn drop(&mut self) {
         // First remove the target, so that - when we send the stop event to ContextSwitch, it's
         // guaranteed that no events are delivered anymore to the client.
-        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
+        if let Ok(mut distributor) = self.state.server_event_router.lock() {
             if distributor
                 .remove_conversation_target(&self.conversation)
                 .is_err()
@@ -360,7 +360,7 @@ impl SessionState {
         let (se_sender, se_receiver) = unbounded_channel();
 
         state
-            .server_event_distributor
+            .server_event_router
             .lock()
             .expect("Poison error")
             .add_conversation_target(
