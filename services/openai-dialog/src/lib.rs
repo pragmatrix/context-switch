@@ -115,6 +115,12 @@ pub enum ServiceInputEvent {
     },
     SessionUpdate {
         #[serde(skip_serializing_if = "Option::is_none")]
+        instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        voice: Option<RealtimeVoice>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        temperature: Option<f32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<types::ToolDefinition>>,
     },
 }
@@ -415,10 +421,18 @@ impl Client {
                         info!("Received prompt");
                         self.push_prompt(PromptRequest(text)).await?;
                     }
-                    ServiceInputEvent::SessionUpdate { tools } => {
+                    ServiceInputEvent::SessionUpdate {
+                        instructions,
+                        voice,
+                        temperature,
+                        tools,
+                    } => {
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
                             session: types::Session {
                                 tools,
+                                instructions,
+                                voice,
+                                temperature,
                                 ..Default::default()
                             },
                             ..Default::default()
