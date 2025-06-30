@@ -10,7 +10,6 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -35,7 +34,6 @@ use tokio::{
 };
 use tracing::{Instrument, Span, debug, error, info, info_span};
 
-use crate::event_scheduler::MediaEventScheduler;
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
     ServerEvent, audio, billing_collector::BillingCollector, conversation::BillingId,
@@ -223,15 +221,9 @@ async fn ws_session(
     let (ws_sender, mut ws_receiver) = websocket.split();
     let billing_collector = session_state.state.billing_collector.clone();
 
-    // Channel from event_scheduler to websocket dispatcher
-    let (scheduler_sender, scheduler_receiver) = channel(
-        MediaEventScheduler::recommended_channel_capacity(Duration::from_millis(20)),
-    );
-
-    debug!(
-        "Media event scheduler channel capacity: {}",
-        scheduler_receiver.max_capacity()
-    );
+    // Channel from event_scheduler to websocket dispatcher. Currently unbounded, because it's not
+    // clear in what granularity audio frames and billing records are sent through.
+    let (scheduler_sender, scheduler_receiver) = unbounded_channel();
 
     let (pong_sender, pong_receiver) = channel(4);
 
@@ -521,7 +513,7 @@ async fn dispatch_channel_messages(
     billing_collector: &Arc<Mutex<BillingCollector>>,
     billing_id: Option<BillingId>,
     mut pong_receiver: Receiver<Pong>,
-    mut server_event_receiver: Receiver<ServerEvent>,
+    mut server_event_receiver: UnboundedReceiver<ServerEvent>,
     mut socket: SplitSink<WebSocket, Message>,
 ) -> Result<()> {
     loop {

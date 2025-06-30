@@ -14,7 +14,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use tokio::{
     select,
-    sync::mpsc::{Sender, UnboundedReceiver},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
     time::sleep,
 };
 use tracing::{debug, warn};
@@ -27,7 +27,7 @@ use context_switch::{AudioFormat, OutputModality, OutputPath, ServerEvent};
 /// audio is being assumed to be played back.
 pub async fn event_scheduler(
     mut receiver: UnboundedReceiver<ServerEvent>,
-    sender: Sender<ServerEvent>,
+    sender: UnboundedSender<ServerEvent>,
 ) -> Result<()> {
     let mut media_scheduler = MediaEventScheduler::new();
 
@@ -59,7 +59,7 @@ pub async fn event_scheduler(
                         media_scheduler.notify_started(modalities)?;
                     }
                     // Control path events are sent out immediately.
-                    sender.try_send(event).context("Sending control event")?;
+                    sender.send(event).context("Sending control event")?;
                     // Even though only a control event was short circuited we need to kick the the
                     // media scheduler.
                 }
@@ -93,13 +93,6 @@ const MAX_BUFFERED_AUDIO: Duration = Duration::from_secs(5);
 const WAKEUP_DELAY_WHEN_BUFFERS_ARE_FULL: Duration = Duration::from_secs(1);
 
 impl MediaEventScheduler {
-    pub fn recommended_channel_capacity(min_audio_frame_duration: Duration) -> usize {
-        let max_audio_frames_pending =
-            MAX_BUFFERED_AUDIO.as_secs_f64() / min_audio_frame_duration.as_secs_f64();
-        // Multiply with 2 to include some safety margin and control packets.
-        (max_audio_frames_pending as usize) * 2
-    }
-
     pub fn new() -> Self {
         Self {
             audio_finished: Instant::now(),
@@ -137,7 +130,7 @@ impl MediaEventScheduler {
     pub fn process(
         &mut self,
         now: Instant,
-        sender: &Sender<ServerEvent>,
+        sender: &UnboundedSender<ServerEvent>,
     ) -> Result<Option<Duration>> {
         let d1 = self.process_timed_events(now, sender)?;
         let d2 = self.process_media_path_events(now, sender)?;
@@ -152,13 +145,13 @@ impl MediaEventScheduler {
     pub fn process_timed_events(
         &mut self,
         now: Instant,
-        sender: &Sender<ServerEvent>,
+        sender: &UnboundedSender<ServerEvent>,
     ) -> Result<Option<Duration>> {
         while let Some((time_to_send, _)) = self.timed_events.front()
             && *time_to_send <= now
         {
             let (_, event) = self.timed_events.pop_front().unwrap();
-            sender.try_send(event).context("Sending timed event")?;
+            sender.send(event).context("Sending timed event")?;
         }
 
         Ok(self.timed_events.front().map(|(t, _)| *t - now))
@@ -167,7 +160,7 @@ impl MediaEventScheduler {
     pub fn process_media_path_events(
         &mut self,
         now: Instant,
-        sender: &Sender<ServerEvent>,
+        sender: &UnboundedSender<ServerEvent>,
     ) -> Result<Option<Duration>> {
         // Be sure audio_finished is not in the past.
         self.audio_finished = max(now, self.audio_finished);
@@ -193,7 +186,7 @@ impl MediaEventScheduler {
                     self.audio_finished += duration;
 
                     sender
-                        .try_send(self.input_media_events.pop_front().unwrap())
+                        .send(self.input_media_events.pop_front().unwrap())
                         .context("Sending audio event")?;
                 }
                 _ => {
@@ -207,7 +200,7 @@ impl MediaEventScheduler {
                     }
 
                     sender
-                        .try_send(self.input_media_events.pop_front().unwrap())
+                        .send(self.input_media_events.pop_front().unwrap())
                         .context("Sending control event")?;
                 }
             }
