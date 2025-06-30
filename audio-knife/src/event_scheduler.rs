@@ -81,9 +81,9 @@ pub async fn event_scheduler(
 pub struct MediaEventScheduler {
     /// The Timestamp audio playback is finished.
     audio_finished: Instant,
-    /// The input queue of all media path media events.
+    /// The input queue of all media path events.
     input_media_events: VecDeque<ServerEvent>,
-    /// The scheudled queue of control events.
+    /// The timed control events extracted from the input media events.
     timed_events: VecDeque<(Instant, ServerEvent)>,
     /// Latest audio format seen.
     audio_format: Option<AudioFormat>,
@@ -148,7 +148,7 @@ impl MediaEventScheduler {
         }
     }
 
-    /// Process all the events of which know when they must be sent.
+    /// Process all the events of which we know when they must be sent.
     pub fn process_timed_events(
         &mut self,
         now: Instant,
