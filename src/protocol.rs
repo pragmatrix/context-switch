@@ -173,7 +173,7 @@ impl ServerEvent {
 
             | ServerEvent::Service { path, .. } => *path,
 
-            ServerEvent::BillingRecords { .. } => OutputPath::Control,
+            ServerEvent::BillingRecords { .. } => OutputPath::Media,
         }
     }
 }
