@@ -17,8 +17,8 @@ use tracing_futures::Instrument;
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{
     AudioFrame, BillingContext, Registry,
-    billing_collector::{BillingCollector, BillingRecords},
-    conversation::{BillingId, Conversation, Input, Output},
+    billing_collector::BillingCollector,
+    conversation::{Conversation, Input, Output},
 };
 
 #[derive(Debug)]
@@ -66,6 +66,13 @@ impl ContextSwitch {
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
+    }
+
+    pub fn with_billing_collector(self, billing_collector: Arc<Mutex<BillingCollector>>) -> Self {
+        Self {
+            billing_collector,
+            ..self
+        }
     }
 
     pub fn process(&mut self, event: ClientEvent) -> Result<()> {
@@ -130,13 +137,6 @@ impl ContextSwitch {
         }
 
         Ok(())
-    }
-
-    pub fn collect_billing_records(&self, billing_id: &BillingId) -> Vec<BillingRecords> {
-        self.billing_collector
-            .lock()
-            .expect("poisoned")
-            .collect(billing_id)
     }
 }
 
