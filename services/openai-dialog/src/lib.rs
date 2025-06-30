@@ -15,7 +15,10 @@ use openai_api_rs::realtime::{
     api::RealtimeClient,
     client_event::{self, ClientEvent},
     server_event::{self, ServerEvent},
-    types::{self, ItemContentType, ItemRole, ItemStatus, ItemType, RealtimeVoice, ResponseStatus},
+    types::{
+        self, ItemContentType, ItemRole, ItemStatus, ItemType, RealtimeVoice, ResponseStatus,
+        ToolChoice,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, select};
@@ -42,6 +45,7 @@ pub struct Params {
     pub temperature: Option<f32>,
     #[serde(default)]
     pub tools: Vec<types::ToolDefinition>,
+    tool_choice: Option<ToolChoice>,
 }
 
 impl Params {
@@ -54,6 +58,7 @@ impl Params {
             voice: None,
             temperature: None,
             tools: vec![],
+            tool_choice: None,
         }
     }
 }
@@ -113,6 +118,7 @@ pub enum ServiceInputEvent {
     Prompt {
         text: String,
     },
+    #[serde(rename_all = "camelCase")]
     SessionUpdate {
         #[serde(skip_serializing_if = "Option::is_none")]
         instructions: Option<String>,
@@ -122,6 +128,8 @@ pub enum ServiceInputEvent {
         temperature: Option<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<types::ToolDefinition>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_choice: Option<ToolChoice>,
     },
 }
 
@@ -257,11 +265,6 @@ impl Client {
                 send_update = true;
             };
 
-            if !params.tools.is_empty() {
-                session.tools = Some(params.tools);
-                send_update = true;
-            }
-
             if let Some(voice) = params.voice {
                 session.voice = Some(voice);
                 send_update = true;
@@ -269,6 +272,16 @@ impl Client {
 
             if let Some(temperature) = params.temperature {
                 session.temperature = Some(temperature);
+                send_update = true;
+            }
+
+            if !params.tools.is_empty() {
+                session.tools = Some(params.tools);
+                send_update = true;
+            }
+
+            if let Some(tool_choice) = params.tool_choice {
+                session.tool_choice = Some(tool_choice);
                 send_update = true;
             }
 
@@ -426,13 +439,15 @@ impl Client {
                         voice,
                         temperature,
                         tools,
+                        tool_choice,
                     } => {
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
                             session: types::Session {
-                                tools,
                                 instructions,
                                 voice,
                                 temperature,
+                                tools,
+                                tool_choice,
                                 ..Default::default()
                             },
                             ..Default::default()
