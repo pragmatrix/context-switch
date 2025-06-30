@@ -114,7 +114,7 @@ impl MediaEventScheduler {
     }
 
     pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
-        // Don't give me anothing other than media path events!
+        // Don't give me anything other than media path events!
         debug_assert!(event.output_path() == OutputPath::Media);
         if let ServerEvent::ClearAudio { .. } = event {
             self.input_media_events
