@@ -16,9 +16,9 @@ use tracing_futures::Instrument;
 
 use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{
-    AudioFrame, Registry,
+    AudioFrame, BillingContext, Registry,
     billing_collector::{BillingCollector, BillingRecords},
-    conversation::{BillingContext, BillingId, Conversation, Input, Output},
+    conversation::{BillingId, Conversation, Input, Output},
 };
 
 #[derive(Debug)]

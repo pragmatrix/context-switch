@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use derive_more::derive::{Display, From, Into};
@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender, channel};
 
 use crate::{
     AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
-    billing_collector::BillingCollector,
+    billing_context::BillingContext,
 };
 
 #[derive(Debug)]
@@ -316,45 +316,4 @@ pub enum Output {
         scope: Option<String>,
         records: Vec<BillingRecord>,
     },
-}
-
-#[derive(Debug, Clone)]
-pub struct BillingContext {
-    billing_id: BillingId,
-    service: String,
-    collector: Arc<Mutex<BillingCollector>>,
-}
-
-impl BillingContext {
-    pub fn new(
-        billing_id: BillingId,
-        service: impl Into<String>,
-        collector: Arc<Mutex<BillingCollector>>,
-    ) -> Self {
-        Self {
-            billing_id,
-            service: service.into(),
-            collector,
-        }
-    }
-
-    fn with_service(self, service: impl Into<String>) -> Self {
-        Self {
-            service: service.into(),
-            ..self
-        }
-    }
-
-    pub fn record(
-        &self,
-        scope: impl Into<Option<String>>,
-        records: Vec<BillingRecord>,
-    ) -> Result<()> {
-        self.collector.lock().expect("Lock poisoned").record(
-            &self.billing_id,
-            &self.service,
-            scope.into(),
-            records,
-        )
-    }
 }

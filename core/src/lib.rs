@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod billing_collector;
+mod billing_context;
 pub mod conversation;
 mod duration;
 mod protocol;
@@ -11,6 +12,7 @@ use std::time;
 use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+pub use billing_context::BillingContext;
 pub use duration::Duration;
 pub use protocol::*;
 pub use registry::*;
