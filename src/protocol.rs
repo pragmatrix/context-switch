@@ -114,13 +114,14 @@ pub enum ServerEvent {
     },
     /// Billing
     ///
-    /// Architecture: Perhaps inband billing records are a bad idea. Currently they are
-    /// disabled. For billing set `billing_id` and use the billing collector to collect them.
+    /// Inband Billing records are _only_ send through the media path. All other billing
+    /// records are sent to the billing collector directly from within the service.
     #[serde(rename_all = "camelCase")]
     BillingRecords {
         id: ConversationId,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<RequestId>,
+        service: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         scope: Option<String>,
         records: Vec<BillingRecord>,

@@ -396,15 +396,16 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             path,
             value,
         },
-        // Disabled for now.
         Output::BillingRecords {
             request_id,
+            service,
             scope,
             records,
         } => ServerEvent::BillingRecords {
             id: id.clone(),
-            scope,
             request_id,
+            service,
+            scope,
             records,
         },
     }

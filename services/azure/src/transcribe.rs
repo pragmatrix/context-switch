@@ -9,7 +9,7 @@ use tracing::error;
 use crate::Host;
 use context_switch_core::{
     BillingRecord, Service,
-    conversation::{Conversation, Input},
+    conversation::{BillingSchedule, Conversation, Input},
 };
 
 #[derive(Debug, Deserialize)]
@@ -71,7 +71,7 @@ impl Service for AzureTranscribe {
                     // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
                     // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
                     // No `Result<>` context, we can't fail here, instead log an error.
-                    if let Err(e) = billing_output.billing_records(None, None, [BillingRecord::duration("input:audio", frame.duration())]) {
+                    if let Err(e) = billing_output.billing_records(None, None, [BillingRecord::duration("input:audio", frame.duration())], BillingSchedule::Now) {
                         error!("Internal error: Failed to output billing records: {e}");
                     }
                 }

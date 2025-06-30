@@ -14,7 +14,7 @@ use tracing::debug;
 use crate::Host;
 use context_switch_core::{
     AudioFrame, BillingRecord, Service,
-    conversation::{Conversation, Input},
+    conversation::{BillingSchedule, Conversation, Input},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -121,6 +121,7 @@ impl Service for AzureSynthesize {
                             request_id.clone(),
                             billing_scope.to_string(),
                             [BillingRecord::duration("output:audio", duration)],
+                            BillingSchedule::Now,
                         )?;
                     }
                     event => {

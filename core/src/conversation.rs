@@ -243,9 +243,10 @@ impl ConversationOutput {
 
     pub fn billing_records(
         &self,
-        _request_id: Option<RequestId>,
+        request_id: Option<RequestId>,
         scope: impl Into<Option<String>>,
         records: impl Into<Vec<BillingRecord>>,
+        schedule: BillingSchedule,
     ) -> Result<()> {
         let mut records: Vec<_> = records.into();
         // ADR: Remove zero records early on.
@@ -253,20 +254,35 @@ impl ConversationOutput {
 
         let Some(billing_context) = &self.billing_context else {
             // No billing context: Ignore (for now).
-            // return self.post(Output::BillingRecords {
-            //     request_id,
-            //     scope: scope.into(),
-            //     records,
-            // });
             return Ok(());
         };
 
-        billing_context.record(scope, records)
+        match schedule {
+            BillingSchedule::Now => billing_context.record(scope, records),
+            BillingSchedule::Media => {
+                // If a path is set, we deliver the records inband.
+                self.post(Output::BillingRecords {
+                    request_id,
+
+                    service: billing_context.service.clone(),
+                    scope: scope.into(),
+                    records,
+                })
+            }
+        }
     }
 
     fn post(&self, output: Output) -> Result<()> {
         self.output.send(output).context("Sending output event")
     }
+}
+
+#[derive(Debug)]
+pub enum BillingSchedule {
+    /// Bill immediately, independent of media output.
+    Now,
+    /// Bill when associated output media arrived (got played back).
+    Media,
 }
 
 #[derive(Debug)]
@@ -313,6 +329,7 @@ pub enum Output {
     },
     BillingRecords {
         request_id: Option<RequestId>,
+        service: String,
         scope: Option<String>,
         records: Vec<BillingRecord>,
     },

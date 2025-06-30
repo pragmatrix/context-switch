@@ -7,7 +7,7 @@ use crate::{BillingRecord, billing_collector::BillingCollector, conversation::Bi
 #[derive(Debug, Clone)]
 pub struct BillingContext {
     billing_id: BillingId,
-    service: String,
+    pub service: String,
     collector: Arc<Mutex<BillingCollector>>,
 }
 
