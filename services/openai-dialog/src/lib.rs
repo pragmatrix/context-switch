@@ -27,7 +27,7 @@ use tracing::{debug, info, trace, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
-    conversation::{Conversation, ConversationInput, ConversationOutput, Input},
+    conversation::{BillingSchedule, Conversation, ConversationInput, ConversationOutput, Input},
 };
 use uuid::Uuid;
 
@@ -628,7 +628,12 @@ impl Client {
                         ),
                         BillingRecord::count("tokens:output:text", output_details.text_tokens as _),
                     ];
-                    output.billing_records(None, Some(billing_scope.into()), records)?;
+                    output.billing_records(
+                        None,
+                        Some(billing_scope.into()),
+                        records,
+                        BillingSchedule::Now,
+                    )?;
                 }
 
                 self.update_response_state(if any_function_call_request {

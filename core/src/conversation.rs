@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use derive_more::derive::{Display, From, Into};
@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Receiver, UnboundedSender, channel};
 
 use crate::{
     AudioFormat, AudioFrame, BillingRecord, InputModality, OutputModality, OutputPath, Registry,
-    billing_collector::BillingCollector,
+    billing_context::BillingContext,
 };
 
 #[derive(Debug)]
@@ -243,9 +243,10 @@ impl ConversationOutput {
 
     pub fn billing_records(
         &self,
-        _request_id: Option<RequestId>,
+        request_id: Option<RequestId>,
         scope: impl Into<Option<String>>,
         records: impl Into<Vec<BillingRecord>>,
+        schedule: BillingSchedule,
     ) -> Result<()> {
         let mut records: Vec<_> = records.into();
         // ADR: Remove zero records early on.
@@ -253,20 +254,35 @@ impl ConversationOutput {
 
         let Some(billing_context) = &self.billing_context else {
             // No billing context: Ignore (for now).
-            // return self.post(Output::BillingRecords {
-            //     request_id,
-            //     scope: scope.into(),
-            //     records,
-            // });
             return Ok(());
         };
 
-        billing_context.record(scope, records)
+        match schedule {
+            BillingSchedule::Now => billing_context.record(scope, records),
+            BillingSchedule::Media => {
+                // If a path is set, we deliver the records inband.
+                self.post(Output::BillingRecords {
+                    request_id,
+
+                    service: billing_context.service.clone(),
+                    scope: scope.into(),
+                    records,
+                })
+            }
+        }
     }
 
     fn post(&self, output: Output) -> Result<()> {
         self.output.send(output).context("Sending output event")
     }
+}
+
+#[derive(Debug)]
+pub enum BillingSchedule {
+    /// Bill immediately, independent of media output.
+    Now,
+    /// Bill when associated output media arrived (got played back).
+    Media,
 }
 
 #[derive(Debug)]
@@ -313,48 +329,8 @@ pub enum Output {
     },
     BillingRecords {
         request_id: Option<RequestId>,
+        service: String,
         scope: Option<String>,
         records: Vec<BillingRecord>,
     },
-}
-
-#[derive(Debug, Clone)]
-pub struct BillingContext {
-    billing_id: BillingId,
-    service: String,
-    collector: Arc<Mutex<BillingCollector>>,
-}
-
-impl BillingContext {
-    pub fn new(
-        billing_id: BillingId,
-        service: impl Into<String>,
-        collector: Arc<Mutex<BillingCollector>>,
-    ) -> Self {
-        Self {
-            billing_id,
-            service: service.into(),
-            collector,
-        }
-    }
-
-    fn with_service(self, service: impl Into<String>) -> Self {
-        Self {
-            service: service.into(),
-            ..self
-        }
-    }
-
-    pub fn record(
-        &self,
-        scope: impl Into<Option<String>>,
-        records: Vec<BillingRecord>,
-    ) -> Result<()> {
-        self.collector.lock().expect("Lock poisoned").record(
-            &self.billing_id,
-            &self.service,
-            scope.into(),
-            records,
-        )
-    }
 }

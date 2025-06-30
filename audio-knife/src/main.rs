@@ -10,7 +10,6 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -35,10 +34,9 @@ use tokio::{
 };
 use tracing::{Instrument, Span, debug, error, info, info_span};
 
-use crate::event_scheduler::MediaEventScheduler;
 use context_switch::{
     AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
-    ServerEvent, audio, conversation::BillingId,
+    ServerEvent, audio, billing_collector::BillingCollector, conversation::BillingId,
 };
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use uuid::Uuid;
@@ -102,9 +100,15 @@ async fn main() -> Result<()> {
         registry.add_service("playback", playback_service)
     };
 
+    let billing_collector = Arc::new(Mutex::new(BillingCollector::default()));
+
     let state = State {
-        context_switch: Arc::new(Mutex::new(ContextSwitch::new(registry.into(), cs_sender))),
-        server_event_distributor: server_event_distributor.clone(),
+        billing_collector: billing_collector.clone(),
+        context_switch: Arc::new(Mutex::new(
+            ContextSwitch::new(registry.into(), cs_sender)
+                .with_billing_collector(billing_collector),
+        )),
+        server_event_router: server_event_distributor.clone(),
     };
 
     let app = axum::Router::new()
@@ -159,8 +163,9 @@ async fn server_event_dispatcher(
 
 #[derive(Debug, Clone)]
 struct State {
+    billing_collector: Arc<Mutex<BillingCollector>>,
     context_switch: Arc<Mutex<ContextSwitch>>,
-    server_event_distributor: Arc<Mutex<ServerEventRouter>>,
+    server_event_router: Arc<Mutex<ServerEventRouter>>,
 }
 
 async fn ws_get(
@@ -214,16 +219,11 @@ async fn ws_session(
     websocket: WebSocket,
 ) -> Result<()> {
     let (ws_sender, mut ws_receiver) = websocket.split();
+    let billing_collector = session_state.state.billing_collector.clone();
 
-    // Channel from event_scheduler to websocket dispatcher
-    let (scheduler_sender, scheduler_receiver) = channel(
-        MediaEventScheduler::recommended_channel_capacity(Duration::from_millis(20)),
-    );
-
-    debug!(
-        "Media event scheduler channel capacity: {}",
-        scheduler_receiver.max_capacity()
-    );
+    // Channel from event_scheduler to websocket dispatcher. Currently unbounded, because it's not
+    // clear in what granularity audio frames and billing records are sent through.
+    let (scheduler_sender, scheduler_receiver) = unbounded_channel();
 
     let (pong_sender, pong_receiver) = channel(4);
 
@@ -231,7 +231,13 @@ async fn ws_session(
     let scheduler = event_scheduler::event_scheduler(cs_receiver, scheduler_sender);
     pin!(scheduler);
 
-    let dispatcher = dispatch_channel_messages(pong_receiver, scheduler_receiver, ws_sender);
+    let dispatcher = dispatch_channel_messages(
+        &billing_collector,
+        session_state.billing_id.clone(),
+        pong_receiver,
+        scheduler_receiver,
+        ws_sender,
+    );
     pin!(dispatcher);
 
     loop {
@@ -270,13 +276,14 @@ struct SessionState {
     conversation: ConversationId,
     /// The format of the binary messages sent via the websocket from mod_audio_fork.
     input_audio_format: Option<AudioFormat>,
+    billing_id: Option<BillingId>,
 }
 
 impl Drop for SessionState {
     fn drop(&mut self) {
         // First remove the target, so that - when we send the stop event to ContextSwitch, it's
         // guaranteed that no events are delivered anymore to the client.
-        if let Ok(mut distributor) = self.state.server_event_distributor.lock() {
+        if let Ok(mut distributor) = self.state.server_event_router.lock() {
             if distributor
                 .remove_conversation_target(&self.conversation)
                 .is_err()
@@ -317,8 +324,13 @@ impl SessionState {
         // Deserialize to value first so that we parse the JSON only once.
         let json_value: Value = serde_json::from_str(&json).context("Deserializing ClientEvent")?;
 
-        let start_event @ ClientEvent::Start { input_modality, .. } =
-            serde_json::from_value(json_value.clone())?
+        let start_event = serde_json::from_value(json_value.clone())?;
+
+        let ClientEvent::Start {
+            input_modality,
+            ref billing_id,
+            ..
+        } = start_event
         else {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
@@ -360,7 +372,7 @@ impl SessionState {
         let (se_sender, se_receiver) = unbounded_channel();
 
         state
-            .server_event_distributor
+            .server_event_router
             .lock()
             .expect("Poison error")
             .add_conversation_target(
@@ -368,6 +380,8 @@ impl SessionState {
                 se_sender,
                 start_aux.redirect_output_to,
             )?;
+
+        let billing_id = billing_id.clone();
 
         state
             .context_switch
@@ -382,6 +396,7 @@ impl SessionState {
                 state,
                 conversation,
                 input_audio_format,
+                billing_id,
             },
             conversation_span,
             se_receiver,
@@ -495,8 +510,10 @@ struct StartEventAuxiliary {
 
 /// Dispatches outgoing server events and pongs to the socket's sink.
 async fn dispatch_channel_messages(
+    billing_collector: &Arc<Mutex<BillingCollector>>,
+    billing_id: Option<BillingId>,
     mut pong_receiver: Receiver<Pong>,
-    mut server_event_receiver: Receiver<ServerEvent>,
+    mut server_event_receiver: UnboundedReceiver<ServerEvent>,
     mut socket: SplitSink<WebSocket, Message>,
 ) -> Result<()> {
     loop {
@@ -511,7 +528,7 @@ async fn dispatch_channel_messages(
             }
             event = server_event_receiver.recv() => {
                 if let Some(event) = event {
-                    dispatch_server_event(&mut socket, event).await?;
+                    dispatch_server_event(billing_collector, billing_id.as_ref(), &mut socket, event).await?;
                 } else {
                     bail!("Context switch event sender vanished");
                 }
@@ -521,6 +538,8 @@ async fn dispatch_channel_messages(
 }
 
 async fn dispatch_server_event(
+    billing_collector: &Arc<Mutex<BillingCollector>>,
+    billing_id: Option<&BillingId>,
     socket: &mut SplitSink<WebSocket, Message>,
     event: ServerEvent,
 ) -> Result<()> {
@@ -530,6 +549,24 @@ async fn dispatch_server_event(
             mod_audio_fork::dispatch_audio(socket, samples.into()).await
         }
         ServerEvent::ClearAudio { .. } => mod_audio_fork::dispatch_kill_audio(socket).await,
+        ServerEvent::BillingRecords {
+            service,
+            scope,
+            records,
+            ..
+        } => {
+            if let Some(billing_id) = billing_id {
+                billing_collector
+                    .lock()
+                    .unwrap()
+                    .record(billing_id, &service, scope, records)
+            } else {
+                // A inband billing record without an billing id is currently not supported and a hard error.
+                bail!(
+                    "Internal error: Received a ServerEvent::BillingRecords but without a billing id."
+                );
+            }
+        }
         event => mod_audio_fork::dispatch_json(socket, event).await,
     }
 }
@@ -557,10 +594,10 @@ async fn take_billing_records(
 
     // Get billing records from the context_switch instance
     let records = state
-        .context_switch
+        .billing_collector
         .lock()
         .expect("poisoned lock")
-        .collect_billing_records(&billing_id);
+        .collect(&billing_id);
 
     info!(
         "Took {} billing records for ID: {}",

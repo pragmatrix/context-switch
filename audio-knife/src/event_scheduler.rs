@@ -14,7 +14,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use tokio::{
     select,
-    sync::mpsc::{Sender, UnboundedReceiver},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
     time::sleep,
 };
 use tracing::{debug, warn};
@@ -27,7 +27,7 @@ use context_switch::{AudioFormat, OutputModality, OutputPath, ServerEvent};
 /// audio is being assumed to be played back.
 pub async fn event_scheduler(
     mut receiver: UnboundedReceiver<ServerEvent>,
-    sender: Sender<ServerEvent>,
+    sender: UnboundedSender<ServerEvent>,
 ) -> Result<()> {
     let mut media_scheduler = MediaEventScheduler::new();
 
@@ -58,8 +58,8 @@ pub async fn event_scheduler(
                         // the modalities should be clear from the beginning (no negotiation is currently supported).
                         media_scheduler.notify_started(modalities)?;
                     }
-                    // Control events are sent out immediately.
-                    sender.try_send(event).context("Sending control event")?;
+                    // Control path events are sent out immediately.
+                    sender.send(event).context("Sending control event")?;
                     // Even though only a control event was short circuited we need to kick the the
                     // media scheduler.
                 }
@@ -81,8 +81,10 @@ pub async fn event_scheduler(
 pub struct MediaEventScheduler {
     /// The Timestamp audio playback is finished.
     audio_finished: Instant,
-    /// All media events.
-    pending_media_events: VecDeque<ServerEvent>,
+    /// The input queue of all media path events.
+    input_media_events: VecDeque<ServerEvent>,
+    /// The timed control events extracted from the input media events.
+    timed_events: VecDeque<(Instant, ServerEvent)>,
     /// Latest audio format seen.
     audio_format: Option<AudioFormat>,
 }
@@ -91,17 +93,11 @@ const MAX_BUFFERED_AUDIO: Duration = Duration::from_secs(5);
 const WAKEUP_DELAY_WHEN_BUFFERS_ARE_FULL: Duration = Duration::from_secs(1);
 
 impl MediaEventScheduler {
-    pub fn recommended_channel_capacity(min_audio_frame_duration: Duration) -> usize {
-        let max_audio_frames_pending =
-            MAX_BUFFERED_AUDIO.as_secs_f64() / min_audio_frame_duration.as_secs_f64();
-        // Multiply with 2 to include some safety margin and control packets.
-        (max_audio_frames_pending as usize) * 2
-    }
-
     pub fn new() -> Self {
         Self {
             audio_finished: Instant::now(),
-            pending_media_events: VecDeque::new(),
+            input_media_events: VecDeque::new(),
+            timed_events: VecDeque::new(),
             audio_format: None,
         }
     }
@@ -118,27 +114,59 @@ impl MediaEventScheduler {
     }
 
     pub fn schedule_event(&mut self, now: Instant, event: ServerEvent) {
-        // Don't give me anothing other than media events!
+        // Don't give me anything other than media path events!
         debug_assert!(event.output_path() == OutputPath::Media);
         if let ServerEvent::ClearAudio { .. } = event {
-            self.pending_media_events
+            self.input_media_events
                 .retain(|e| !matches!(e, ServerEvent::Audio { .. }));
             // All the non-audio event before `ClearAudio` must be sent asap, too.
             self.audio_finished = now;
+            self.timed_events.iter_mut().for_each(|(t, _)| *t = now);
         }
-        self.pending_media_events.push_back(event);
+        self.input_media_events.push_back(event);
     }
 
+    /// Process all the events.
     pub fn process(
         &mut self,
         now: Instant,
-        sender: &Sender<ServerEvent>,
+        sender: &UnboundedSender<ServerEvent>,
+    ) -> Result<Option<Duration>> {
+        let d1 = self.process_timed_events(now, sender)?;
+        let d2 = self.process_media_path_events(now, sender)?;
+        match (d1, d2) {
+            (Some(d1), Some(d2)) => Ok(Some(d1.min(d2))),
+            (Some(d), None) | (None, Some(d)) => Ok(Some(d)),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// Process all the events of which we know when they must be sent.
+    pub fn process_timed_events(
+        &mut self,
+        now: Instant,
+        sender: &UnboundedSender<ServerEvent>,
+    ) -> Result<Option<Duration>> {
+        while let Some((time_to_send, _)) = self.timed_events.front()
+            && *time_to_send <= now
+        {
+            let (_, event) = self.timed_events.pop_front().unwrap();
+            sender.send(event).context("Sending timed event")?;
+        }
+
+        Ok(self.timed_events.front().map(|(t, _)| *t - now))
+    }
+
+    pub fn process_media_path_events(
+        &mut self,
+        now: Instant,
+        sender: &UnboundedSender<ServerEvent>,
     ) -> Result<Option<Duration>> {
         // Be sure audio_finished is not in the past.
         self.audio_finished = max(now, self.audio_finished);
 
         loop {
-            let Some(next_event) = self.pending_media_events.front() else {
+            let Some(next_event) = self.input_media_events.front() else {
                 return Ok(None);
             };
             match next_event {
@@ -147,6 +175,7 @@ impl MediaEventScheduler {
                         warn!(
                             "Received Audio but without a prior Started event or no audio output, audio is ignored"
                         );
+                        self.input_media_events.pop_front();
                         continue;
                     };
                     let duration = audio_format.duration(samples.len());
@@ -155,22 +184,26 @@ impl MediaEventScheduler {
                         return Ok(Some(WAKEUP_DELAY_WHEN_BUFFERS_ARE_FULL));
                     }
                     self.audio_finished += duration;
+
+                    sender
+                        .send(self.input_media_events.pop_front().unwrap())
+                        .context("Sending audio event")?;
                 }
                 _ => {
-                    if now < self.audio_finished {
-                        // A control event is not in the front and blocks _all_ further audio until
-                        // it's time to send it out.
-                        //
-                        // This means that a large number of audio pakets can now build up here
-                        // until all audio that has been sent gets played back.
-                        return Ok(Some(self.audio_finished - now));
+                    if self.audio_finished > now {
+                        // A control event is now in the front, figure out when it's time to send it
+                        // out and push it to the list of timed events.
+                        let time_to_send = self.audio_finished;
+                        let event = self.input_media_events.pop_front().unwrap();
+                        self.timed_events.push_back((time_to_send, event));
+                        continue;
                     }
+
+                    sender
+                        .send(self.input_media_events.pop_front().unwrap())
+                        .context("Sending control event")?;
                 }
             }
-
-            sender
-                .try_send(self.pending_media_events.pop_front().unwrap())
-                .context("Sending media event")?;
         }
     }
 }

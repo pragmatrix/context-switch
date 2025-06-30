@@ -9,7 +9,7 @@ use tracing::{debug, error};
 use crate::Host;
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputModality, OutputPath, Service,
-    conversation::{Conversation, Input},
+    conversation::{BillingSchedule, Conversation, Input},
 };
 
 #[derive(Debug, Deserialize)]
@@ -95,7 +95,11 @@ impl Service for AzureTranslate {
                     // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
                     // This price includes 1 audio input and output, up to 2 text translation language using standard or custom Speech to Text and standard Translation.
                     // No `Result<>` context, we can't fail here, instead log an error.
-                    if let Err(e) = billing_output.billing_records(None, None, [BillingRecord::duration("input:audio", frame.duration())]) {
+                    if let Err(e) = billing_output.billing_records(
+                        None,
+                        None,
+                        [BillingRecord::duration("input:audio", frame.duration())],
+                        BillingSchedule::Now) {
                         error!("Internal error: Failed to output billing records: {e}");
                     }
                 }
@@ -146,6 +150,7 @@ impl Service for AzureTranslate {
                         None,
                         None,
                         [BillingRecord::duration("output:audio", frame.duration())],
+                        BillingSchedule::Now,
                     )?;
                     output.audio_frame(frame)?;
                     output.service_event(OutputPath::Media, ServiceEvent::AudioStop)?;
