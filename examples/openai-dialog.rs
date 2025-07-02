@@ -23,7 +23,7 @@ use context_switch_core::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv_override()?;
+    dotenvy::dotenv_override().context("Reading .env file")?;
     tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
