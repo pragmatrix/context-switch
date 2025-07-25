@@ -348,27 +348,6 @@ impl ContextSwitch {
             None => bail!("Conversation does not exist"),
         }
     }
-
-    /// Broadcast audio to all active conversations which match the audio format in their input
-    /// modality.
-    #[deprecated(note = "use post_audio_frame")]
-    pub fn broadcast_audio(&self, frame: AudioFrame) -> Result<()> {
-        for (id, conversation) in &self.conversations {
-            if conversation.input_modality.can_receive_audio(frame.format) {
-                // TODO: An error here should be handled no the way that all other conversations won't receive the audio frame.
-                conversation
-                    .client_sender
-                    .try_send(ClientEvent::Audio {
-                        id: id.clone(),
-                        // TODO: If there is only one conversation that accepts this frame, we should
-                        // move it into the event.
-                        samples: frame.samples.clone().into(),
-                    })
-                    .context("Broadcasting audio client event")?;
-            }
-        }
-        Ok(())
-    }
 }
 
 fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
