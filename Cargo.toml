@@ -47,6 +47,9 @@ tracing-futures = "0.2.5"
 # todo: is this needed?
 uuid = "1.11.0"
 
+# audio tracing
+hound = { workspace = true }
+
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
 context-switch-core = { workspace = true }
@@ -68,6 +71,7 @@ openai-api-rs = { workspace = true }
 serde_json = { workspace = true }
 chrono-tz = { version = "0.10.3" }
 chrono = { version = "0.4.41" }
+
 
 [workspace.dependencies]
 tracing-subscriber = { version = "0.3.19" }
@@ -91,9 +95,9 @@ async-trait = "0.1.83"
 tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
 url = { version = "2.5.4" }
-# mediatype = { version = "0.19.20" }
 reqwest = { version = "0.12.15" }
 mime_guess2 = { version = "2.3.1" }
+hound = { version = "3.5.1" }
 
 #
 # external dependencies.

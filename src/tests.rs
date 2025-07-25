@@ -21,7 +21,7 @@ async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
         },
     );
 
-    let mut cs = ContextSwitch::new(registry.into(), server_sender)
+    let mut cs = ContextSwitch::new(registry.into(), server_sender, None)
         .with_shutdown_timeout(Duration::from_micros(1));
 
     let conv: ConversationId = "conv".to_string().into();
@@ -67,7 +67,7 @@ async fn output_events_can_be_sent_after_shutdown() {
         },
     );
 
-    let mut cs = ContextSwitch::new(registry.into(), server_sender)
+    let mut cs = ContextSwitch::new(registry.into(), server_sender, None)
         .with_shutdown_timeout(Duration::from_micros(1));
 
     let conv: ConversationId = "conv".to_string().into();
