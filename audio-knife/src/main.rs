@@ -74,6 +74,10 @@ async fn main() -> Result<()> {
 
     info!("Local files path: {local_files:?}");
 
+    let trace_dir = env::var("AUDIO_KNIFE_TRACES")
+        .map(|path| PathBuf::from(&path))
+        .ok();
+
     {
         let args = env::args();
         let args: Vec<String> = args.collect();
@@ -105,7 +109,7 @@ async fn main() -> Result<()> {
     let state = State {
         billing_collector: billing_collector.clone(),
         context_switch: Arc::new(Mutex::new(
-            ContextSwitch::new(registry.into(), cs_sender)
+            ContextSwitch::new(registry.into(), cs_sender, trace_dir)
                 .with_billing_collector(billing_collector),
         )),
         server_event_router: server_event_distributor.clone(),

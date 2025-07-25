@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -14,7 +15,7 @@ use tokio::{
 use tracing::{Span, error, info, warn};
 use tracing_futures::Instrument;
 
-use crate::{ClientEvent, ConversationId, InputModality, ServerEvent};
+use crate::{AudioTracer, ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::{
     AudioFrame, BillingContext, Registry,
     billing_collector::BillingCollector,
@@ -27,6 +28,8 @@ pub struct ContextSwitch {
     conversations: HashMap<ConversationId, ActiveConversation>,
     output: UnboundedSender<ServerEvent>,
     shutdown_timeout: Duration,
+    /// The directory defining where to store audio files for input data.
+    audio_traces: Option<PathBuf>,
     billing_collector: Arc<Mutex<BillingCollector>>,
 }
 assert_impl_all!(ContextSwitch: Send);
@@ -52,12 +55,17 @@ impl ContextSwitch {
     /// This should be enough to terminate all connections gracefully to all servers world-wide.
     pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub fn new(registry: Arc<Registry>, sender: UnboundedSender<ServerEvent>) -> Self {
+    pub fn new(
+        registry: Arc<Registry>,
+        sender: UnboundedSender<ServerEvent>,
+        audio_traces: Option<PathBuf>,
+    ) -> Self {
         Self {
             registry,
             conversations: Default::default(),
             output: sender,
             shutdown_timeout: Self::DEFAULT_SHUTDOWN_TIMEOUT,
+            audio_traces,
             billing_collector: Mutex::new(BillingCollector::default()).into(),
         }
     }
@@ -113,6 +121,7 @@ impl ContextSwitch {
                         billing_context,
                         receiver,
                         self.output.clone(),
+                        self.audio_traces.clone(),
                     )
                     .instrument(Span::current()),
                 );
@@ -149,6 +158,7 @@ async fn process_conversation(
     billing_context: Option<BillingContext>,
     input: Receiver<ClientEvent>,
     output: UnboundedSender<ServerEvent>,
+    audio_traces: Option<PathBuf>,
 ) {
     let id = initial_event.conversation_id().clone();
 
@@ -159,6 +169,7 @@ async fn process_conversation(
         billing_context,
         input,
         &output,
+        audio_traces,
     )
     .await
     .context(format!("Conversation: `{id}`"))
@@ -194,6 +205,7 @@ async fn process_conversation_protected(
     billing_context: Option<BillingContext>,
     mut input: Receiver<ClientEvent>,
     server_output: &UnboundedSender<ServerEvent>,
+    audio_traces: Option<PathBuf>,
 ) -> Result<ServerEvent> {
     let ClientEvent::Start {
         id: conversation_id,
@@ -239,6 +251,9 @@ async fn process_conversation_protected(
 
     let mut conversation = service.converse(params, conversation);
 
+    let mut audio_tracer = audio_traces
+        .map(|traces| AudioTracer::new(traces.join(conversation_id.to_string() + ".wav")));
+
     loop {
         select! {
             // Drive the conversation.
@@ -262,14 +277,19 @@ async fn process_conversation_protected(
                         bail!("Received unexpected Stop event")
                     },
                     ClientEvent::Audio { samples, .. } => {
-                        if let InputModality::Audio { format } = input_modality {
-                            let frame = AudioFrame { format, samples: samples.into() };
-                            input_sender
-                                .try_send(Input::Audio { frame })
-                                .context("Sending input audio frame to conversation")?;
-                        } else {
+                        let InputModality::Audio { format } = input_modality else {
                             bail!("Received unexpected Audio");
+                        };
+
+                        let frame = AudioFrame { format, samples: samples.into() };
+
+                        if let Some(tracer) = audio_tracer.as_mut() {
+                            tracer.capture_frame(frame.clone())
                         }
+
+                        input_sender
+                            .try_send(Input::Audio { frame })
+                            .context("Sending input audio frame to conversation")?;
                     },
                     ClientEvent::Text { content, content_type, billing_scope,.. } => {
                         if let InputModality::Text = input_modality {
