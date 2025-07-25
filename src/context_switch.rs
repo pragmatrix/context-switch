@@ -283,8 +283,8 @@ async fn process_conversation_protected(
 
                         let frame = AudioFrame { format, samples: samples.into() };
 
-                        if let Some(at) = audio_tracer.as_mut() {
-                            at.capture_frame(frame.clone())
+                        if let Some(tracer) = audio_tracer.as_mut() {
+                            tracer.capture_frame(frame.clone())
                         }
 
                         input_sender

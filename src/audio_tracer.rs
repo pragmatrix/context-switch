@@ -24,7 +24,10 @@ impl AudioTracer {
 impl Drop for AudioTracer {
     fn drop(&mut self) {
         if let Err(e) = self.write_file() {
-            error!("Failed to write file: {e:?}");
+            error!(
+                "Failed to write audio file `{}`: {e:?}",
+                self.filename.to_string_lossy()
+            );
         }
     }
 }
