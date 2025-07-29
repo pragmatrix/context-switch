@@ -72,11 +72,12 @@ async fn main() -> Result<()> {
         .map(|path| PathBuf::from(&path))
         .ok();
 
-    info!("Local files path: {local_files:?}");
-
     let trace_dir = env::var("AUDIO_KNIFE_TRACES")
         .map(|path| PathBuf::from(&path))
         .ok();
+
+    info!("Local files path: {local_files:?}");
+    info!("Audio traces: {trace_dir:?}");
 
     {
         let args = env::args();
