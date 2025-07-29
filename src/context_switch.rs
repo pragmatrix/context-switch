@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use chrono::Local;
 use static_assertions::assert_impl_all;
 use tokio::{
     select,
@@ -251,8 +252,11 @@ async fn process_conversation_protected(
 
     let mut conversation = service.converse(params, conversation);
 
-    let mut audio_tracer = audio_traces
-        .map(|traces| AudioTracer::new(traces.join(conversation_id.to_string() + ".wav")));
+    let mut audio_tracer = audio_traces.map(|traces| {
+        let timestamp = Local::now().format("%Y%m%dT%H%M%S");
+        let filename = format!("{timestamp}-{conversation_id}.wav");
+        AudioTracer::new(traces.join(filename))
+    });
 
     loop {
         select! {
