@@ -18,6 +18,10 @@ members = [
 
 [dependencies]
 
+# experimental
+
+fundsp = { version = "0.20.0" }
+
 # ours
 
 context-switch-core = { workspace = true }

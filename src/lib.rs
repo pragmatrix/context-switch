@@ -1,6 +1,7 @@
 mod audio_tracer;
 mod context_switch;
 mod protocol;
+mod speech_gate;
 
 #[cfg(test)]
 mod tests;
