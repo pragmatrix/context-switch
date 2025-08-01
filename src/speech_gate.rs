@@ -11,7 +11,9 @@ pub fn make_speech_gate_processor(
     // 0.05 / 0.025
     // 0.5 / 0.030 (not very good)
     // 0.1 / 0.075 (but not too good.)
-    make_speech_gate_processor_soft(threshold, attack_ms, release_ms, 0.01)
+    // soft_rms: (knee_width / threshold)
+    // 0.01 / 0.0025 (echo example barely audible)
+    make_speech_gate_processor_soft_rms(threshold, attack_ms, release_ms, 0.01)
 }
 
 /// Returns a processing function that can be called for each AudioFrame (mono, 16kHz, i16)
@@ -157,6 +159,7 @@ pub fn make_speech_gate_processor_hard(
 ///
 /// In layman's terms: knee width is the "fade zone" around the threshold where the gate is
 /// partially open, making the transition less abrupt.
+#[allow(unused)]
 pub fn make_speech_gate_processor_soft(
     threshold: f32, // normalized, 0.0 to 1.0
     attack_ms: f32,
@@ -193,6 +196,87 @@ pub fn make_speech_gate_processor_soft(
             };
             samples_i16.push((s as f32 * gain) as i16);
         }
+        AudioFrame {
+            format: frame.format,
+            samples: samples_i16,
+        }
+    })
+}
+
+/// Returns a processing function that applies an RMS-based speech gate with
+/// attack/release envelope for smoother transitions and better echo suppression.
+///
+/// # Parameters
+/// - `threshold`: The normalized level (0.0 to 1.0) above which audio passes through.
+/// - `attack_ms`: How quickly the gate opens when audio gets louder (milliseconds).
+/// - `release_ms`: How quickly the gate closes when audio gets quieter (milliseconds).
+/// - `knee_width`: Controls how gradually the gate transitions from closed to open near the
+///   threshold. Recommended value: 0.01-0.05
+///
+/// This implementation improves on the basic soft knee gate by using RMS energy detection
+/// for smoother, more natural speech gating and better echo suppression.
+///
+/// Claude 3.7
+pub fn make_speech_gate_processor_soft_rms(
+    threshold: f32, // normalized, 0.0 to 1.0
+    attack_ms: f32,
+    release_ms: f32,
+    knee_width: f32,
+) -> Box<dyn FnMut(&AudioFrame) -> AudioFrame> {
+    let mut envelope = 0.0f32;
+    let mut sample_rate: Option<f32> = None;
+    let mut attack_coeff = 0.0f32;
+    let mut release_coeff = 0.0f32;
+
+    // For RMS calculation
+    const RMS_WINDOW_SIZE: usize = 16; // Small window for responsive detection
+    let mut rms_buffer = [0.0f32; RMS_WINDOW_SIZE];
+    let mut buffer_pos = 0;
+
+    Box::new(move |frame: &AudioFrame| {
+        if sample_rate.is_none() {
+            let sr = frame.format.sample_rate as f32;
+            sample_rate = Some(sr);
+            attack_coeff = (-1.0 / (attack_ms * 0.001 * sr)).exp();
+            release_coeff = (-1.0 / (release_ms * 0.001 * sr)).exp();
+        }
+
+        // Pre-calculate threshold boundaries
+        let lower_threshold = threshold - knee_width;
+        let upper_threshold = threshold + knee_width;
+
+        let mut samples_i16 = Vec::with_capacity(frame.samples.len());
+        for &s in frame.samples.iter() {
+            let sample_f32 = s as f32 / 32768.0;
+
+            // Update RMS calculation with sliding window
+            rms_buffer[buffer_pos] = sample_f32 * sample_f32;
+            buffer_pos = (buffer_pos + 1) % RMS_WINDOW_SIZE;
+
+            // Calculate RMS energy
+            let energy = rms_buffer.iter().sum::<f32>() / RMS_WINDOW_SIZE as f32;
+
+            // Apply envelope follower with different attack/release
+            if energy > envelope {
+                envelope = attack_coeff * (envelope - energy) + energy;
+            } else {
+                envelope = release_coeff * (envelope - energy) + energy;
+            }
+
+            // Apply soft knee gate
+            let gain = if envelope >= upper_threshold {
+                1.0
+            } else if envelope <= lower_threshold {
+                0.0
+            } else {
+                // Smoother transition using quadratic curve
+                let t = (envelope - lower_threshold) / (upper_threshold - lower_threshold);
+                t * t // Quadratic curve sounds more natural than linear
+            };
+
+            samples_i16.push((sample_f32 * gain * 32767.0) as i16);
+        }
+
         AudioFrame {
             format: frame.format,
             samples: samples_i16,
