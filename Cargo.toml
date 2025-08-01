@@ -8,7 +8,8 @@ rust-version = "1.88"
 members = [ 
     "audio-knife", 
     "audio-test",
-    "core", "filter-test",
+    "core",
+    "filter-test",
     "services/aristech",
     "services/azure",
     "services/google-transcribe", 
