@@ -6,10 +6,16 @@ pub fn make_speech_gate_processor(
     attack_ms: f32,
     release_ms: f32,
 ) -> Box<dyn FnMut(&AudioFrame) -> AudioFrame> {
-    return make_speech_gate_processor_soft(threshold, attack_ms, release_ms, 0.05);
+    // soft: (knee_width / threshold)
+    // 0.01 / 0.0075 (best so far)
+    // 0.05 / 0.025
+    // 0.5 / 0.030 (not very good)
+    // 0.1 / 0.075 (but not too good.)
+    make_speech_gate_processor_soft(threshold, attack_ms, release_ms, 0.01)
 }
 
 /// Returns a processing function that can be called for each AudioFrame (mono, 16kHz, i16)
+#[allow(unused)]
 pub fn make_speech_gate_processor_(
     threshold: f32,
     attack_ms: f32,
@@ -82,6 +88,7 @@ fn db_to_gain(db: f32) -> f32 {
     10.0_f32.powf(db / 20.0)
 }
 
+#[allow(unused)]
 fn simple_speech_gate_v1(
     threshold: f32,
     attack_ms: f32,
@@ -101,6 +108,7 @@ fn simple_speech_gate_v1(
 
 /// Returns a processing function that applies an attack/release envelope-based speech gate (no fundsp), with lazy sample rate initialization and a hard threshold (no knee).
 /// Works well with 0.0025 threshold for the examples.
+#[allow(unused)]
 pub fn make_speech_gate_processor_hard(
     threshold: f32, // normalized, 0.0 to 1.0
     attack_ms: f32,
