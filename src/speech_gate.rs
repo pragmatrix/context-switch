@@ -120,11 +120,11 @@ pub fn make_speech_gate_processor_hard(
         let mut samples_i16 = Vec::with_capacity(frame.samples.len());
         for &s in frame.samples.iter() {
             let sample_f32 = s as f32 / 32768.0;
-            let abs = sample_f32.abs();
-            if abs > envelope {
-                envelope = attack_coeff * (envelope - abs) + abs;
+            let energy = sample_f32 * sample_f32;
+            if energy > envelope {
+                envelope = attack_coeff * (envelope - energy) + energy;
             } else {
-                envelope = release_coeff * (envelope - abs) + abs;
+                envelope = release_coeff * (envelope - energy) + energy;
             }
             let gain = if envelope >= threshold { 1.0 } else { 0.0 };
             samples_i16.push((s as f32 * gain) as i16);
@@ -165,11 +165,11 @@ pub fn make_speech_gate_processor_soft(
         let mut samples_i16 = Vec::with_capacity(frame.samples.len());
         for &s in frame.samples.iter() {
             let sample_f32 = s as f32 / 32768.0;
-            let abs = sample_f32.abs();
-            if abs > envelope {
-                envelope = attack_coeff * (envelope - abs) + abs;
+            let energy = sample_f32 * sample_f32;
+            if energy > envelope {
+                envelope = attack_coeff * (envelope - energy) + energy;
             } else {
-                envelope = release_coeff * (envelope - abs) + abs;
+                envelope = release_coeff * (envelope - energy) + energy;
             }
             let gain = if envelope >= threshold + knee_width {
                 1.0
