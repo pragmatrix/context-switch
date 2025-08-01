@@ -21,9 +21,9 @@ use context_switch::{AudioFormat, AudioFrame, make_speech_gate_processor};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Input audio file (mp3 or wav)
+    /// Input audio files (mp3 or wav)
     #[arg(required = true)]
-    input: PathBuf,
+    inputs: Vec<PathBuf>,
 
     /// Threshold for the speech gate (0.0 - 1.0)
     /// Higher values (0.1-0.2) provide more aggressive noise reduction
@@ -45,8 +45,10 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Process the file
-    process_audio_file(&args.input, args.threshold, args.attack, args.release)?;
+    // Process each file
+    for input in &args.inputs {
+        process_audio_file(input, args.threshold, args.attack, args.release)?;
+    }
 
     println!("Processing complete!");
     Ok(())
