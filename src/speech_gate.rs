@@ -144,15 +144,19 @@ pub fn make_speech_gate_processor_hard(
     })
 }
 
-/// Returns a processing function that applies an attack/release envelope-based speech gate (no fundsp), with lazy sample rate initialization and a soft knee.
+/// Returns a processing function that applies an attack/release envelope-based speech gate (no
+/// fundsp), with lazy sample rate initialization and a soft knee.
 ///
 /// # Parameters
 /// - `threshold`: The normalized level (0.0 to 1.0) above which audio passes through.
 /// - `attack_ms`: How quickly the gate opens when audio gets louder (milliseconds).
 /// - `release_ms`: How quickly the gate closes when audio gets quieter (milliseconds).
-/// - `knee_width`: Controls how gradually the gate transitions from closed to open near the threshold. A small knee width makes the gate act like an on/off switch; a larger knee width makes the gate fade in and out more smoothly as the audio approaches the threshold.
+/// - `knee_width`: Controls how gradually the gate transitions from closed to open near the
+///   threshold. A small knee width makes the gate act like an on/off switch; a larger knee width
+///   makes the gate fade in and out more smoothly as the audio approaches the threshold.
 ///
-/// In layman's terms: knee width is the "fade zone" around the threshold where the gate is partially open, making the transition less abrupt.
+/// In layman's terms: knee width is the "fade zone" around the threshold where the gate is
+/// partially open, making the transition less abrupt.
 pub fn make_speech_gate_processor_soft(
     threshold: f32, // normalized, 0.0 to 1.0
     attack_ms: f32,
