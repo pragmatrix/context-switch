@@ -1,6 +1,14 @@
 use crate::AudioFrame;
 use fundsp::{hacker::*, numeric_array::NumericArray};
 
+pub fn make_speech_gate_processor(
+    threshold: f32,
+    attack_ms: f32,
+    release_ms: f32,
+) -> Box<dyn FnMut(&AudioFrame) -> AudioFrame> {
+    return make_speech_gate_processor_soft(threshold, attack_ms, release_ms, 0.05);
+}
+
 /// Returns a processing function that can be called for each AudioFrame (mono, 16kHz, i16)
 pub fn make_speech_gate_processor_(
     threshold: f32,
@@ -91,8 +99,9 @@ fn simple_speech_gate_v1(
     pass() * gate_control
 }
 
-/// Returns a processing function that applies an attack/release envelope-based speech gate (no fundsp), with lazy sample rate initialization.
-pub fn make_speech_gate_processor(
+/// Returns a processing function that applies an attack/release envelope-based speech gate (no fundsp), with lazy sample rate initialization and a hard threshold (no knee).
+/// Works well with 0.0025 threshold for the examples.
+pub fn make_speech_gate_processor_hard(
     threshold: f32, // normalized, 0.0 to 1.0
     attack_ms: f32,
     release_ms: f32,
@@ -117,11 +126,60 @@ pub fn make_speech_gate_processor(
             } else {
                 envelope = release_coeff * (envelope - abs) + abs;
             }
-            if envelope >= threshold {
-                samples_i16.push(s);
+            let gain = if envelope >= threshold { 1.0 } else { 0.0 };
+            samples_i16.push((s as f32 * gain) as i16);
+        }
+        AudioFrame {
+            format: frame.format,
+            samples: samples_i16,
+        }
+    })
+}
+
+/// Returns a processing function that applies an attack/release envelope-based speech gate (no fundsp), with lazy sample rate initialization and a soft knee.
+///
+/// # Parameters
+/// - `threshold`: The normalized level (0.0 to 1.0) above which audio passes through.
+/// - `attack_ms`: How quickly the gate opens when audio gets louder (milliseconds).
+/// - `release_ms`: How quickly the gate closes when audio gets quieter (milliseconds).
+/// - `knee_width`: Controls how gradually the gate transitions from closed to open near the threshold. A small knee width makes the gate act like an on/off switch; a larger knee width makes the gate fade in and out more smoothly as the audio approaches the threshold.
+///
+/// In layman's terms: knee width is the "fade zone" around the threshold where the gate is partially open, making the transition less abrupt.
+pub fn make_speech_gate_processor_soft(
+    threshold: f32, // normalized, 0.0 to 1.0
+    attack_ms: f32,
+    release_ms: f32,
+    knee_width: f32, // e.g. 0.05 for a soft knee
+) -> Box<dyn FnMut(&AudioFrame) -> AudioFrame> {
+    let mut envelope = 0.0f32;
+    let mut sample_rate: Option<f32> = None;
+    let mut attack_coeff = 0.0f32;
+    let mut release_coeff = 0.0f32;
+    Box::new(move |frame: &AudioFrame| {
+        if sample_rate.is_none() {
+            let sr = frame.format.sample_rate as f32;
+            sample_rate = Some(sr);
+            attack_coeff = (-1.0 / (attack_ms * 0.001 * sr)).exp();
+            release_coeff = (-1.0 / (release_ms * 0.001 * sr)).exp();
+        }
+        let mut samples_i16 = Vec::with_capacity(frame.samples.len());
+        for &s in frame.samples.iter() {
+            let sample_f32 = s as f32 / 32768.0;
+            let abs = sample_f32.abs();
+            if abs > envelope {
+                envelope = attack_coeff * (envelope - abs) + abs;
             } else {
-                samples_i16.push(0);
+                envelope = release_coeff * (envelope - abs) + abs;
             }
+            let gain = if envelope >= threshold + knee_width {
+                1.0
+            } else if envelope <= threshold - knee_width {
+                0.0
+            } else {
+                // Linear ramp in the knee region
+                0.5 + 0.5 * (envelope - threshold) / knee_width
+            };
+            samples_i16.push((s as f32 * gain) as i16);
         }
         AudioFrame {
             format: frame.format,
