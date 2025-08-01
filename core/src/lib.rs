@@ -6,6 +6,7 @@ mod duration;
 mod protocol;
 mod registry;
 pub mod service;
+pub mod speech_gate;
 
 use std::time;
 

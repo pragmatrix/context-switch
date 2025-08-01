@@ -10,6 +10,7 @@ use crate::Host;
 use context_switch_core::{
     BillingRecord, Service,
     conversation::{BillingSchedule, Conversation, Input},
+    speech_gate::make_speech_gate_processor_soft_rms,
 };
 
 #[derive(Debug, Deserialize)]
@@ -66,7 +67,9 @@ impl Service for AzureTranscribe {
             .into_header_for_infinite_file();
             stream! {
                 yield wav_header;
-                while let Some(Input::Audio{frame}) = input.recv().await {
+                let mut speech_gate = make_speech_gate_processor_soft_rms(0.0025, 10., 300., 0.01);
+                while let Some(Input::Audio{ frame }) = input.recv().await {
+                    let frame = speech_gate(&frame);
                     yield frame.to_le_bytes();
                     // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
                     // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
