@@ -171,10 +171,10 @@ fn process_audio_file(
         let samples_per_channel = mono_samples.len() / channels.count();
         let mut downmixed = Vec::with_capacity(samples_per_channel);
 
-        for i in 0..samples_per_channel {
+        for i in (0..mono_samples.len()).step_by(channels.count()) {
             let mut sum = 0i32;
             for ch in 0..channels.count() {
-                sum += mono_samples[i + ch * samples_per_channel] as i32;
+                sum += mono_samples[i + ch] as i32;
             }
             downmixed.push((sum / channels.count() as i32) as i16);
         }
