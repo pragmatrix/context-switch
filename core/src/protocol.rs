@@ -31,10 +31,12 @@ impl AudioFormat {
         time::Duration::from_secs_f64(mono_sample_count as f64 / self.sample_rate as f64)
     }
 
+    // Architecture: This is used only in the examples anymore.
     pub fn new_channel(&self) -> (AudioProducer, AudioConsumer) {
         audio_channel(*self)
     }
 
+    #[deprecated(note = "Removed without replacement")]
     pub fn new_msg_channel(&self) -> (AudioMsgProducer, AudioMsgConsumer) {
         audio_msg_channel(*self)
     }
