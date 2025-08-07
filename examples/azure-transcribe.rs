@@ -1,24 +1,58 @@
-use std::{env, time::Duration};
+use std::{env, path::Path, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tokio::{
     select,
     sync::mpsc::{channel, unbounded_channel},
 };
 
-use context_switch::{InputModality, OutputModality, services::AzureTranscribe};
+use context_switch::{AudioConsumer, InputModality, OutputModality, services::AzureTranscribe};
 use context_switch_core::{
     AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input},
     service::Service,
 };
 
+const LANGUAGE: &str = "de-DE";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
     tracing_subscriber::fmt::init();
 
+    let mut args = env::args();
+    match args.len() {
+        1 => recognize_from_microphone().await?,
+        2 => recognize_from_wav(Path::new(&args.nth(1).unwrap())).await?,
+        _ => bail!("Invalid number of arguments, expect zero or one"),
+    }
+    Ok(())
+}
+
+async fn recognize_from_wav(file: &Path) -> Result<()> {
+    // For now we always convert to 16khz single channel (this is what we use internally for
+    // testing).
+    let format = AudioFormat {
+        channels: 1,
+        sample_rate: 16000,
+    };
+
+    let frames = playback::audio_file_to_frames(file, format)?;
+    if frames.is_empty() {
+        bail!("No frames in the audio files")
+    }
+
+    let (producer, input_consumer) = format.new_channel();
+
+    for frame in frames {
+        producer.produce(frame)?;
+    }
+
+    recognize(format, input_consumer).await
+}
+
+async fn recognize_from_microphone() -> Result<()> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -33,7 +67,7 @@ async fn main() -> Result<()> {
     let sample_rate = config.sample_rate();
     let format = AudioFormat::new(channels, sample_rate.0);
 
-    let (producer, mut input_consumer) = format.new_channel();
+    let (producer, input_consumer) = format.new_channel();
 
     // Create and run the input stream
     let stream = device
@@ -56,19 +90,23 @@ async fn main() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    let language = "de-DE";
+    recognize(format, input_consumer).await
+}
 
+async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Result<()> {
     // TODO: clarify how to access configurations.
     let params = azure::transcribe::Params {
         host: None,
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-        language: language.into(),
+        language: LANGUAGE.into(),
+        speech_gate: false,
     };
 
     let (output_producer, mut output_consumer) = unbounded_channel();
-    let (conv_input_producer, conv_input_consumer) = channel(32);
+    // Must undbound this too.
+    let (conv_input_producer, conv_input_consumer) = channel(16384);
 
     let azure = AzureTranscribe;
     let mut conversation = azure.conversation(

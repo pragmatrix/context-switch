@@ -159,7 +159,7 @@ impl Service for Playback {
 }
 
 /// Render the file into 100ms audio frames mono.
-fn audio_file_to_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
+pub fn audio_file_to_frames(path: &Path, format: AudioFormat) -> Result<Vec<AudioFrame>> {
     check_supported_audio_type(&path.to_string_lossy(), None)?;
     let file = File::open(path).inspect_err(|e| {
         // We don't want to provide the resolved path to the user in an error message. Therefore we

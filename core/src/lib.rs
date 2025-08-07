@@ -94,7 +94,7 @@ pub fn audio_msg_channel(format: AudioFormat) -> (AudioMsgProducer, AudioMsgCons
 #[derive(Debug)]
 pub struct AudioConsumer {
     pub format: AudioFormat,
-    pub receiver: mpsc::Receiver<Vec<i16>>,
+    pub receiver: mpsc::UnboundedReceiver<Vec<i16>>,
 }
 
 impl AudioConsumer {
@@ -114,18 +114,10 @@ impl AudioConsumer {
 #[derive(Debug)]
 pub struct AudioProducer {
     pub format: AudioFormat,
-    pub sender: mpsc::Sender<Vec<i16>>,
+    pub sender: mpsc::UnboundedSender<Vec<i16>>,
 }
 
 impl AudioProducer {
-    // TODO: remove this function.
-    pub fn produce_raw(&self, samples: Vec<i16>) -> Result<()> {
-        self.produce(AudioFrame {
-            format: self.format,
-            samples,
-        })
-    }
-
     pub fn produce(&self, frame: AudioFrame) -> Result<()> {
         if frame.format != self.format {
             bail!(
@@ -134,15 +126,14 @@ impl AudioProducer {
                 frame.format
             );
         }
-        self.sender
-            .try_send(frame.samples)
-            .context("Sending samples")
+        self.sender.send(frame.samples).context("Sending samples")?;
+        Ok(())
     }
 }
 
 /// Create an unidirectional audio channel.
 pub fn audio_channel(format: AudioFormat) -> (AudioProducer, AudioConsumer) {
-    let (producer, consumer) = mpsc::channel(256);
+    let (producer, consumer) = mpsc::unbounded_channel();
     (
         AudioProducer {
             format,

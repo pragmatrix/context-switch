@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
 use futures::StreamExt;
 use serde::Deserialize;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::Host;
 use context_switch_core::{
@@ -20,6 +20,8 @@ pub struct Params {
     pub region: Option<String>,
     pub subscription_key: String,
     pub language: String,
+    #[serde(default)]
+    pub speech_gate: bool,
 }
 
 #[derive(Debug)]
@@ -67,9 +69,18 @@ impl Service for AzureTranscribe {
             .into_header_for_infinite_file();
             stream! {
                 yield wav_header;
-                let mut speech_gate = make_speech_gate_processor_soft_rms(0.0025, 10., 300., 0.01);
-                while let Some(Input::Audio{ frame }) = input.recv().await {
-                    let frame = speech_gate(&frame);
+                let mut speech_gate =
+                    if params.speech_gate {
+                        info!("Enabling speech gate");
+                        Some(make_speech_gate_processor_soft_rms(0.0025, 10., 300., 0.01))
+                    }
+                    else {
+                        None
+                    };
+                while let Some(Input::Audio{ mut frame }) = input.recv().await {
+                    if let Some(ref mut speech_gate) = speech_gate {
+                        frame = (speech_gate)(&frame);
+                    }
                     yield frame.to_le_bytes();
                     // <https://azure.microsoft.com/en-us/pricing/details/cognitive-services/speech-services/>
                     // Speech to text hours are measured as the hours of audio _sent to the service_, billed in second increments.
