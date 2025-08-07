@@ -40,7 +40,7 @@ async fn recognize_from_wav(file: &Path) -> Result<()> {
 
     let frames = playback::audio_file_to_frames(file, format)?;
     if frames.is_empty() {
-        bail!("No frames in the audio files")
+        bail!("No frames in the audio file")
     }
 
     let (producer, input_consumer) = format.new_channel();
