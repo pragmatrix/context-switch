@@ -105,7 +105,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
     };
 
     let (output_producer, mut output_consumer) = unbounded_channel();
-    // Must undbound this too.
+    // For now this is more or less unbounded, because we push complete audio files for recognition.
     let (conv_input_producer, conv_input_consumer) = channel(16384);
 
     let azure = AzureTranscribe;
