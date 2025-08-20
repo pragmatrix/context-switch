@@ -41,12 +41,12 @@ impl Service for AzureTranslate {
             sample_rate: 16000,
         };
 
-        if let Some(audio_format) = output_modalities.audio {
-            if audio_format != AUDIO_OUTPUT_FORMAT {
-                bail!(
-                    "Only {AUDIO_OUTPUT_FORMAT:?} is supported, but output modalities contains {audio_format:?}"
-                );
-            }
+        if let Some(audio_format) = output_modalities.audio
+            && audio_format != AUDIO_OUTPUT_FORMAT
+        {
+            bail!(
+                "Only {AUDIO_OUTPUT_FORMAT:?} is supported, but output modalities contains {audio_format:?}"
+            );
         }
 
         // Host / Auth is lightweight, so we can create this every time.

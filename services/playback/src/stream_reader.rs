@@ -31,17 +31,16 @@ impl io::Read for StreamReader {
         }
 
         // If we have a current chunk with remaining data, use it
-        if let Some(ref chunk) = self.current_chunk {
-            if self.chunk_offset < chunk.len() {
-                let remaining_in_chunk = chunk.len() - self.chunk_offset;
-                let to_copy = std::cmp::min(buf.len(), remaining_in_chunk);
+        if let Some(ref chunk) = self.current_chunk
+            && self.chunk_offset < chunk.len()
+        {
+            let remaining_in_chunk = chunk.len() - self.chunk_offset;
+            let to_copy = std::cmp::min(buf.len(), remaining_in_chunk);
 
-                buf[..to_copy]
-                    .copy_from_slice(&chunk[self.chunk_offset..self.chunk_offset + to_copy]);
-                self.chunk_offset += to_copy;
+            buf[..to_copy].copy_from_slice(&chunk[self.chunk_offset..self.chunk_offset + to_copy]);
+            self.chunk_offset += to_copy;
 
-                return Ok(to_copy);
-            }
+            return Ok(to_copy);
         }
 
         // Need to get the next chunk from the stream
