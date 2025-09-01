@@ -590,9 +590,14 @@ impl Client {
                                 }
                             };
                             output.service_event(
-                                // We send out the function call via the media path. For example if
-                                // we use a prompt to initiate a function call, this might overtake
-                                // currently pending audio output.
+                                // Send the function call via the media path.
+                                //
+                                // This means that audio scheduled before will finish playing before
+                                // the client receives the event to execute the function call.
+                                //
+                                // For example if we use a prompt to initiate a function call, it
+                                // might overtake currently pending audio output and an answer
+                                // before the participant even heard the audio.
                                 OutputPath::Media,
                                 ServiceOutputEvent::FunctionCall {
                                     name: name.clone(),
