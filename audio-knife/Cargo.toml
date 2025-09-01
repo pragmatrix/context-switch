@@ -1,6 +1,6 @@
 [package]
 name = "audio-knife"
-version = "1.4.1"
+version = "1.4.2"
 edition = "2024"
 
 [profile.dev]
