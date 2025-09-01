@@ -12,8 +12,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 futures = { workspace = true }
 context-switch-core = { workspace = true }
-aristech-stt-client = "3.1.0"
-aristech-tts-client = "1.0.7"
+aristech-stt-client = "3.1.2"
+aristech-tts-client = "1.0.9"
 tokio-stream = "0.1.17"
-tonic = "0.13.0"
+tonic = { version = "0.14.1" }
 tracing = { workspace = true }
