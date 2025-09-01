@@ -345,8 +345,15 @@ impl Client {
         };
 
         let initial = serde_json::from_str(&message)?;
-        let ServerEvent::SessionCreated(session_created) = initial else {
-            bail!("Failed to receive the session created event");
+        let session_created = match initial {
+            ServerEvent::SessionCreated(session_created) => session_created,
+            ServerEvent::Error(e) => {
+                let error_message = e.error.message;
+                bail!("Failed to create the session: {error_message}");
+            }
+            _ => {
+                bail!("Received an unexpected event in response to the session creation");
+            }
         };
 
         let session = session_created.session;
