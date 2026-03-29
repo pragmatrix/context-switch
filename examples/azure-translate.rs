@@ -43,7 +43,8 @@ async fn main() -> Result<()> {
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate);
+    let input_format = AudioFormat::new(channels, sample_rate);
+    let output_format = AudioFormat::new(1_u16, 16_000_u32);
 
     let (input_sender, input_receiver) = channel(256);
 
@@ -53,7 +54,10 @@ async fn main() -> Result<()> {
             &input_config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
-                let frame = AudioFrame { format, samples };
+                let frame = AudioFrame {
+                    format: input_format,
+                    samples,
+                };
                 if input_sender.try_send(Input::Audio { frame }).is_err() {
                     println!("Failed to send audio data")
                 }
@@ -86,9 +90,13 @@ async fn main() -> Result<()> {
     let (output_sender, output_receiver) = unbounded_channel();
 
     let conversation = Conversation::new(
-        InputModality::Audio { format },
+        InputModality::Audio {
+            format: input_format,
+        },
         [
-            OutputModality::Audio { format },
+            OutputModality::Audio {
+                format: output_format,
+            },
             // OutputModality::Text,
             // OutputModality::InterimText,
         ],
@@ -98,7 +106,7 @@ async fn main() -> Result<()> {
 
     let mut conversation = service.conversation(params, conversation);
 
-    let playback_task = setup_audio_playback(format, output_receiver).await;
+    let playback_task = setup_audio_playback(output_receiver).await;
 
     // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
@@ -128,7 +136,6 @@ enum AudioCommand {
 }
 
 async fn setup_audio_playback(
-    format: AudioFormat,
     mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = ()> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -144,8 +151,8 @@ async fn setup_audio_playback(
                     let source = FrameSource {
                         frames: audio::from_i16(frame.samples),
                         position: 0,
-                        sample_rate: format.sample_rate,
-                        channels: format.channels,
+                        sample_rate: frame.format.sample_rate,
+                        channels: frame.format.channels,
                     };
                     player.append(source);
                 }
