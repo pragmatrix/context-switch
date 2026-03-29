@@ -27,6 +27,10 @@ async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
     tracing_subscriber::fmt::init();
 
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile before microphone capture starts.
+    let _output_sink = DeviceSinkBuilder::open_default_sink().ok();
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()

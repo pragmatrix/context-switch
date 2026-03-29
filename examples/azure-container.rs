@@ -33,10 +33,15 @@ use std::time::Duration;
 use anyhow::Result;
 use context_switch_core::{AudioFormat, AudioFrame, audio};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rodio::DeviceSinkBuilder;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv()?;
+
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile before microphone capture starts.
+    let _output_sink = DeviceSinkBuilder::open_default_sink().ok();
 
     let host = cpal::default_host();
     let device = host
