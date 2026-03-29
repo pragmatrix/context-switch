@@ -1,11 +1,16 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{env, thread, time::Duration};
+use std::{
+    env,
+    num::{NonZeroU16, NonZeroU32},
+    thread,
+    time::Duration,
+};
 
 use anyhow::Result;
 use azure::AzureTranslate;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rodio::{OutputStreamBuilder, Sink, Source};
+use rodio::{DeviceSinkBuilder, Player, Source};
 
 use context_switch::{InputModality, OutputModality};
 use context_switch_core::{
@@ -22,6 +27,10 @@ async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
     tracing_subscriber::fmt::init();
 
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile before microphone capture starts.
+    let _output_sink = DeviceSinkBuilder::open_default_sink().ok();
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -34,7 +43,8 @@ async fn main() -> Result<()> {
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate.0);
+    let input_format = AudioFormat::new(channels, sample_rate);
+    let output_format = AudioFormat::new(1_u16, 16_000_u32);
 
     let (input_sender, input_receiver) = channel(256);
 
@@ -44,7 +54,10 @@ async fn main() -> Result<()> {
             &input_config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
-                let frame = AudioFrame { format, samples };
+                let frame = AudioFrame {
+                    format: input_format,
+                    samples,
+                };
                 if input_sender.try_send(Input::Audio { frame }).is_err() {
                     println!("Failed to send audio data")
                 }
@@ -77,9 +90,13 @@ async fn main() -> Result<()> {
     let (output_sender, output_receiver) = unbounded_channel();
 
     let conversation = Conversation::new(
-        InputModality::Audio { format },
+        InputModality::Audio {
+            format: input_format,
+        },
         [
-            OutputModality::Audio { format },
+            OutputModality::Audio {
+                format: output_format,
+            },
             // OutputModality::Text,
             // OutputModality::InterimText,
         ],
@@ -89,7 +106,7 @@ async fn main() -> Result<()> {
 
     let mut conversation = service.conversation(params, conversation);
 
-    let playback_task = setup_audio_playback(format, output_receiver).await;
+    let playback_task = setup_audio_playback(output_receiver).await;
 
     // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
@@ -119,19 +136,14 @@ enum AudioCommand {
 }
 
 async fn setup_audio_playback(
-    format: AudioFormat,
     mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = ()> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
     // Spawn a dedicated audio thread
     let playback_thread = thread::spawn(move || {
-        let stream = OutputStreamBuilder::from_default_device()
-            .unwrap()
-            .open_stream()
-            .unwrap();
-
-        let sink = Sink::connect_new(stream.mixer());
+        let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
+        let player = Player::connect_new(sink_handle.mixer());
 
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {
@@ -139,20 +151,20 @@ async fn setup_audio_playback(
                     let source = FrameSource {
                         frames: audio::from_i16(frame.samples),
                         position: 0,
-                        sample_rate: format.sample_rate,
-                        channels: format.channels,
+                        sample_rate: frame.format.sample_rate,
+                        channels: frame.format.channels,
                     };
-                    sink.append(source);
+                    player.append(source);
                 }
                 AudioCommand::Clear => {
-                    sink.clear();
-                    sink.play();
+                    player.clear();
+                    player.play();
                 }
                 AudioCommand::Stop => break,
             }
         }
 
-        sink.sleep_until_end();
+        player.sleep_until_end();
     });
 
     // Create async task to forward frames to the audio thread
@@ -210,12 +222,12 @@ impl Source for FrameSource {
         Some(self.frames.len() - self.position)
     }
 
-    fn channels(&self) -> u16 {
-        self.channels
+    fn channels(&self) -> NonZeroU16 {
+        NonZeroU16::new(self.channels).expect("channels must be non-zero")
     }
 
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
+    fn sample_rate(&self) -> NonZeroU32 {
+        NonZeroU32::new(self.sample_rate).expect("sample rate must be non-zero")
     }
 
     fn total_duration(&self) -> Option<Duration> {

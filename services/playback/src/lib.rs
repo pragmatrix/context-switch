@@ -1,6 +1,7 @@
 use std::{
     fs::{self, File},
     io::{self, BufReader},
+    num::{NonZeroU16, NonZeroU32},
     path::{Path, PathBuf},
 };
 
@@ -196,24 +197,32 @@ pub fn read_with_frame_callback<F>(
 where
     F: FnMut(AudioFrame) -> Result<()>,
 {
-    if format.channels != 1 {
+    let Some(target_channels) = NonZeroU16::new(format.channels) else {
+        bail!("Output channel count must be greater than zero");
+    };
+    if target_channels.get() != 1 {
         bail!("Only mono output is supported");
     }
+    let Some(target_sample_rate) = NonZeroU32::new(format.sample_rate) else {
+        bail!("Output sample rate must be greater than zero");
+    };
+
     let source = Decoder::new(reader)?;
     let source_sample_rate = source.sample_rate();
     let source_channels = source.channels();
+
     // Correctness: This does not seem to actually mix the channels it just extracts one channel.
-    let converter = ChannelCountConverter::new(source, source_channels, 1);
+    let converter = ChannelCountConverter::new(source, source_channels, target_channels);
 
     // Create the appropriate source based on whether we need resampling
     let mut source_iterator: Box<dyn Iterator<Item = f32> + Send> =
-        if format.sample_rate != source_sample_rate {
+        if source_sample_rate.get() != format.sample_rate {
             // Quality: This resampler is a simple linear resampler.
             Box::new(SampleRateConverter::new(
                 converter,
                 source_sample_rate,
-                format.sample_rate,
-                1,
+                target_sample_rate,
+                target_channels,
             ))
         } else {
             Box::new(converter)

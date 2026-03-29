@@ -1,6 +1,6 @@
 [package]
 name = "audio-knife"
-version = "1.5.0"
+version = "2.0.0"
 edition = "2024"
 
 [profile.dev]
@@ -23,7 +23,7 @@ reqwest = { workspace = true }
 uuid = { workspace = true }
 
 futures-util = { version = "0.3.31" }
-axum = { version = "0.7.9", features = ["ws"] }
+axum = { version = "0.8.8", features = ["ws"] }
 
 #
 # ours

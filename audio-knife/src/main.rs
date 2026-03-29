@@ -14,12 +14,14 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use axum::{
+    body::Bytes,
     extract::{
         self, Path, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     response::{IntoResponse, Json},
     routing::get,
+    serve::ListenerExt,
 };
 use base64::{Engine as _, engine::general_purpose};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
@@ -119,19 +121,23 @@ async fn main() -> Result<()> {
     let app = axum::Router::new()
         .route("/", get(ws_get))
         .route(
-            "/billing-records/:billing_id/take",
+            "/billing-records/{billing_id}/take",
             get(take_billing_records),
         )
         .with_state(state);
 
-    let listener = TcpListener::bind(addr).await?;
+    // IMPORTANT: attempt to set TCP_NODELAY on every incoming connection.
+    // We need to disable the Nagle algorithm to properly support low latency
+    // live streaming small audio packets.
+    let listener = TcpListener::bind(addr).await?.tap_io(|tcp_stream| {
+        if let Err(err) = tcp_stream.set_nodelay(true) {
+            error!("failed to set TCP_NODELAY on incoming connection: {err:#}");
+        }
+    });
     info!("Listening on {:?}", addr);
 
     select! {
-        // IMPORTANT: set TCP_NODELAY, this does set it on _every_ incoming connection. We need to
-        // disable the Nagle algorithm to properly support low latency live streaming small audio
-        // packets.
-        r = axum::serve(listener, app).tcp_nodelay(true) => {
+        r = axum::serve(listener, app) => {
             info!("Axum server ended");
             r?
         },
@@ -196,7 +202,7 @@ async fn ws_driver(state: State, websocket: WebSocket) {
 }
 
 #[derive(Debug)]
-struct Pong(Vec<u8>);
+struct Pong(Bytes);
 
 async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
     // Wait for the first message event, assuming this is the start event for the conversation.
@@ -325,9 +331,8 @@ impl SessionState {
         };
 
         // Our start msg may contain additional information to parameterize output redirection.
-        let json = Self::msg_to_json(msg)?;
         // Deserialize to value first so that we parse the JSON only once.
-        let json_value: Value = serde_json::from_str(&json).context("Deserializing ClientEvent")?;
+        let json_value: Value = Self::decode_json_value(msg.as_str())?;
 
         let start_event = serde_json::from_value(json_value.clone())?;
 
@@ -411,7 +416,7 @@ impl SessionState {
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
         match msg {
             Message::Text(msg) => {
-                let client_event = Self::decode_client_event(msg)?;
+                let client_event = Self::decode_client_event(msg.as_str())?;
                 debug!("Received client event: `{client_event:?}`");
 
                 // Be sure we don't process events for other than the one we got with the first start event.
@@ -482,27 +487,23 @@ impl SessionState {
         }
     }
 
-    fn decode_client_event(msg: String) -> Result<ClientEvent> {
-        let json_str = Self::msg_to_json(msg)?;
-        Self::deserialize_client_event(&json_str)
+    fn decode_client_event(msg: &str) -> Result<ClientEvent> {
+        let json_value = Self::decode_json_value(msg)?;
+        serde_json::from_value(json_value).context("Deserializing client event")
     }
 
     /// Because the argument parser of mod_audio_fork may ignore JSON with spaces in it, two formats
     /// are currently supported: verbatim json and base64: prefixed base64 json.
-    fn msg_to_json(msg: String) -> Result<String> {
-        Ok(if let Some(base64_str) = msg.strip_prefix("base64:") {
+    fn decode_json_value(msg: &str) -> Result<Value> {
+        if let Some(base64_str) = msg.strip_prefix("base64:") {
             let decoded_bytes = general_purpose::STANDARD
                 .decode(base64_str)
                 .context("Decoding base64 string")?;
 
-            String::from_utf8(decoded_bytes).context("Converting decoded base64 to UTF-8 string")?
+            serde_json::from_slice(&decoded_bytes).context("Deserializing decoded base64 JSON")
         } else {
-            msg
-        })
-    }
-
-    fn deserialize_client_event(json: &str) -> Result<ClientEvent> {
-        serde_json::from_str(json).context("Deserializing client event")
+            serde_json::from_str(msg).context("Deserializing ClientEvent")
+        }
     }
 }
 

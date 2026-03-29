@@ -41,7 +41,7 @@ pub async fn dispatch_audio(
     let audio_data = to_le_bytes(samples);
 
     // Send the binary audio data over the WebSocket
-    socket.send(Message::Binary(audio_data)).await?;
+    socket.send(Message::Binary(audio_data.into())).await?;
 
     Ok(())
 }
@@ -63,5 +63,5 @@ async fn dispatch_event(
 ) -> Result<()> {
     let json = serde_json::to_string(&event)?;
     debug!("Sending json event: {json}");
-    Ok(socket.send(Message::Text(json)).await?)
+    Ok(socket.send(Message::Text(json.into())).await?)
 }

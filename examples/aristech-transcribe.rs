@@ -2,6 +2,7 @@ use std::{env, time::Duration};
 
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rodio::DeviceSinkBuilder;
 use tokio::{
     select,
     sync::mpsc::{channel, unbounded_channel},
@@ -19,6 +20,10 @@ use context_switch_core::{
 async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
 
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile before microphone capture starts.
+    let _output_sink = DeviceSinkBuilder::open_default_sink().ok();
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -29,14 +34,14 @@ async fn main() -> Result<()> {
 
     let stream_config = cpal::SupportedStreamConfig::new(
         1,
-        cpal::SampleRate(16_000),
+        16_000,
         cpal::SupportedBufferSize::Range {
             min: 512,
             max: 2048,
         },
         cpal::SampleFormat::F32,
     );
-    let sample_rate = stream_config.sample_rate().0;
+    let sample_rate = stream_config.sample_rate();
     let config = stream_config.config();
 
     println!("Config: {config:?}");

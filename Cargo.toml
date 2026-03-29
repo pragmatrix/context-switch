@@ -1,8 +1,8 @@
 [package]
 name = "context-switch"
-version = "1.2.0"
+version = "2.0.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.94"
 
 [workspace]
 members = [ 
@@ -46,7 +46,7 @@ async-trait = { workspace = true }
 tracing-futures = "0.2.5"
 
 # todo: is this needed?
-uuid = "1.11.0"
+uuid = { workspace = true }
 
 # audio tracing
 hound = { workspace = true }
@@ -59,7 +59,7 @@ context-switch-core = { workspace = true }
 dotenvy = { workspace = true }
 
 # audio input
-cpal = "0.15.3"
+cpal = "0.17.3"
 rodio = { workspace = true, features = ["playback"] }
 
 azure = { workspace = true }
@@ -78,31 +78,31 @@ chrono-tz = { version = "0.10.3" }
 playback = { path = "services/playback" }
 
 [workspace.dependencies]
-tracing-subscriber = { version = "0.3.19" }
+tracing-subscriber = { version = "0.3.23" }
 
 context-switch-core = { path = "core" }
 azure = { path = "services/azure" }
 playback = { path = "services/playback" }
 aristech = { path = "services/aristech" }
 
-anyhow = "1.0.93"
-derive_more = { version = "2.0.1", features = ["full"] }
+anyhow = "1.0.102"
+derive_more = { version = "2.1.1", features = ["full"] }
 static_assertions = "1.1.0"
 async-stream = { version = "0.3.6" }
-tokio = { version = "1.41.1", features = ["sync"] }
+tokio = { version = "1.50.0", features = ["sync"] }
 futures = "0.3.31"
 serde = { version = "1.0.215", features = ["derive"] }
-serde_json = "1.0.133"
+serde_json = "1.0.149"
 base64 = "0.22.1"
-async-fn-stream = "0.2.2"
+async-fn-stream = "0.3.2"
 async-trait = "0.1.83"
 tracing = "0.1.41"
 dotenvy = { version = "0.15.7" }
-url = { version = "2.5.4" }
-reqwest = { version = "0.12.15" }
+url = { version = "2.5.8" }
+reqwest = { version = "0.13.2" }
 mime_guess2 = { version = "2.3.1" }
 hound = { version = "3.5.1" }
-chrono = { version = "0.4.41" }
+chrono = { version = "0.4.44" }
 
 #
 # external dependencies.
@@ -111,12 +111,11 @@ chrono = { version = "0.4.41" }
 azure-speech = { path = "external/azure-speech-sdk-rs" }
 # openai-api-rs = "5.2.3"
 openai-api-rs = { path = "external/openai-api-rs" }
-# Use a local rodio version because 0.21 isn't released yet and we need to convert audio to mono and resample it.
 # - `symphonia-wav` is mandatory: The default WAV decoder does not seem to support A-Law and also
 #    panics with a few of our testcases.
 # - No default features because we don't want to pull alsa on Linux by default for local playback.
 # - We have to define at least _one_ decoder, otherwise `cargo clippy --all-targets` fails, so we select `symphonia-mp3`.
-rodio = { path = "external/rodio", default-features = false, features = ["symphonia-mp3"] }
+rodio = { version = "0.22.2", default-features = false, features = ["symphonia-mp3"] }
 
-rstest = { version = "0.25.0" }
+rstest = { version = "0.26.1" }
 uuid = { version = "1.17.0", features = ["v4"] }

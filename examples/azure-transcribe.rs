@@ -2,6 +2,7 @@ use std::{env, path::Path, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rodio::DeviceSinkBuilder;
 use tokio::{
     select,
     sync::mpsc::{channel, unbounded_channel},
@@ -53,10 +54,23 @@ async fn recognize_from_wav(file: &Path) -> Result<()> {
 }
 
 async fn recognize_from_microphone() -> Result<()> {
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile. Without this, some devices report an input stream of zeros.
+    let _output_sink = match DeviceSinkBuilder::open_default_sink() {
+        Ok(sink) => {
+            println!("Opened default output sink for headset profile");
+            Some(sink)
+        }
+        Err(e) => {
+            println!("Warning: Failed to open default output sink: {e}");
+            None
+        }
+    };
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()
-        .expect("Failed to get default input device");
+        .context("Failed to get default input device")?;
     let config = device
         .default_input_config()
         .expect("Failed to get default input config");
@@ -65,7 +79,7 @@ async fn recognize_from_microphone() -> Result<()> {
 
     let channels = config.channels();
     let sample_rate = config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate.0);
+    let format = AudioFormat::new(channels, sample_rate);
 
     let (producer, input_consumer) = format.new_channel();
 
@@ -75,6 +89,7 @@ async fn recognize_from_microphone() -> Result<()> {
             &config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
+
                 let frame = AudioFrame { format, samples };
                 if producer.produce(frame).is_err() {
                     println!("Failed to send audio data")
