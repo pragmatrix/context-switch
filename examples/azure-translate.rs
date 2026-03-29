@@ -147,6 +147,7 @@ async fn setup_audio_playback(
                 }
                 AudioCommand::Clear => {
                     player.clear();
+                    player.play();
                 }
                 AudioCommand::Stop => break,
             }
