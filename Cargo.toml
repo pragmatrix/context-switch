@@ -46,7 +46,7 @@ async-trait = { workspace = true }
 tracing-futures = "0.2.5"
 
 # todo: is this needed?
-uuid = "1.23.0"
+uuid = { workspace = true }
 
 # audio tracing
 hound = { workspace = true }
