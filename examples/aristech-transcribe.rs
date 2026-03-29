@@ -29,14 +29,14 @@ async fn main() -> Result<()> {
 
     let stream_config = cpal::SupportedStreamConfig::new(
         1,
-        cpal::SampleRate(16_000),
+        16_000,
         cpal::SupportedBufferSize::Range {
             min: 512,
             max: 2048,
         },
         cpal::SampleFormat::F32,
     );
-    let sample_rate = stream_config.sample_rate().0;
+    let sample_rate = stream_config.sample_rate();
     let config = stream_config.config();
 
     println!("Config: {config:?}");

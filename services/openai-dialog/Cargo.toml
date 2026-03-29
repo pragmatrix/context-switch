@@ -8,7 +8,7 @@ context-switch-core = { workspace = true }
 
 openai-api-rs = { workspace = true }
 
-tokio-tungstenite = { version = "0.26.2", features = ["connect", "native-tls"] }
+tokio-tungstenite = { version = "0.28.0", features = ["connect", "native-tls"] }
 
 tracing = { workspace = true }
 

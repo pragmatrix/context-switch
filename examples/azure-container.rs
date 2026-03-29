@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     let channels = config.channels();
     let sample_rate = config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate.0);
+    let format = AudioFormat::new(channels, sample_rate);
 
     let (producer, _consumer) = format.new_channel();
 

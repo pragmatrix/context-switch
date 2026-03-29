@@ -1,9 +1,14 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{env, thread, time::Duration};
+use std::{
+    env,
+    num::{NonZeroU16, NonZeroU32},
+    thread,
+    time::Duration,
+};
 
 use anyhow::{Result, bail};
-use rodio::{OutputStreamBuilder, Sink, Source};
+use rodio::{DeviceSinkBuilder, Player, Source};
 use tokio::{select, sync::mpsc::unbounded_channel};
 
 use context_switch::{ClientEvent, ContextSwitch, ConversationId, OutputModality, ServerEvent};
@@ -131,12 +136,12 @@ impl Source for FrameSource {
         Some(self.frames.len() - self.position)
     }
 
-    fn channels(&self) -> u16 {
-        self.channels
+    fn channels(&self) -> NonZeroU16 {
+        NonZeroU16::new(self.channels).expect("channels must be non-zero")
     }
 
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
+    fn sample_rate(&self) -> NonZeroU32 {
+        NonZeroU32::new(self.sample_rate).expect("sample rate must be non-zero")
     }
 
     fn total_duration(&self) -> Option<Duration> {
@@ -160,12 +165,8 @@ async fn setup_audio_playback(
     // Spawn a dedicated audio thread
     let handle = thread::spawn(move || {
         // Create output stream in the audio thread
-        let stream = OutputStreamBuilder::from_default_device()
-            .unwrap()
-            .open_stream()
-            .unwrap();
-
-        let sink = Sink::connect_new(stream.mixer());
+        let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
+        let player = Player::connect_new(sink_handle.mixer());
 
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {
@@ -176,13 +177,13 @@ async fn setup_audio_playback(
                         sample_rate: format.sample_rate,
                         channels: format.channels,
                     };
-                    sink.append(source);
+                    player.append(source);
                 }
                 AudioCommand::Stop => break,
             }
         }
 
-        sink.sleep_until_end();
+        player.sleep_until_end();
     });
 
     // Create async task to forward frames to the audio thread

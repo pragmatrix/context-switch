@@ -27,12 +27,12 @@ use tokio_tungstenite::{
     tungstenite::{Bytes, protocol::Message},
 };
 use tracing::{debug, info, trace, warn};
+use uuid::Uuid;
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, OutputPath, Service, audio,
     conversation::{BillingSchedule, Conversation, ConversationInput, ConversationOutput, Input},
 };
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,7 +74,7 @@ impl Service for OpenAIDialog {
         // Only support audio input and output for now
         let input_format = conversation.require_audio_input()?;
         let output_format = conversation.require_one_audio_output()?;
-        // Architexture: this can be derived further down.
+        // Architecture: this can be derived further down.
         let output_transcription = conversation.has_one_text_output()?;
         if input_format != output_format {
             bail!("Input and output audio formats must match for OpenAI dialog service");

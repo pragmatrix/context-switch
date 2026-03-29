@@ -20,11 +20,8 @@ use tonic::transport;
 
 type Client =
     googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient<
-        tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MyInterceptor>,
+        tonic::service::interceptor::InterceptedService<tonic::transport::Channel, AuthInterceptor>,
     >;
-
-type MyInterceptor =
-    Box<dyn FnMut(tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> + Send + Sync>;
 
 #[derive(Default)]
 pub struct Config {
@@ -88,19 +85,29 @@ impl Host {
         let token = self.token_source.token().await.map_err(|e| anyhow!(e))?;
         let mut metadata_value = tonic::metadata::AsciiMetadataValue::try_from(token)?;
         metadata_value.set_sensitive(true);
-        let interceptor: MyInterceptor = Box::new(
-            move |mut request: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
-                request
-                    .metadata_mut()
-                    .insert("authorization", metadata_value.clone());
-                Ok(request)
-            },
-        );
+        let interceptor = AuthInterceptor { metadata_value };
         let client = googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient::with_interceptor(inner, interceptor);
         Ok(TranscribeClient {
             client,
             project_id: self.project_id.clone(),
         })
+    }
+}
+
+#[derive(Clone)]
+struct AuthInterceptor {
+    metadata_value: tonic::metadata::AsciiMetadataValue,
+}
+
+impl tonic::service::Interceptor for AuthInterceptor {
+    fn call(
+        &mut self,
+        mut request: tonic::Request<()>,
+    ) -> std::result::Result<tonic::Request<()>, tonic::Status> {
+        request
+            .metadata_mut()
+            .insert("authorization", self.metadata_value.clone());
+        Ok(request)
     }
 }
 

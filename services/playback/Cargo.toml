@@ -22,7 +22,7 @@ rodio = { workspace = true, features = ["symphonia-wav", "symphonia-mp3"] }
 reqwest = { workspace = true, features = ["stream"] } # Added "stream" feature for bytes_stream
 mime_guess2 = { workspace = true }
 futures-util = { version = "0.3.31", default-features = false, features = ["std"] } # Added futures-util for StreamExt
-bytes = "1.10.1" # Added bytes for Bytes type
+bytes = "1.11.1" # Added bytes for Bytes type
 
 [dev-dependencies]
 rstest = { workspace = true }

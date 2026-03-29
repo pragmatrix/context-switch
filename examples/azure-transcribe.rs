@@ -65,7 +65,7 @@ async fn recognize_from_microphone() -> Result<()> {
 
     let channels = config.channels();
     let sample_rate = config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate.0);
+    let format = AudioFormat::new(channels, sample_rate);
 
     let (producer, input_consumer) = format.new_channel();
 
