@@ -628,7 +628,7 @@ impl Client {
                                 // classic non-final, because non-final text is always overwritten with
                                 // a more refined text later, this isn't)
                                 info!("output text: {transcript}");
-                                output.text(true, transcript)?;
+                                output.text(true, transcript, None)?;
                             }
                         }
                         _ => {

@@ -152,7 +152,7 @@ impl Service for AristechTranscribe {
 
                 // Instead of processing all alternatives, just take the first one
                 if let Some(alternative) = chunk.alternatives.into_iter().next() {
-                    output.text(is_final, alternative.text)?;
+                    output.text(is_final, alternative.text, None)?;
                 }
             }
         }

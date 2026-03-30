@@ -384,10 +384,15 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             id: id.clone(),
             samples: frame.samples.into(),
         },
-        Output::Text { is_final, text } => ServerEvent::Text {
+        Output::Text {
+            is_final,
+            text,
+            language,
+        } => ServerEvent::Text {
             id: id.clone(),
             is_final,
             content: text,
+            language,
         },
         Output::RequestCompleted { request_id } => ServerEvent::RequestCompleted {
             id: id.clone(),

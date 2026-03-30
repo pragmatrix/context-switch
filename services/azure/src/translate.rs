@@ -128,12 +128,12 @@ impl Service for AzureTranslate {
                 Event::EndDetected(_, _) => {}
                 Event::Translating(_, text, _, _, _) => {
                     if output_modalities.text {
-                        output.text(false, text)?;
+                        output.text(false, text, None)?;
                     }
                 }
                 Event::Translated(_, text, _, _, _) => {
                     if output_modalities.interim_text {
-                        output.text(true, text)?;
+                        output.text(true, text, None)?;
                     }
                 }
                 Event::TranslationSynthesis(_, samples) => {
