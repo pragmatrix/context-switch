@@ -178,8 +178,12 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Text { is_final, text } => {
-                    println!("Text: {text}, final: {is_final}")
+                Output::Text {
+                    is_final,
+                    text,
+                    language,
+                } => {
+                    println!("Text: {text}, final: {is_final}, language: {language:?}")
                 }
                 Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {

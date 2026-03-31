@@ -97,6 +97,8 @@ pub enum ServerEvent {
         id: ConversationId,
         is_final: bool,
         content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     /// A completed event is sent when the client request that triggered Audio or Text responses has
     /// has been fully processed.

@@ -9,7 +9,7 @@ use tracing::{error, info};
 use crate::Host;
 use context_switch_core::{
     BillingRecord, Service,
-    conversation::{BillingSchedule, Conversation, Input},
+    conversation::{BillingSchedule, Conversation, ConversationOutput, Input},
     speech_gate::make_speech_gate_processor_soft_rms,
 };
 
@@ -46,13 +46,35 @@ impl Service for AzureTranscribe {
             }
         };
 
+        let languages = params
+            .language
+            .split(',')
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+
+        if languages.is_empty() {
+            bail!("language must contain at least one locale code");
+        }
+        let include_detected_language = languages.len() > 1;
+
         let config = recognizer::Config::default()
             // Disable profanity filter.
-            .set_profanity(recognizer::Profanity::Raw)
-            // short-circuit language filter.
-            // TODO: may actually use the filter to check for supported languages?
-            .set_language(recognizer::Language::Custom(params.language))
-            .set_output_format(recognizer::OutputFormat::Detailed);
+            .set_profanity(recognizer::Profanity::Raw);
+
+        let config = if languages.len() == 1 {
+            config.set_language(recognizer::Language::Custom(languages[0].clone()))
+        } else {
+            config.set_detect_languages(
+                languages
+                    .into_iter()
+                    .map(recognizer::Language::Custom)
+                    .collect(),
+                recognizer::LanguageDetectMode::Continuous,
+            )
+        }
+        .set_output_format(recognizer::OutputFormat::Detailed);
 
         let client = recognizer::Client::connect(host.auth.clone(), config).await?;
 
@@ -108,13 +130,36 @@ impl Service for AzureTranscribe {
                 | Event::StartDetected(_, _)
                 | Event::EndDetected(_, _) => {}
                 Event::Recognizing(_, recognized, _, _, _) => {
-                    output.text(false, recognized.text)?
+                    output_recognized_text(&output, recognized, false, include_detected_language)?
                 }
-                Event::Recognized(_, recognized, _, _, _) => output.text(true, recognized.text)?,
+                Event::Recognized(_, recognized, _, _, _) => {
+                    output_recognized_text(&output, recognized, true, include_detected_language)?
+                }
                 Event::UnMatch(_, _, _, _) => {}
             }
         }
 
         Ok(())
     }
+}
+
+fn output_recognized_text(
+    output: &ConversationOutput,
+    recognized: recognizer::Recognized,
+    is_final: bool,
+    include_detected_language: bool,
+) -> Result<()> {
+    let recognizer::Recognized {
+        text,
+        primary_language,
+        ..
+    } = recognized;
+
+    let language = if include_detected_language {
+        primary_language.map(|x| x.language.to_string())
+    } else {
+        None
+    };
+
+    output.text(is_final, text, language)
 }

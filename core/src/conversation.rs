@@ -227,8 +227,12 @@ impl ConversationOutput {
         self.post(Output::ClearAudio)
     }
 
-    pub fn text(&self, is_final: bool, text: String) -> Result<()> {
-        self.post(Output::Text { is_final, text })
+    pub fn text(&self, is_final: bool, text: String, language: Option<String>) -> Result<()> {
+        self.post(Output::Text {
+            is_final,
+            text,
+            language,
+        })
     }
 
     pub fn request_completed(&self, request_id: Option<RequestId>) -> Result<()> {
@@ -318,6 +322,7 @@ pub enum Output {
     Text {
         is_final: bool,
         text: String,
+        language: Option<String>,
     },
     RequestCompleted {
         request_id: Option<RequestId>,
