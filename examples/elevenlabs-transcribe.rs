@@ -1,6 +1,8 @@
-use std::{env, path::Path};
+use std::{env, path::Path, time::Duration};
 
 use anyhow::{Context, Result, bail};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use rodio::DeviceSinkBuilder;
 use tokio::{
     select,
     sync::mpsc::{channel, unbounded_channel},
@@ -10,12 +12,12 @@ use context_switch::{
     AudioConsumer, InputModality, OutputModality, services::ElevenLabsTranscribe,
 };
 use context_switch_core::{
-    AudioFormat,
+    AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input},
     service::Service,
 };
 
-const LANGUAGE: &str = "en";
+const LANGUAGE: &str = "de";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,8 +26,9 @@ async fn main() -> Result<()> {
 
     let mut args = env::args();
     match args.len() {
+        1 => recognize_from_microphone().await?,
         2 => recognize_from_wav(Path::new(&args.nth(1).unwrap())).await?,
-        _ => bail!("Invalid number of arguments, expect one WAV/audio file path"),
+        _ => bail!("Invalid number of arguments, expect zero or one"),
     }
 
     Ok(())
@@ -46,6 +49,59 @@ async fn recognize_from_wav(file: &Path) -> Result<()> {
     for frame in frames {
         producer.produce(frame)?;
     }
+
+    recognize(format, input_consumer).await
+}
+
+async fn recognize_from_microphone() -> Result<()> {
+    // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
+    // bidirectional profile. Without this, some devices report an input stream of zeros.
+    let _output_sink = match DeviceSinkBuilder::open_default_sink() {
+        Ok(sink) => {
+            println!("Opened default output sink for headset profile");
+            Some(sink)
+        }
+        Err(e) => {
+            println!("Warning: Failed to open default output sink: {e}");
+            None
+        }
+    };
+
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .context("Failed to get default input device")?;
+    let config = device
+        .default_input_config()
+        .expect("Failed to get default input config");
+
+    println!("config: {config:?}");
+
+    let channels = config.channels();
+    let sample_rate = config.sample_rate();
+    let format = AudioFormat::new(channels, sample_rate);
+
+    let (producer, input_consumer) = format.new_channel();
+
+    let stream = device
+        .build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                let samples = audio::into_i16(data);
+
+                let frame = AudioFrame { format, samples };
+                if producer.produce(frame).is_err() {
+                    println!("Failed to send audio data");
+                }
+            },
+            move |err| {
+                eprintln!("Error occurred on stream: {err}");
+            },
+            Some(Duration::from_secs(1)),
+        )
+        .expect("Failed to build input stream");
+
+    stream.play().expect("Failed to play stream");
 
     recognize(format, input_consumer).await
 }
