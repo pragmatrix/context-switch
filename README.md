@@ -8,6 +8,7 @@ Context Switch is a Rust-based framework for building real-time conversational a
 - Pluggable service architecture
 - Integration with:
   - Azure Speech Services (transcription, translation, synthesis)
+  - ElevenLabs realtime speech-to-text (Scribe v2 Realtime)
   - OpenAI dialog services
 - Asynchronous processing using Tokio
 
@@ -16,6 +17,7 @@ Context Switch is a Rust-based framework for building real-time conversational a
 - `core/`: Core functionality and interfaces
 - `services/`: Implementation of various service integrations
   - `azure/`: Azure Speech Services integration
+  - `elevenlabs/`: ElevenLabs speech-to-text integration
   - `google-transcribe/`: Google Speech-to-Text integration (WIP)
   - `openai-dialog/`: OpenAI conversational services integration
 - `audio-knife/`: WebSocket server that implements the [mod_audio_fork](https://github.com/questnet/freeswitch-modules/tree/questnet/mod_audio_fork) protocol for real-time audio streaming from telephony systems via [FreeSWITCH](https://signalwire.com/freeswitch). Provides a bridge between audio sources and the Context Switch framework.
@@ -61,6 +63,9 @@ cargo run --example openai-dialog
 # Run Azure transcribe example
 cargo run --example azure-transcribe
 
+# Run ElevenLabs transcribe example
+cargo run --example elevenlabs-transcribe -- path/to/audio.wav
+
 # Run Azure synthesize example
 cargo run --example azure-synthesize
 ```
@@ -89,6 +94,9 @@ OPENAI_REALTIME_API_MODEL=gpt-4o-mini-realtime-preview
 # Azure Configuration
 AZURE_SUBSCRIPTION_KEY=your_azure_key
 AZURE_REGION=your_azure_region
+
+# ElevenLabs Configuration
+ELEVENLABS_API_KEY=your_elevenlabs_key
 
 # Audio Knife Configuration
 AUDIO_KNIFE_ADDRESS=127.0.0.1:8123
