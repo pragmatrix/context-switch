@@ -1,10 +1,12 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::select;
+use tokio::sync::mpsc;
+use tokio::time::{Duration, sleep};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{
@@ -13,16 +15,17 @@ use tokio_tungstenite::{
         http::{HeaderName, HeaderValue},
     },
 };
-use tracing::debug;
+use tracing::{debug, warn};
 use url::Url;
 
 use context_switch_core::{
     AudioFormat, OutputPath, Service,
-    conversation::{Conversation, ConversationOutput, Input},
+    conversation::{Conversation, ConversationInput, ConversationOutput, Input},
 };
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const API_KEY_HEADER: &str = "xi-api-key";
+const WRITER_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,46 +123,107 @@ impl Service for ElevenLabsTranscribe {
             .await
             .context("Connecting to ElevenLabs realtime websocket")?;
 
-        let (mut write, mut read) = socket.split();
+        let (write, mut read) = socket.split();
         let (mut input, output) = conversation.start()?;
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
+        let writer_task = tokio::spawn(run_writer(write, outbound_rx));
+        let mut outbound_closed = false;
 
-        let mut input_closed = false;
-        let mut previous_text_for_next_chunk = params.previous_text.as_deref();
+        let conversation_result = run_conversation_loop(
+            &mut input,
+            &output,
+            &mut read,
+            &outbound_tx,
+            &mut outbound_closed,
+            input_format,
+            params.previous_text.as_deref(),
+        )
+        .await;
 
-        loop {
-            select! {
-                input_event = input.recv(), if !input_closed => {
-                    match input_event {
-                        Some(Input::Audio { frame }) => {
-                            if frame.format != input_format {
-                                bail!("Received mixed input audio formats in conversation");
-                            }
+        if !outbound_closed {
+            let _ = outbound_tx.send(OutboundMessage::Close);
+        }
 
-                            let previous_text = previous_text_for_next_chunk.take();
-                            send_audio_chunk(&mut write, frame, false, previous_text).await?;
+        drop(outbound_tx);
+
+        let shutdown_result = shutdown_writer_task(writer_task).await;
+
+        conversation_result?;
+        shutdown_result
+    }
+}
+
+async fn run_conversation_loop<R>(
+    input: &mut ConversationInput,
+    output: &ConversationOutput,
+    read: &mut R,
+    outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
+    outbound_closed: &mut bool,
+    input_format: AudioFormat,
+    mut previous_text_for_next_chunk: Option<&str>,
+) -> Result<()>
+where
+    R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    let mut input_closed = false;
+
+    loop {
+        select! {
+            input_event = input.recv(), if !input_closed => {
+                match input_event {
+                    Some(Input::Audio { frame }) => {
+                        if frame.format != input_format {
+                            bail!("Received mixed input audio formats in conversation");
                         }
-                        Some(_) => {}
-                        None => {
-                            input_closed = true;
-                            write.close().await.context("Closing websocket write stream")?;
-                        }
+
+                        let previous_text = previous_text_for_next_chunk.take();
+                        let msg = build_audio_chunk_message(frame, false, previous_text)?;
+                        outbound_tx
+                            .send(msg)
+                            .map_err(|_| anyhow!("ElevenLabs websocket writer task stopped unexpectedly"))?;
                     }
-                }
-                msg = read.next() => {
-                    match msg {
-                        Some(Ok(message)) => {
-                            process_server_message(message, &output)?;
+                    Some(_) => {}
+                    None => {
+                        input_closed = true;
+                        if !*outbound_closed {
+                            let _ = outbound_tx.send(OutboundMessage::Close);
+                            *outbound_closed = true;
                         }
-                        Some(Err(e)) => {
-                            bail!("Error reading ElevenLabs websocket: {e}");
-                        }
-                        None => break,
                     }
                 }
             }
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(message)) => {
+                        process_server_message(message, output)?;
+                    }
+                    Some(Err(e)) => {
+                        bail!("Error reading ElevenLabs websocket: {e}");
+                    }
+                    None => return Ok(()),
+                }
+            }
         }
+    }
+}
 
-        Ok(())
+async fn shutdown_writer_task(mut writer_task: tokio::task::JoinHandle<Result<()>>) -> Result<()> {
+    select! {
+        join_result = &mut writer_task => {
+            match join_result {
+                Ok(result) => result,
+                Err(e) => bail!("ElevenLabs websocket writer task failed to join: {e}"),
+            }
+        }
+        _ = sleep(WRITER_SHUTDOWN_GRACE_PERIOD) => {
+            warn!(
+                "ElevenLabs writer shutdown grace period reached; aborting writer task after {:?}",
+                WRITER_SHUTDOWN_GRACE_PERIOD
+            );
+            writer_task.abort();
+            let _ = writer_task.await;
+            Ok(())
+        }
     }
 }
 
@@ -231,15 +295,11 @@ fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url>
     Ok(url)
 }
 
-async fn send_audio_chunk<S>(
-    write: &mut S,
+fn build_audio_chunk_message(
     frame: context_switch_core::AudioFrame,
     commit: bool,
     previous_text: Option<&str>,
-) -> Result<()>
-where
-    S: futures::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
-{
+) -> Result<OutboundMessage> {
     let request = InputAudioChunk {
         message_type: "input_audio_chunk",
         audio_base_64: base64::engine::general_purpose::STANDARD.encode(frame.to_le_bytes()),
@@ -249,10 +309,38 @@ where
     };
 
     let json = serde_json::to_string(&request).context("Serializing input audio chunk")?;
-    write
-        .send(Message::Text(json.into()))
-        .await
-        .context("Sending input audio chunk")?;
+    Ok(OutboundMessage::Ws(Message::Text(json.into())))
+}
+
+enum OutboundMessage {
+    Ws(Message),
+    Close,
+}
+
+async fn run_writer<S>(
+    mut write: S,
+    mut outbound_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+) -> Result<()>
+where
+    S: futures::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    while let Some(outbound) = outbound_rx.recv().await {
+        match outbound {
+            OutboundMessage::Ws(message) => {
+                write
+                    .send(message)
+                    .await
+                    .context("Sending input audio chunk")?;
+            }
+            OutboundMessage::Close => {
+                write
+                    .close()
+                    .await
+                    .context("Closing websocket write stream")?;
+                return Ok(());
+            }
+        }
+    }
 
     Ok(())
 }
