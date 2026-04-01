@@ -15,7 +15,7 @@ use tokio_tungstenite::{
         http::{HeaderName, HeaderValue},
     },
 };
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use url::Url;
 
 use context_switch_core::{
@@ -359,7 +359,14 @@ fn process_server_message(message: Message, output: &ConversationOutput) -> Resu
     match message {
         Message::Text(text) => process_server_json(text.as_str(), output),
         Message::Binary(_) => Ok(()),
-        Message::Ping(_) | Message::Pong(_) => Ok(()),
+        Message::Ping(payload) => {
+            error!(
+                "Received ElevenLabs websocket ping ({} bytes payload)",
+                payload.len()
+            );
+            Ok(())
+        }
+        Message::Pong(_) => Ok(()),
         Message::Close(_) => Ok(()),
         Message::Frame(_) => Ok(()),
     }
