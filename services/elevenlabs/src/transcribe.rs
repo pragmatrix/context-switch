@@ -26,6 +26,7 @@ use context_switch_core::{
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const API_KEY_HEADER: &str = "xi-api-key";
 const WRITER_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(2);
+const DEFAULT_MODEL: &str = "scribe_v2_realtime";
 const DEFAULT_INCLUDE_LANGUAGE_DETECTION: bool = false;
 
 #[derive(Debug, Deserialize)]
@@ -33,9 +34,8 @@ const DEFAULT_INCLUDE_LANGUAGE_DETECTION: bool = false;
 pub struct Params {
     /// ElevenLabs API key for the `xi-api-key` websocket header.
     pub api_key: String,
-    /// Realtime model. Default: `scribe_v2_realtime`.
-    #[serde(default = "default_model")]
-    pub model: String,
+    /// Optional realtime model. Defaults to `scribe_v2_realtime` when omitted.
+    pub model: Option<String>,
     /// Optional websocket endpoint override.
     pub host: Option<String>,
     /// Optional language hint (ISO 639-1 or ISO 639-3).
@@ -53,10 +53,6 @@ pub struct Params {
     pub min_silence_duration_ms: Option<u32>,
     /// Optional prior text context sent only with the first `input_audio_chunk`.
     pub previous_text: Option<String>,
-}
-
-fn default_model() -> String {
-    "scribe_v2_realtime".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -249,7 +245,7 @@ fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url>
 
     {
         let mut q = url.query_pairs_mut();
-        q.append_pair("model_id", &params.model);
+        q.append_pair("model_id", params.model.as_deref().unwrap_or(DEFAULT_MODEL));
         // Defaulting to false enables automatic translation to the requested language.
         let include_language_detection = params
             .include_language_detection
