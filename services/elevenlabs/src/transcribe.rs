@@ -357,7 +357,10 @@ struct InputAudioChunk<'a> {
 
 fn process_server_message(message: Message, output: &ConversationOutput) -> Result<()> {
     match message {
-        Message::Text(text) => process_server_json(text.as_str(), output),
+        Message::Text(text) => {
+            debug!("ElevenLabs websocket received: {}", text);
+            process_server_json(text.as_str(), output)
+        }
         Message::Binary(_) => Ok(()),
         Message::Ping(payload) => {
             error!(
@@ -400,9 +403,17 @@ fn process_server_json(json: &str, output: &ConversationOutput) -> Result<()> {
                     message_type: "committed_transcript_with_timestamps",
                     text: event.text,
                     language_code: event.language_code,
-                    words: event.words,
+                    words: event.words.unwrap_or_default(),
                 },
             )
+        }
+        "invalid_request" => {
+            let event: InvalidRequest = serde_json::from_value(envelope.payload)?;
+            let message = event
+                .message
+                .or(event.error)
+                .unwrap_or_else(|| "ElevenLabs realtime rejected the request".to_owned());
+            bail!("ElevenLabs invalid_request: {message}")
         }
         message_type if is_scribe_error_type(message_type) => {
             let message = extract_error_message(&envelope.payload)
@@ -440,8 +451,13 @@ struct CommittedTranscript {
 struct CommittedTranscriptWithTimestamps {
     text: String,
     language_code: Option<String>,
-    #[serde(default)]
-    words: Vec<WordTimestamp>,
+    words: Option<Vec<WordTimestamp>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InvalidRequest {
+    message: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
