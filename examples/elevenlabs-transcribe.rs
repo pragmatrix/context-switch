@@ -112,7 +112,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
         model: "scribe_v2_realtime".to_owned(),
         host: None,
         language: Some(LANGUAGE.to_owned()),
-        include_language_detection: true,
+        include_language_detection: Some(false),
         vad_silence_threshold_secs: None,
         vad_threshold: None,
         min_speech_duration_ms: None,

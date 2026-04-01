@@ -26,6 +26,7 @@ use context_switch_core::{
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const API_KEY_HEADER: &str = "xi-api-key";
 const WRITER_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(2);
+const DEFAULT_INCLUDE_LANGUAGE_DETECTION: bool = false;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,9 +40,9 @@ pub struct Params {
     pub host: Option<String>,
     /// Optional language hint (ISO 639-1 or ISO 639-3).
     pub language: Option<String>,
-    /// Include detected language in timestamped output. Default: `true` in this integration.
-    #[serde(default = "default_true")]
-    pub include_language_detection: bool,
+    /// Include detected language in timestamped output.
+    /// When omitted, this integration defaults it to `false`.
+    pub include_language_detection: Option<bool>,
     /// VAD silence threshold in seconds. Range: `0.3..=3.0`. Default: `1.5`.
     pub vad_silence_threshold_secs: Option<f64>,
     /// VAD activity threshold. Range: `0.1..=0.9`. Default: `0.4`.
@@ -56,10 +57,6 @@ pub struct Params {
 
 fn default_model() -> String {
     "scribe_v2_realtime".to_owned()
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -253,9 +250,13 @@ fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url>
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("model_id", &params.model);
+        // Defaulting to false enables automatic translation to the requested language.
+        let include_language_detection = params
+            .include_language_detection
+            .unwrap_or(DEFAULT_INCLUDE_LANGUAGE_DETECTION);
         q.append_pair(
             "include_language_detection",
-            if params.include_language_detection {
+            if include_language_detection {
                 "true"
             } else {
                 "false"
