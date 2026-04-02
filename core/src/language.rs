@@ -48,6 +48,34 @@ pub fn bcp47_to_iso639_3(tag: &str) -> Result<&'static str, LanguageCodeError> {
         })
 }
 
+/// Converts an ISO 639 language code into a BCP 47 language tag.
+///
+/// The conversion returns a primary language tag only. If a matching ISO 639-1 code exists,
+/// that 2-letter code is preferred (for example `eng` -> `en`). Otherwise the original ISO
+/// 639-3 code is used as the BCP 47 primary language subtag.
+///
+/// Supports ISO 639-1 (2-letter) and ISO 639-3 (3-letter) input codes.
+pub fn iso639_to_bcp47(code: &str) -> Result<String, LanguageCodeError> {
+    let language = match code.len() {
+        2 => Language::from_639_1(code),
+        3 => Language::from_639_3(code),
+        _ => None,
+    }
+    .ok_or_else(|| LanguageCodeError::UnsupportedLanguage {
+        language: code.to_string(),
+    })?;
+
+    Ok(language
+        .to_639_1()
+        .map(str::to_string)
+        .unwrap_or_else(|| language.to_639_3().to_string()))
+}
+
+/// Converts an ISO 639-3 language code into a BCP 47 language tag.
+pub fn iso639_3_to_bcp47(code: &str) -> Result<String, LanguageCodeError> {
+    iso639_to_bcp47(code)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

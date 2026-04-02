@@ -19,9 +19,9 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use context_switch_core::{
-    AudioFormat, OutputPath, Service,
+    AudioFormat, Service,
     conversation::{Conversation, ConversationInput, ConversationOutput, Input},
-    language::bcp47_to_iso639_3,
+    language::{bcp47_to_iso639_3, iso639_to_bcp47},
 };
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
@@ -397,17 +397,29 @@ fn process_server_json(json: &str, output: &ConversationOutput) -> Result<()> {
         "committed_transcript_with_timestamps" => {
             let event: CommittedTranscriptWithTimestamps =
                 serde_json::from_value(envelope.payload.clone())?;
+            let CommittedTranscriptWithTimestamps {
+                text,
+                language_code: detected_language_code,
+                words: _,
+            } = event;
 
-            output.text(true, event.text.clone(), event.language_code.clone())?;
-            output.service_event(
-                OutputPath::Control,
-                TimestampTranscriptEvent {
-                    message_type: "committed_transcript_with_timestamps",
-                    text: event.text,
-                    language_code: event.language_code,
-                    words: event.words.unwrap_or_default(),
-                },
-            )
+            let language_code = detected_language_code
+                .as_deref()
+                .and_then(|detected_language| {
+                    match iso639_to_bcp47(detected_language) {
+                        Ok(code) => Some(code.to_string()),
+                        Err(err) => {
+                            error!(
+                                "Failed to convert detected language code '{}' from ISO 639 to BCP47: {}",
+                                detected_language,
+                                err
+                            );
+                            None
+                        }
+                    }
+                });
+
+            output.text(true, text, language_code)
         }
         // Not in the official documentation, but this happens when the language code is invalid.
         "invalid_request" => {
@@ -454,6 +466,7 @@ struct CommittedTranscript {
 struct CommittedTranscriptWithTimestamps {
     text: String,
     language_code: Option<String>,
+    #[allow(dead_code)]
     words: Option<Vec<WordTimestamp>>,
 }
 
@@ -463,6 +476,7 @@ struct InvalidRequest {
     error: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
 struct WordTimestamp {
     text: String,
@@ -474,14 +488,6 @@ struct WordTimestamp {
     logprob: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     characters: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize)]
-struct TimestampTranscriptEvent {
-    message_type: &'static str,
-    text: String,
-    language_code: Option<String>,
-    words: Vec<WordTimestamp>,
 }
 
 fn is_scribe_error_type(message_type: &str) -> bool {
