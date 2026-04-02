@@ -1,7 +1,7 @@
 [package]
 name = "context-switch"
-version = "2.0.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 rust-version = "1.94"
 
 [workspace]
@@ -17,6 +17,10 @@ members = [
     "services/openai-dialog", 
     "services/playback",
 ]
+
+[workspace.package]
+version = "2.1.0"
+edition = "2024"
 
 [dependencies]
 
