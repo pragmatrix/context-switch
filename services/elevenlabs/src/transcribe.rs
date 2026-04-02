@@ -21,6 +21,7 @@ use url::Url;
 use context_switch_core::{
     AudioFormat, OutputPath, Service,
     conversation::{Conversation, ConversationInput, ConversationOutput, Input},
+    language::bcp47_to_iso639_3,
 };
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
@@ -38,7 +39,7 @@ pub struct Params {
     pub model: Option<String>,
     /// Optional websocket endpoint override.
     pub host: Option<String>,
-    /// Optional language hint (ISO 639-1 or ISO 639-3).
+    /// Optional language hint in BCP 47 format (for example `en-US`).
     pub language: Option<String>,
     /// Include detected language in timestamped output.
     /// When omitted, this integration defaults it to `false`.
@@ -262,8 +263,11 @@ fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url>
         q.append_pair("audio_format", audio_encoding.as_str());
         q.append_pair("commit_strategy", "vad");
 
-        if let Some(language) = &params.language {
-            q.append_pair("language_code", language);
+        if let Some(language) = params.language.as_deref() {
+            let language_code = bcp47_to_iso639_3(language).map_err(|error| {
+                anyhow!("Invalid ElevenLabs params.language '{language}': {error}")
+            })?;
+            q.append_pair("language_code", language_code);
         }
         if let Some(vad_silence_threshold_secs) = params.vad_silence_threshold_secs {
             q.append_pair(

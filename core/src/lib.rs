@@ -3,6 +3,7 @@ pub mod billing_collector;
 mod billing_context;
 pub mod conversation;
 mod duration;
+pub mod language;
 mod protocol;
 mod registry;
 pub mod service;

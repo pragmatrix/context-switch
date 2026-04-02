@@ -11,3 +11,4 @@
 ## Code Minimalism
 - Avoid defensive code unless there is concrete evidence it is necessary.
 - Avoid redundant logic and repeated calls; keep only the minimal behavior required for correctness.
+- Do not add tests unless explicitly requested by the user.

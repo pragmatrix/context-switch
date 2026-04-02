@@ -17,7 +17,7 @@ use context_switch_core::{
     service::Service,
 };
 
-const LANGUAGE: &str = "de";
+const LANGUAGE: &str = "de-DE";
 
 #[tokio::main]
 async fn main() -> Result<()> {
