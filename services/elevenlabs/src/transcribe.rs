@@ -123,7 +123,7 @@ impl Service for ElevenLabsTranscribe {
             .unwrap_or(DEFAULT_INCLUDE_LANGUAGE_DETECTION);
 
         let encoding = resolve_audio_encoding(input_format)?;
-        let endpoint = build_endpoint(&params, encoding)?;
+        let endpoint = build_endpoint(&params, encoding, include_language_detection)?;
 
         let mut request = endpoint
             .as_str()
@@ -265,7 +265,11 @@ fn resolve_audio_encoding(input_format: AudioFormat) -> Result<AudioEncoding> {
     Ok(encoding)
 }
 
-fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url> {
+fn build_endpoint(
+    params: &Params,
+    audio_encoding: AudioEncoding,
+    include_language_detection: bool,
+) -> Result<Url> {
     let host = params.host.as_deref().unwrap_or(DEFAULT_REALTIME_HOST);
     let mut url = Url::parse(host).context("Invalid ElevenLabs realtime host URL")?;
 
@@ -273,9 +277,6 @@ fn build_endpoint(params: &Params, audio_encoding: AudioEncoding) -> Result<Url>
         let mut q = url.query_pairs_mut();
         q.append_pair("model_id", params.model.as_deref().unwrap_or(DEFAULT_MODEL));
         // Defaulting to false enables automatic translation to the requested language.
-        let include_language_detection = params
-            .include_language_detection
-            .unwrap_or(DEFAULT_INCLUDE_LANGUAGE_DETECTION);
         q.append_pair(
             "include_language_detection",
             if include_language_detection {
