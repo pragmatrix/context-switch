@@ -8,7 +8,7 @@ use tokio::select;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 use tokio_tungstenite::{
-    connect_async,
+    connect_async_with_config,
     tungstenite::{
         Message,
         client::IntoClientRequest,
@@ -112,7 +112,8 @@ impl Service for ElevenLabsTranscribe {
             HeaderValue::from_str(&params.api_key).context("Invalid xi-api-key header value")?,
         );
 
-        let (socket, _) = connect_async(request)
+        // Disable Nagle (TCP_NODELAY) to reduce latency for realtime audio chunk streaming.
+        let (socket, _) = connect_async_with_config(request, None, true)
             .await
             .context("Connecting to ElevenLabs realtime websocket")?;
 
@@ -404,6 +405,7 @@ fn process_server_json(json: &str, output: &ConversationOutput) -> Result<()> {
                 },
             )
         }
+        // Not in the official documentation, but this happens when the language code is invalid.
         "invalid_request" => {
             let event: InvalidRequest = serde_json::from_value(envelope.payload)?;
             let message = event
