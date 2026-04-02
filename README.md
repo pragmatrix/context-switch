@@ -64,7 +64,7 @@ cargo run --example openai-dialog
 cargo run --example azure-transcribe
 
 # Run ElevenLabs transcribe example
-cargo run --example elevenlabs-transcribe -- path/to/audio.wav
+cargo run --example elevenlabs-transcribe
 
 # Run Azure synthesize example
 cargo run --example azure-synthesize
