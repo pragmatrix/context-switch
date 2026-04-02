@@ -89,6 +89,12 @@ impl AudioEncoding {
 #[derive(Debug)]
 pub struct ElevenLabsTranscribe;
 
+#[derive(Debug, Clone, Copy)]
+struct ConversationLoopConfig {
+    input_format: AudioFormat,
+    include_language_detection: bool,
+}
+
 #[async_trait]
 impl Service for ElevenLabsTranscribe {
     type Params = Params;
@@ -100,6 +106,10 @@ impl Service for ElevenLabsTranscribe {
         if input_format.channels != 1 {
             bail!("ElevenLabs realtime currently requires mono input audio");
         }
+
+        let include_language_detection = params
+            .include_language_detection
+            .unwrap_or(DEFAULT_INCLUDE_LANGUAGE_DETECTION);
 
         let encoding = resolve_audio_encoding(input_format)?;
         let endpoint = build_endpoint(&params, encoding)?;
@@ -130,7 +140,10 @@ impl Service for ElevenLabsTranscribe {
             &mut read,
             &outbound_tx,
             &mut outbound_closed,
-            input_format,
+            ConversationLoopConfig {
+                input_format,
+                include_language_detection,
+            },
             params.previous_text.as_deref(),
         )
         .await;
@@ -154,7 +167,7 @@ async fn run_conversation_loop<R>(
     read: &mut R,
     outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
     outbound_closed: &mut bool,
-    input_format: AudioFormat,
+    config: ConversationLoopConfig,
     mut previous_text_for_next_chunk: Option<&str>,
 ) -> Result<()>
 where
@@ -167,7 +180,7 @@ where
             input_event = input.recv(), if !input_closed => {
                 match input_event {
                     Some(Input::Audio { frame }) => {
-                        if frame.format != input_format {
+                        if frame.format != config.input_format {
                             bail!("Received mixed input audio formats in conversation");
                         }
 
@@ -190,7 +203,7 @@ where
             msg = read.next() => {
                 match msg {
                     Some(Ok(message)) => {
-                        process_server_message(message, output)?;
+                        process_server_message(message, output, config.include_language_detection)?;
                     }
                     Some(Err(e)) => {
                         bail!("Error reading ElevenLabs websocket: {e}");
@@ -357,11 +370,15 @@ struct InputAudioChunk<'a> {
     previous_text: Option<&'a str>,
 }
 
-fn process_server_message(message: Message, output: &ConversationOutput) -> Result<()> {
+fn process_server_message(
+    message: Message,
+    output: &ConversationOutput,
+    include_language_detection: bool,
+) -> Result<()> {
     match message {
         Message::Text(text) => {
             debug!("ElevenLabs websocket received: {}", text);
-            process_server_json(text.as_str(), output)
+            process_server_json(text.as_str(), output, include_language_detection)
         }
         Message::Binary(_) => Ok(()),
         Message::Ping(payload) => {
@@ -377,7 +394,11 @@ fn process_server_message(message: Message, output: &ConversationOutput) -> Resu
     }
 }
 
-fn process_server_json(json: &str, output: &ConversationOutput) -> Result<()> {
+fn process_server_json(
+    json: &str,
+    output: &ConversationOutput,
+    include_language_detection: bool,
+) -> Result<()> {
     let envelope: RealtimeEnvelope = serde_json::from_str(json)
         .with_context(|| format!("Parsing ElevenLabs server event: {json}"))?;
 
@@ -391,6 +412,10 @@ fn process_server_json(json: &str, output: &ConversationOutput) -> Result<()> {
             output.text(false, event.text, None)
         }
         "committed_transcript" => {
+            if include_language_detection {
+                // Ignoring committed_transcript because include_language_detection=true; expecting committed_transcript_with_timestamps
+                return Ok(());
+            }
             let event: CommittedTranscript = serde_json::from_value(envelope.payload)?;
             output.text(true, event.text, None)
         }
