@@ -24,7 +24,7 @@ use context_switch_core::{
     language::{bcp47_to_iso639_3, iso639_to_bcp47},
 };
 
-// Behavior notes of Script v2 as of 20260402:
+// Behavior notes of Scribe v2 as of 20260402:
 //
 // - When `include_language_detection` is enabled, both the committed_transcript and the
 //   committed_transcribe_with_timestamp are sent in succession (with the same text it seems).
