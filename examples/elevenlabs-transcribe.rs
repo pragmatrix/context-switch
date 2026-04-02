@@ -109,7 +109,7 @@ async fn recognize_from_microphone() -> Result<()> {
 async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Result<()> {
     let params = elevenlabs::transcribe::Params {
         api_key: env::var("ELEVENLABS_API_KEY").context("ELEVENLABS_API_KEY undefined")?,
-        model: "scribe_v2_realtime".to_owned(),
+        model: None,
         host: None,
         language: Some(LANGUAGE.to_owned()),
         include_language_detection: Some(false),
