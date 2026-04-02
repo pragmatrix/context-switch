@@ -12,6 +12,7 @@ members = [
     "filter-test",
     "services/aristech",
     "services/azure",
+    "services/elevenlabs",
     "services/google-transcribe", 
     "services/openai-dialog", 
     "services/playback",
@@ -27,6 +28,7 @@ openai-dialog = { path = "services/openai-dialog" }
 azure = { workspace = true }
 azure-speech = { workspace = true }
 aristech = { workspace = true }
+elevenlabs = { workspace = true }
 
 # basic
 
@@ -84,6 +86,7 @@ context-switch-core = { path = "core" }
 azure = { path = "services/azure" }
 playback = { path = "services/playback" }
 aristech = { path = "services/aristech" }
+elevenlabs = { path = "services/elevenlabs" }
 
 anyhow = "1.0.102"
 derive_more = { version = "2.1.1", features = ["full"] }

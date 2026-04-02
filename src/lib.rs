@@ -14,4 +14,5 @@ pub use speech_gate::make_speech_gate_processor;
 pub mod services {
     pub use aristech::AristechTranscribe;
     pub use azure::AzureTranscribe;
+    pub use elevenlabs::ElevenLabsTranscribe;
 }

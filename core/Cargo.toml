@@ -12,3 +12,5 @@ derive_more = { workspace = true }
 serde = { workspace = true }
 # For function calling parameters.
 serde_json = { workspace = true }
+isolang = "2.4.0"
+oxilangtag = "0.1.5"
