@@ -34,6 +34,8 @@ use context_switch_core::{
 //   seems to depend on what language was spoken before.
 // - Sometimes when you speak some bogus text, like "Däm, Däm, Däm", the partial_transcript shows it,
 //   but the committed_transcript is empty. (We could return the partial transcript in this case).
+// - Background noise is sometimes sends recognized text "* unverständliche Stimme *" or "(water splashing)".
+// - It feels that text is sometimes recognized twice.
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const API_KEY_HEADER: &str = "xi-api-key";
