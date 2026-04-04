@@ -24,18 +24,19 @@ use context_switch_core::{
     language::{bcp47_to_iso639_3, iso639_to_bcp47},
 };
 
-// Behavior notes of Scribe v2 as of 20260402:
+// Observed Scribe v2 behavior as of 2026-04-02:
 //
-// - When `include_language_detection` is enabled, both the committed_transcript and the
-//   committed_transcribe_with_timestamp are sent in succession (with the same text it seems).
-// - When no audio packets are sent for 15 seconds, the socket just closes without any error /
+// - When `include_language_detection` is enabled, `committed_transcript` and
+//   `committed_transcript_with_timestamps` are both emitted back-to-back, often with identical text.
+// - If no audio packets are sent for 15 seconds, the socket closes without an explicit error or
 //   notification.
-// - When a language hint is set, it sometimes translate to the target language. If it does it,
-//   seems to depend on what language was spoken before.
-// - Sometimes when you speak some bogus text, like "Däm, Däm, Däm", the partial_transcript shows it,
-//   but the committed_transcript is empty. (We could return the partial transcript in this case).
-// - Background noise is sometimes sends recognized text "* unverständliche Stimme *" or "(water splashing)".
-// - It feels that text is sometimes recognized twice.
+// - When a language hint is set, output is sometimes translated into the target language. This
+//   appears to depend on the language spoken immediately before.
+// - For nonsense input (for example, "Däm, Däm, Däm"), `partial_transcript` may contain text while
+//   `committed_transcript` is empty. (We could fall back to partial text in this case.)
+// - Background noise is sometimes transcribed as text such as "* unverständliche Stimme *" or
+//   "(water splashing)".
+// - Some utterances appear to be recognized twice.
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const API_KEY_HEADER: &str = "xi-api-key";
