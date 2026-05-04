@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
 use azure_speech::recognizer::{self, Event};
@@ -10,6 +10,7 @@ use crate::Host;
 use context_switch_core::{
     BillingRecord, Service,
     conversation::{BillingSchedule, Conversation, ConversationOutput, Input},
+    language::Languages,
     speech_gate::make_speech_gate_processor_soft_rms,
 };
 
@@ -46,17 +47,8 @@ impl Service for AzureTranscribe {
             }
         };
 
-        let languages = params
-            .language
-            .split(',')
-            .map(str::trim)
-            .filter(|x| !x.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-
-        if languages.is_empty() {
-            bail!("language must contain at least one locale code");
-        }
+        let languages = Languages::from_csv(&params.language)
+            .context("language must contain at least one locale code")?;
         let include_detected_language = languages.len() > 1;
 
         let config = recognizer::Config::default()
@@ -64,11 +56,12 @@ impl Service for AzureTranscribe {
             .set_profanity(recognizer::Profanity::Raw);
 
         let config = if languages.len() == 1 {
-            config.set_language(recognizer::Language::Custom(languages[0].clone()))
+            config.set_language(recognizer::Language::Custom(languages.first().clone()))
         } else {
             config.set_detect_languages(
                 languages
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(recognizer::Language::Custom)
                     .collect(),
                 recognizer::LanguageDetectMode::Continuous,

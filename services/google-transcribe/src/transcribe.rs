@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -6,6 +6,7 @@ use serde::Deserialize;
 use context_switch_core::{
     OutputModality, Service,
     conversation::{Conversation, Input},
+    language::Languages,
 };
 
 use crate::Host;
@@ -42,6 +43,9 @@ impl Service for GoogleTranscribe {
             .output_modalities
             .iter()
             .any(|modality| matches!(modality, OutputModality::InterimText));
+        let languages = Languages::from_csv(&params.language)
+            .context("language must contain at least one locale code")?;
+        let include_detected_language = languages.len() > 1;
 
         let host = Host::new(params.endpoint.into()).await?;
 
@@ -59,12 +63,7 @@ impl Service for GoogleTranscribe {
         });
 
         let response_stream = client
-            .transcribe(
-                &params.model,
-                &params.language,
-                interim_results,
-                audio_consumer,
-            )
+            .transcribe(&params.model, &languages, interim_results, audio_consumer)
             .await?;
         futures::pin_mut!(response_stream);
 
@@ -90,7 +89,10 @@ impl Service for GoogleTranscribe {
                     // Intentionally allow empty final text. A non-final hypothesis may contain
                     // text that does not survive into the final recognition result; we still
                     // forward the final event to reflect service state faithfully.
-                    output.text(true, alternative.transcript.trim().to_owned(), None)?;
+                    let language = include_detected_language
+                        .then(|| one.language_code.trim().to_owned())
+                        .filter(|x| !x.is_empty());
+                    output.text(true, alternative.transcript.trim().to_owned(), language)?;
                 }
                 [_, ..] => {
                     let interim_text = response
@@ -106,14 +108,27 @@ impl Service for GoogleTranscribe {
                         .trim()
                         .to_owned();
 
+                    let language = include_detected_language
+                        .then(|| {
+                            response
+                                .results
+                                .iter()
+                                .map(|r| r.language_code.trim())
+                                .find(|x| !x.is_empty())
+                                .map(str::to_owned)
+                        })
+                        .flatten();
+
                     if !interim_text.is_empty() {
-                        output.text(false, interim_text, None)?;
+                        output.text(false, interim_text, language)?;
                     }
                 }
             }
         }
 
-        producer_task.await.map_err(|err| anyhow!(err))??;
+        producer_task
+            .await
+            .context("Failed to join input producer task")??;
         Ok(())
     }
 }

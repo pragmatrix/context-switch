@@ -14,6 +14,7 @@ use context_switch::services::{
 };
 use context_switch::{AudioConsumer, InputModality, OutputModality};
 use context_switch_core::conversation::{Conversation, Input};
+use context_switch_core::language::Languages;
 use context_switch_core::service::Service;
 use context_switch_core::{AudioFormat, AudioFrame, audio};
 
@@ -22,8 +23,8 @@ struct Args {
     #[arg(value_enum)]
     provider: Provider,
     input: Option<PathBuf>,
-    #[arg(long, default_value = "de-DE")]
-    language: String,
+    #[arg(long, num_args = 1.., value_delimiter = ',', default_values = ["de-DE"])]
+    language: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -44,16 +45,17 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
+    let languages = Languages::new(args.language)?;
 
     match args.input.as_deref() {
-        Some(path) => recognize_from_wav(args.provider, path, &args.language).await?,
-        None => recognize_from_microphone(args.provider, &args.language).await?,
+        Some(path) => recognize_from_wav(args.provider, path, &languages).await?,
+        None => recognize_from_microphone(args.provider, &languages).await?,
     }
 
     Ok(())
 }
 
-async fn recognize_from_wav(provider: Provider, file: &Path, language: &str) -> Result<()> {
+async fn recognize_from_wav(provider: Provider, file: &Path, languages: &Languages) -> Result<()> {
     let format = AudioFormat {
         channels: 1,
         sample_rate: 16_000,
@@ -69,10 +71,10 @@ async fn recognize_from_wav(provider: Provider, file: &Path, language: &str) -> 
         producer.produce(frame)?;
     }
 
-    recognize(provider, format, input_consumer, language).await
+    recognize(provider, format, input_consumer, languages).await
 }
 
-async fn recognize_from_microphone(provider: Provider, language: &str) -> Result<()> {
+async fn recognize_from_microphone(provider: Provider, languages: &Languages) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
         Ok(sink) => Some(sink),
@@ -112,21 +114,21 @@ async fn recognize_from_microphone(provider: Provider, language: &str) -> Result
 
     stream.play().expect("Failed to play stream");
 
-    recognize(provider, format, input_consumer, language).await
+    recognize(provider, format, input_consumer, languages).await
 }
 
 async fn recognize(
     provider: Provider,
     format: AudioFormat,
     mut input_consumer: AudioConsumer,
-    language: &str,
+    languages: &Languages,
 ) -> Result<()> {
     let (output_producer, mut output_consumer) = unbounded_channel();
     let (conversation_input_producer, conversation_input_consumer) = channel(16_384);
 
-    let mut conversation = start_conversation(
+    let conversation = start_conversation(
         provider,
-        language,
+        languages,
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
@@ -134,6 +136,7 @@ async fn recognize(
             output_producer,
         ),
     );
+    tokio::pin!(conversation);
 
     loop {
         select! {
@@ -161,11 +164,11 @@ async fn recognize(
     Ok(())
 }
 
-fn start_conversation(
+async fn start_conversation(
     provider: Provider,
-    language: &str,
+    languages: &Languages,
     conversation: Conversation,
-) -> impl std::future::Future<Output = Result<()>> {
+) -> Result<()> {
     match provider {
         Provider::Azure => {
             let params = azure::transcribe::Params {
@@ -173,17 +176,23 @@ fn start_conversation(
                 region: env::var("AZURE_REGION").ok(),
                 subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
                     .expect("AZURE_SUBSCRIPTION_KEY undefined"),
-                language: language.to_owned(),
+                language: languages.join_csv(),
                 speech_gate: false,
             };
-            AzureTranscribe.conversation(params, conversation)
+            AzureTranscribe.conversation(params, conversation).await
         }
         Provider::Elevenlabs => {
+            let language = Some(
+                languages
+                    .single()
+                    .context("ElevenLabs provider supports exactly one --language value")?
+                    .clone(),
+            );
             let params = elevenlabs::transcribe::Params {
                 api_key: env::var("ELEVENLABS_API_KEY").expect("ELEVENLABS_API_KEY undefined"),
                 model: None,
                 host: None,
-                language: Some(language.to_owned()),
+                language,
                 include_language_detection: Some(false),
                 vad_silence_threshold_secs: None,
                 vad_threshold: None,
@@ -191,7 +200,7 @@ fn start_conversation(
                 min_silence_duration_ms: None,
                 previous_text: None,
             };
-            ElevenLabsTranscribe.conversation(params, conversation)
+            ElevenLabsTranscribe.conversation(params, conversation).await
         }
         Provider::Google => {
             let endpoint = env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
@@ -207,12 +216,16 @@ fn start_conversation(
             let params = google_transcribe::transcribe::Params {
                 model: env::var("GOOGLE_TRANSCRIBE_MODEL")
                     .unwrap_or_else(|_| "latest_long".to_owned()),
-                language: language.to_owned(),
+                language: languages.join_csv(),
                 endpoint,
             };
-            GoogleTranscribe.conversation(params, conversation)
+            GoogleTranscribe.conversation(params, conversation).await
         }
         Provider::Aristech => {
+            let language = languages
+                .single()
+                .context("Aristech provider supports exactly one --language value")?
+                .clone();
             let auth_config = match env::var("ARISTECH_API_KEY") {
                 Ok(api_key) => {
                     aristech::transcribe::AuthConfig::ApiKey(aristech::transcribe::ApiKeyAuth {
@@ -234,7 +247,7 @@ fn start_conversation(
                 model: None,
                 prompt: None,
             };
-            AristechTranscribe.conversation(params, conversation)
+            AristechTranscribe.conversation(params, conversation).await
         }
     }
 }

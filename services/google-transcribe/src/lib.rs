@@ -163,7 +163,7 @@ impl TranscribeClient {
     pub async fn transcribe(
         &mut self,
         model: &str,
-        language: &str,
+        language_codes: &[String],
         interim_results: bool,
         mut audio_consumer: AudioConsumer,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
@@ -177,7 +177,7 @@ impl TranscribeClient {
         let recognition_config = RecognitionConfig {
             // TODO: configure
             model: model.into(),
-            language_codes: vec![language.into()],
+            language_codes: language_codes.to_vec(),
             features: None,
             adaptation: None,
             transcript_normalization: None,
@@ -203,7 +203,7 @@ impl TranscribeClient {
         debug!(
             recognizer = %recognizer,
             model = %model,
-            language = %language,
+            language_codes = ?language_codes,
             interim_results,
             "Starting Google streaming_recognize"
         );
