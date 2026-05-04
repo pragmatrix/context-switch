@@ -74,15 +74,25 @@ impl Service for GoogleTranscribe {
         while let Some(response) = response_stream.next().await {
             let response = response?;
 
-            // We always take the first alternative out of all responses. They are ordered according
-            // to the confidence, the most confident ones first.
+            // Google Speech V2 contract used here:
+            // - If `is_final` is true, that response contains exactly one result.
+            // - For each result, alternatives are ordered by confidence, most confident first.
+            //
+            // Implementation detail:
+            // - We always take the first alternative from each result.
+            // - For non-final responses, we concatenate transcripts from all results in the
+            //   current response as-is.
             match &response.results[..] {
                 [] => continue,
                 [one]
                     if one.is_final
                         && let Some(alternative) = one.alternatives.first() =>
                 {
-                    // Sometimes I see spaces at the beginning, so we use trim here.
+                    // Sometimes there is whitespace at the beginning, so we trim.
+                    //
+                    // Intentionally allow empty final text. A non-final hypothesis may contain
+                    // text that does not survive into the final recognition result; we still
+                    // forward the final event to reflect service state faithfully.
                     output.text(true, alternative.transcript.trim().to_owned(), None)?;
                 }
                 [_, ..] => {
@@ -92,6 +102,8 @@ impl Service for GoogleTranscribe {
                         .flat_map(|r| r.alternatives.first())
                         .map(|a| a.transcript.to_owned())
                         .collect::<Vec<_>>()
+                        // Join without injecting separators: Google already supplies correct
+                        // separators/spacing in each transcript chunk.
                         .join("")
                         // Also here, sometimes there is a space at the beginning.
                         .trim()
