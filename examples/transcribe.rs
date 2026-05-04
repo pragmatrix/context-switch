@@ -1,23 +1,21 @@
-use std::{env, path::Path, path::PathBuf, time::Duration};
+use std::env;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::DeviceSinkBuilder;
-use tokio::{
-    select,
-    sync::mpsc::{channel, unbounded_channel},
-};
+use tokio::select;
+use tokio::sync::mpsc::{channel, unbounded_channel};
 
-use context_switch::{
-    AudioConsumer, InputModality, OutputModality,
-    services::{AristechTranscribe, AzureTranscribe, ElevenLabsTranscribe, GoogleTranscribe},
+use context_switch::services::{
+    AristechTranscribe, AzureTranscribe, ElevenLabsTranscribe, GoogleTranscribe,
 };
-use context_switch_core::{
-    AudioFormat, AudioFrame, audio,
-    conversation::{Conversation, Input},
-    service::Service,
-};
+use context_switch::{AudioConsumer, InputModality, OutputModality};
+use context_switch_core::conversation::{Conversation, Input};
+use context_switch_core::service::Service;
+use context_switch_core::{AudioFormat, AudioFrame, audio};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -124,7 +122,7 @@ async fn recognize(
     language: &str,
 ) -> Result<()> {
     let (output_producer, mut output_consumer) = unbounded_channel();
-    let (conv_input_producer, conv_input_consumer) = channel(16_384);
+    let (conversation_input_producer, conversation_input_consumer) = channel(16_384);
 
     let mut conversation = start_conversation(
         provider,
@@ -132,7 +130,7 @@ async fn recognize(
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
-            conv_input_consumer,
+            conversation_input_consumer,
             output_producer,
         ),
     );
@@ -145,7 +143,7 @@ async fn recognize(
             }
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conv_input_producer.try_send(Input::Audio { frame })?;
+                    conversation_input_producer.try_send(Input::Audio { frame })?;
                 } else {
                     break;
                 }
@@ -196,14 +194,15 @@ fn start_conversation(
             ElevenLabsTranscribe.conversation(params, conversation)
         }
         Provider::Google => {
-            let endpoint = env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
-                .ok()
-                .map(|value| match value.as_str() {
-                    "default" => google_transcribe::transcribe::Endpoint::Default,
-                    "eu" => google_transcribe::transcribe::Endpoint::Eu,
-                    "us" => google_transcribe::transcribe::Endpoint::Us,
-                    _ => panic!("GOOGLE_TRANSCRIBE_ENDPOINT must be one of: default, eu, us"),
-                });
+            let endpoint =
+                env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
+                    .ok()
+                    .map(|value| match value.as_str() {
+                        "default" => google_transcribe::transcribe::Endpoint::Default,
+                        "eu" => google_transcribe::transcribe::Endpoint::Eu,
+                        "us" => google_transcribe::transcribe::Endpoint::Us,
+                        _ => panic!("GOOGLE_TRANSCRIBE_ENDPOINT must be one of: default, eu, us"),
+                    });
 
             let params = google_transcribe::transcribe::Params {
                 model: env::var("GOOGLE_TRANSCRIBE_MODEL")
@@ -215,9 +214,11 @@ fn start_conversation(
         }
         Provider::Aristech => {
             let auth_config = match env::var("ARISTECH_API_KEY") {
-                Ok(api_key) => aristech::transcribe::AuthConfig::ApiKey(aristech::transcribe::ApiKeyAuth {
-                    api_key,
-                }),
+                Ok(api_key) => {
+                    aristech::transcribe::AuthConfig::ApiKey(aristech::transcribe::ApiKeyAuth {
+                        api_key,
+                    })
+                }
                 Err(_) => aristech::transcribe::AuthConfig::Credentials(
                     aristech::transcribe::CredentialsAuth {
                         host: env::var("ARISTECH_HOST").expect("ARISTECH_HOST undefined"),

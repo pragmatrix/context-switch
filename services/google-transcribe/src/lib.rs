@@ -29,22 +29,26 @@ type Client =
 #[derive(Default)]
 pub struct Config {
     endpoint: &'static str,
+    location: &'static str,
 }
 
 impl Config {
     pub fn new() -> Self {
         Self {
             endpoint: "https://speech.googleapis.com",
+            location: "global",
         }
     }
     pub fn new_eu() -> Self {
         Self {
             endpoint: "https://eu-speech.googleapis.com",
+            location: "eu",
         }
     }
     pub fn new_us() -> Self {
         Self {
             endpoint: "https://us-speech.googleapis.com",
+            location: "us",
         }
     }
 }
@@ -54,6 +58,7 @@ pub struct Host {
     channel: tonic::transport::Channel,
     token_source: Arc<dyn google_cloud_token::TokenSource>,
     project_id: String,
+    location: String,
 }
 
 #[derive(Debug)]
@@ -110,6 +115,7 @@ impl Host {
             channel,
             token_source,
             project_id,
+            location: params.location.to_owned(),
         })
     }
 
@@ -123,6 +129,7 @@ impl Host {
         Ok(TranscribeClient {
             client,
             project_id: self.project_id.clone(),
+            location: self.location.clone(),
         })
     }
 }
@@ -150,6 +157,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
 pub struct TranscribeClient {
     client: Client,
     project_id: String,
+    location: String,
 }
 
 impl TranscribeClient {
@@ -184,7 +192,10 @@ impl TranscribeClient {
             streaming_features: None,
         };
 
-        let recognizer = format!("projects/{}/locations/eu/recognizers/_", self.project_id);
+        let recognizer = format!(
+            "projects/{}/locations/{}/recognizers/_",
+            self.project_id, self.location
+        );
 
         println!("recognizer: {recognizer}");
 
