@@ -13,8 +13,9 @@ use google_cloud_auth::credentials::AccessTokenCredentials;
 use google_cloud_auth::credentials::service_account;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
-    StreamingRecognizeRequest, StreamingRecognizeResponse, explicit_decoding_config,
-    recognition_config::DecodingConfig, streaming_recognize_request::StreamingRequest,
+    StreamingRecognitionFeatures, StreamingRecognizeRequest, StreamingRecognizeResponse,
+    explicit_decoding_config, recognition_config::DecodingConfig,
+    streaming_recognize_request::StreamingRequest,
 };
 use tonic::transport;
 use tracing::debug;
@@ -166,6 +167,7 @@ impl TranscribeClient {
         &mut self,
         model: &str,
         language: &str,
+        interim_results: bool,
         mut audio_consumer: AudioConsumer,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>>> {
         let decoding_config = ExplicitDecodingConfig {
@@ -190,7 +192,10 @@ impl TranscribeClient {
         let streaming_config = StreamingRecognitionConfig {
             config: Some(recognition_config),
             config_mask: None,
-            streaming_features: None,
+            streaming_features: Some(StreamingRecognitionFeatures {
+                interim_results,
+                ..Default::default()
+            }),
         };
 
         let recognizer = format!(
@@ -202,6 +207,7 @@ impl TranscribeClient {
             recognizer = %recognizer,
             model = %model,
             language = %language,
+            interim_results,
             "Starting Google streaming_recognize"
         );
 

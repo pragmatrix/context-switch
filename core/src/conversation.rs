@@ -119,13 +119,13 @@ impl Conversation {
         }
     }
 
-    pub fn require_text_output(&self, interim: bool) -> Result<()> {
+    pub fn require_text_output(&self, supports_interim_text: bool) -> Result<()> {
         for modality in &self.output_modalities {
             match modality {
                 OutputModality::Audio { .. } => bail!("No audio output expected"),
                 OutputModality::Text => {}
                 OutputModality::InterimText => {
-                    if !interim {
+                    if !supports_interim_text {
                         bail!("Interim text is unsupported")
                     }
                 }
