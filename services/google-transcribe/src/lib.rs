@@ -29,28 +29,26 @@ type Client =
     >;
 
 #[derive(Default)]
-pub struct Config {
+pub(crate) struct Config {
     endpoint: &'static str,
     location: &'static str,
 }
 
-impl Config {
-    pub fn new() -> Self {
-        Self {
-            endpoint: "https://speech.googleapis.com",
-            location: "global",
-        }
-    }
-    pub fn new_eu() -> Self {
-        Self {
-            endpoint: "https://eu-speech.googleapis.com",
-            location: "eu",
-        }
-    }
-    pub fn new_us() -> Self {
-        Self {
-            endpoint: "https://us-speech.googleapis.com",
-            location: "us",
+impl From<transcribe::Provider> for Config {
+    fn from(value: transcribe::Provider) -> Self {
+        match value {
+            transcribe::Provider::Global => Self {
+                endpoint: "https://speech.googleapis.com",
+                location: "global",
+            },
+            transcribe::Provider::Eu => Self {
+                endpoint: "https://eu-speech.googleapis.com",
+                location: "eu",
+            },
+            transcribe::Provider::Us => Self {
+                endpoint: "https://us-speech.googleapis.com",
+                location: "us",
+            },
         }
     }
 }
@@ -77,7 +75,7 @@ impl google_cloud_token::TokenSource for ServiceAccountTokenSource {
 }
 
 impl Host {
-    pub async fn new(params: Config) -> Result<Self> {
+    pub(crate) async fn new(params: Config) -> Result<Self> {
         let credentials_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
             .context("GOOGLE_APPLICATION_CREDENTIALS is not set")?;
         let credentials_json = tokio::fs::read_to_string(&credentials_path)
@@ -107,7 +105,6 @@ impl Host {
         let token_source: Arc<dyn google_cloud_token::TokenSource> =
             Arc::new(ServiceAccountTokenSource { credentials });
 
-        // TODO: THIS needs to be configurable.
         let channel = transport::Channel::from_static(params.endpoint)
             .tls_config(transport::ClientTlsConfig::new().with_webpki_roots())?
             .connect()

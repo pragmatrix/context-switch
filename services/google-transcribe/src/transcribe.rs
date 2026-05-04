@@ -8,20 +8,22 @@ use context_switch_core::{
     conversation::{Conversation, Input},
 };
 
-use crate::{Config, Host};
+use crate::Host;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub model: String,
     pub language: String,
-    pub endpoint: Option<Endpoint>,
+    #[serde(default)]
+    pub endpoint: Provider,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Endpoint {
-    Default,
+pub enum Provider {
+    #[default]
+    Global,
     Eu,
     Us,
 }
@@ -41,12 +43,7 @@ impl Service for GoogleTranscribe {
             .iter()
             .any(|modality| matches!(modality, OutputModality::InterimText));
 
-        let host = Host::new(match params.endpoint.unwrap_or(Endpoint::Default) {
-            Endpoint::Default => Config::new(),
-            Endpoint::Eu => Config::new_eu(),
-            Endpoint::Us => Config::new_us(),
-        })
-        .await?;
+        let host = Host::new(params.endpoint.into()).await?;
 
         let mut client = host.client().await?;
         let (mut input, output) = conversation.start()?;

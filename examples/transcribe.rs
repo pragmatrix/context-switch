@@ -194,15 +194,15 @@ fn start_conversation(
             ElevenLabsTranscribe.conversation(params, conversation)
         }
         Provider::Google => {
-            let endpoint =
-                env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
-                    .ok()
-                    .map(|value| match value.as_str() {
-                        "default" => google_transcribe::transcribe::Endpoint::Default,
-                        "eu" => google_transcribe::transcribe::Endpoint::Eu,
-                        "us" => google_transcribe::transcribe::Endpoint::Us,
-                        _ => panic!("GOOGLE_TRANSCRIBE_ENDPOINT must be one of: default, eu, us"),
-                    });
+            let endpoint = env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
+                .ok()
+                .map(|value| match value.as_str() {
+                    "global" => google_transcribe::transcribe::Provider::Global,
+                    "eu" => google_transcribe::transcribe::Provider::Eu,
+                    "us" => google_transcribe::transcribe::Provider::Us,
+                    _ => panic!("GOOGLE_TRANSCRIBE_ENDPOINT must be one of: global, eu, us"),
+                })
+                .unwrap_or_default();
 
             let params = google_transcribe::transcribe::Params {
                 model: env::var("GOOGLE_TRANSCRIBE_MODEL")
