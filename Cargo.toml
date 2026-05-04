@@ -33,6 +33,7 @@ azure = { workspace = true }
 azure-speech = { workspace = true }
 aristech = { workspace = true }
 elevenlabs = { workspace = true }
+google-transcribe = { workspace = true }
 
 # basic
 
@@ -63,6 +64,7 @@ tracing-subscriber = { workspace = true }
 context-switch-core = { workspace = true }
 
 dotenvy = { workspace = true }
+clap = { version = "4.6.1", features = ["derive"] }
 
 # audio input
 cpal = "0.17.3"
@@ -70,7 +72,7 @@ rodio = { workspace = true, features = ["playback"] }
 
 azure = { workspace = true }
 aristech = { workspace = true }
-google-transcribe = { path = "services/google-transcribe" }
+google-transcribe = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
@@ -91,6 +93,7 @@ azure = { path = "services/azure" }
 playback = { path = "services/playback" }
 aristech = { path = "services/aristech" }
 elevenlabs = { path = "services/elevenlabs" }
+google-transcribe = { path = "services/google-transcribe" }
 
 anyhow = "1.0.102"
 derive_more = { version = "2.1.1", features = ["full"] }

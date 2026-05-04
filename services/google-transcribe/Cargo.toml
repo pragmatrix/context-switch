@@ -4,14 +4,17 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-googleapis-tonic-google-cloud-speech-v2 = "0.12.0"
+googleapis-tonic-google-cloud-speech-v2 = "0.34.0"
 
-tonic = { version = "0.12.3", default-features = false, features = ["tls-webpki-roots"] }
-google-cloud-auth = { version = "0.17.1", default-features = false, features = ["rustls-tls"] }
+tonic = { version = "0.14.5", default-features = false, features = ["tls-webpki-roots"] }
+google-cloud-auth = "1.9.0"
 google-cloud-token = "0.1.2"
 
 anyhow = { workspace = true }
 tokio = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 context-switch-core = { workspace = true }

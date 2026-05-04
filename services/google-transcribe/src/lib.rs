@@ -3,20 +3,23 @@
 //! Tonic usage inspiration from:
 //! <https://github.com/bouzuya/googleapis-tonic/blob/master/examples/googleapis-tonic-google-firestore-v1-1/>
 
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use async_stream::{stream, try_stream};
 use context_switch_core::{AudioConsumer, audio};
 use futures::Stream;
-use google_cloud_auth::{project, token::DefaultTokenSourceProvider};
-use google_cloud_token::TokenSourceProvider;
+use google_cloud_auth::credentials::AccessTokenCredentials;
+use google_cloud_auth::credentials::service_account::Builder as ServiceAccountCredentialsBuilder;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
     StreamingRecognizeRequest, StreamingRecognizeResponse, explicit_decoding_config,
     recognition_config::DecodingConfig, streaming_recognize_request::StreamingRequest,
 };
 use tonic::transport;
+
+pub mod transcribe;
+pub use transcribe::GoogleTranscribe;
 
 type Client =
     googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient<
@@ -53,20 +56,50 @@ pub struct Host {
     project_id: String,
 }
 
+#[derive(Debug)]
+struct ServiceAccountTokenSource {
+    credentials: AccessTokenCredentials,
+}
+
+#[async_trait::async_trait]
+impl google_cloud_token::TokenSource for ServiceAccountTokenSource {
+    async fn token(&self) -> std::result::Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let access_token = self.credentials.access_token().await?;
+        Ok(format!("Bearer {}", access_token.token))
+    }
+}
+
 impl Host {
     pub async fn new(params: Config) -> Result<Self> {
-        let default_token_source_provider = DefaultTokenSourceProvider::new(
-            // All speech requests should be fine with authorization of the cloud-platform
-            // scope:
-            // <https://cloud.google.com/speech-to-text/v2/docs/reference/rpc/google.cloud.speech.v2>
-            project::Config::default()
-                .with_scopes(&["https://www.googleapis.com/auth/cloud-platform"]),
-        )
-        .await?;
-        let token_source = TokenSourceProvider::token_source(&default_token_source_provider);
-        let project_id = default_token_source_provider
-            .project_id
-            .context("project_id not found")?;
+        let credentials_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
+            .context("GOOGLE_APPLICATION_CREDENTIALS is not set")?;
+        let credentials_json = tokio::fs::read_to_string(&credentials_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to read GOOGLE_APPLICATION_CREDENTIALS from path: {credentials_path}"
+                )
+            })?;
+        let credentials_value: serde_json::Value = serde_json::from_str(&credentials_json)
+            .with_context(|| {
+                format!(
+                    "GOOGLE_APPLICATION_CREDENTIALS does not contain valid JSON: {credentials_path}"
+                )
+            })?;
+
+        let project_id = credentials_value
+            .get("project_id")
+            .and_then(serde_json::Value::as_str)
+            .context("project_id missing in GOOGLE_APPLICATION_CREDENTIALS JSON")?
+            .to_owned();
+
+        let credentials = ServiceAccountCredentialsBuilder::new(credentials_value)
+            .build_access_token_credentials()
+            .context("Failed to build Google service-account credentials")?;
+
+        let token_source: Arc<dyn google_cloud_token::TokenSource> =
+            Arc::new(ServiceAccountTokenSource { credentials });
+
         // TODO: THIS needs to be configurable.
         let channel = transport::Channel::from_static(params.endpoint)
             .tls_config(transport::ClientTlsConfig::new().with_webpki_roots())?
@@ -140,6 +173,7 @@ impl TranscribeClient {
             features: None,
             adaptation: None,
             transcript_normalization: None,
+            denoiser_config: None,
             translation_config: None,
             decoding_config: DecodingConfig::ExplicitDecodingConfig(decoding_config).into(),
         };
