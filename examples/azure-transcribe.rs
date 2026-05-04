@@ -121,7 +121,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
 
     let (output_producer, mut output_consumer) = unbounded_channel();
     // For now this is more or less unbounded, because we push complete audio files for recognition.
-    let (conv_input_producer, conv_input_consumer) = channel(16384);
+    let (conversation_input_producer, conversation_input_consumer) = channel(16384);
 
     let azure = AzureTranscribe;
     let mut conversation = azure.conversation(
@@ -129,7 +129,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
-            conv_input_consumer,
+            conversation_input_consumer,
             output_producer,
         ),
     );
@@ -144,7 +144,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
             // Forward audio input
             input = input_consumer.consume() => {
                 if let Some(frame) = input {
-                    conv_input_producer.try_send(Input::Audio {frame})?;
+                    conversation_input_producer.try_send(Input::Audio {frame})?;
                 }
                 else {
                     println!("End of input");

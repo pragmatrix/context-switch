@@ -10,13 +10,14 @@ use async_stream::{stream, try_stream};
 use context_switch_core::{AudioConsumer, audio};
 use futures::Stream;
 use google_cloud_auth::credentials::AccessTokenCredentials;
-use google_cloud_auth::credentials::service_account::Builder as ServiceAccountCredentialsBuilder;
+use google_cloud_auth::credentials::service_account;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
     StreamingRecognizeRequest, StreamingRecognizeResponse, explicit_decoding_config,
     recognition_config::DecodingConfig, streaming_recognize_request::StreamingRequest,
 };
 use tonic::transport;
+use tracing::debug;
 
 pub mod transcribe;
 pub use transcribe::GoogleTranscribe;
@@ -98,7 +99,7 @@ impl Host {
             .context("project_id missing in GOOGLE_APPLICATION_CREDENTIALS JSON")?
             .to_owned();
 
-        let credentials = ServiceAccountCredentialsBuilder::new(credentials_value)
+        let credentials = service_account::Builder::new(credentials_value)
             .build_access_token_credentials()
             .context("Failed to build Google service-account credentials")?;
 
@@ -197,7 +198,12 @@ impl TranscribeClient {
             self.project_id, self.location
         );
 
-        println!("recognizer: {recognizer}");
+        debug!(
+            recognizer = %recognizer,
+            model = %model,
+            language = %language,
+            "Starting Google streaming_recognize"
+        );
 
         let config_request = StreamingRecognizeRequest {
             recognizer: recognizer.clone(),
