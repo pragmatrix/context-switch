@@ -237,7 +237,6 @@ async fn start_conversation(
             let region = region
                 .map(str::to_owned)
                 .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok())
-                .or_else(|| env::var("GOOGLE_TRANSCRIBE_ENDPOINT").ok())
                 .map(|value| match value.as_str() {
                     "global" => google_transcribe::transcribe::Region::Global,
                     "eu" => google_transcribe::transcribe::Region::Eu,
