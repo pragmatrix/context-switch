@@ -229,7 +229,9 @@ async fn start_conversation(
                 min_silence_duration_ms: None,
                 previous_text: None,
             };
-            ElevenLabsTranscribe.conversation(params, conversation).await
+            ElevenLabsTranscribe
+                .conversation(params, conversation)
+                .await
         }
         Provider::Google => {
             let region = region
@@ -246,8 +248,7 @@ async fn start_conversation(
 
             let params = google_transcribe::transcribe::Params {
                 model: model.map(str::to_owned).unwrap_or_else(|| {
-                    env::var("GOOGLE_TRANSCRIBE_MODEL")
-                        .unwrap_or_else(|_| "latest_long".to_owned())
+                    env::var("GOOGLE_TRANSCRIBE_MODEL").unwrap_or_else(|_| "latest_long".to_owned())
                 }),
                 language: languages.join_csv(),
                 region,
