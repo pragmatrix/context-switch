@@ -1,6 +1,7 @@
 //! Tonic usage inspiration from:
 //! <https://github.com/bouzuya/googleapis-tonic/blob/master/examples/googleapis-tonic-google-firestore-v1-1/>
 
+use std::error;
 use std::{env, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
@@ -9,12 +10,15 @@ use context_switch_core::{AudioFormat, audio};
 use futures::Stream;
 use google_cloud_auth::credentials::AccessTokenCredentials;
 use google_cloud_auth::credentials::service_account;
+use google_cloud_token::TokenSource;
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::recognition_config::DecodingConfig;
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
     StreamingRecognitionFeatures, StreamingRecognizeRequest, StreamingRecognizeResponse,
-    explicit_decoding_config, recognition_config::DecodingConfig,
-    streaming_recognize_request::StreamingRequest,
+    explicit_decoding_config,
 };
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streaming_recognize_request::StreamingRequest;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport;
@@ -55,7 +59,7 @@ impl From<Region> for Config {
 #[derive(Clone)]
 pub(crate) struct Host {
     channel: tonic::transport::Channel,
-    token_source: Arc<dyn google_cloud_token::TokenSource>,
+    token_source: Arc<dyn TokenSource>,
     project_id: String,
     location: String,
 }
@@ -66,8 +70,8 @@ struct ServiceAccountTokenSource {
 }
 
 #[async_trait::async_trait]
-impl google_cloud_token::TokenSource for ServiceAccountTokenSource {
-    async fn token(&self) -> std::result::Result<String, Box<dyn std::error::Error + Send + Sync>> {
+impl TokenSource for ServiceAccountTokenSource {
+    async fn token(&self) -> std::result::Result<String, Box<dyn error::Error + Send + Sync>> {
         let access_token = self.credentials.access_token().await?;
         Ok(format!("Bearer {}", access_token.token))
     }
@@ -123,7 +127,7 @@ impl Host {
         let mut metadata_value = tonic::metadata::AsciiMetadataValue::try_from(token)?;
         metadata_value.set_sensitive(true);
         let interceptor = AuthInterceptor { metadata_value };
-        let client = googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient::with_interceptor(inner, interceptor);
+        let client = SpeechClient::with_interceptor(inner, interceptor);
         Ok(TranscribeClient {
             client,
             project_id: self.project_id.clone(),

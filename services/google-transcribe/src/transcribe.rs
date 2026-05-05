@@ -12,7 +12,7 @@ use tonic::Code;
 
 use context_switch_core::{
     OutputModality, Service,
-    conversation::{Conversation, Input},
+    conversation::{Conversation, ConversationOutput, Input},
     language::Languages,
 };
 use tracing::{info, warn};
@@ -268,12 +268,12 @@ fn should_restart_for_stream_limit(code: Code, message: &str) -> bool {
 // to final in Drop so callers still receive a terminal text event.
 #[derive(Debug)]
 struct StreamTextOutput<'a> {
-    output: &'a context_switch_core::conversation::ConversationOutput,
+    output: &'a ConversationOutput,
     pending_interim_text: Option<(String, Option<String>)>,
 }
 
 impl<'a> StreamTextOutput<'a> {
-    fn new(output: &'a context_switch_core::conversation::ConversationOutput) -> Self {
+    fn new(output: &'a ConversationOutput) -> Self {
         Self {
             output,
             pending_interim_text: None,
