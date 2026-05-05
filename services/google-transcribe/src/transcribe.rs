@@ -257,13 +257,7 @@ fn should_restart_for_stream_limit(code: Code, message: &str) -> bool {
 
     // Based on Cloud Speech-to-Text docs:
     // - "409 Max duration of 5 minutes reached for stream" (StreamingRecognize 409 aborted)
-    // - "Long duration elapsed without audio. Audio should be sent close to real time"
-    let is_documented_max_duration =
-        code == Code::Aborted && message.contains("max duration of 5 minutes reached for stream");
-    let is_documented_audio_timeout = message.contains("long duration elapsed without audio")
-        && message.contains("audio should be sent close to real time");
-
-    is_documented_max_duration || is_documented_audio_timeout
+    code == Code::Aborted && message.contains("max duration of 5 minutes reached for stream")
 }
 
 // Keeps interim/final emission behavior in one place across all exit paths.
