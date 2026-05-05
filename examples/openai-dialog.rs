@@ -76,6 +76,11 @@ async fn main() -> Result<()> {
 
     let openai = OpenAIDialog;
     let mut params = openai_dialog::Params::new(key, model);
+    if let Ok(endpoint) = env::var("OPENAI_REALTIME_ENDPOINT")
+        && !endpoint.trim().is_empty()
+    {
+        params.host = Some(endpoint);
+    }
     params.tools.push(get_time_function_definition());
 
     let (output_sender, output_receiver) = unbounded_channel();
