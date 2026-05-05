@@ -587,6 +587,12 @@ impl Client {
                     ..delta.clone()
                 })
             }
+            ServerEvent::ResponseOutputAudioDelta(delta) => {
+                ServerEvent::ResponseOutputAudioDelta(server_event::ResponseOutputAudioDelta {
+                    delta: "[REMOVED]".to_string(),
+                    ..delta.clone()
+                })
+            }
             event => event.clone(),
         };
 
@@ -612,6 +618,16 @@ impl Client {
                 }
             }
             ServerEvent::ResponseAudioDelta(audio_delta) => {
+                let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
+                let samples = audio::from_le_bytes(&decoded);
+                trace!("Sending {} samples", samples.len());
+                let frame = AudioFrame {
+                    format: output_format,
+                    samples,
+                };
+                output.audio_frame(frame)?;
+            }
+            ServerEvent::ResponseOutputAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                 let samples = audio::from_le_bytes(&decoded);
                 trace!("Sending {} samples", samples.len());
