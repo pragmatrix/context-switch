@@ -194,7 +194,8 @@ impl Host {
     fn is_azure_host(&self) -> bool {
         self.client
             .wss_url
-            .split('/').nth(2)
+            .split('/')
+            .nth(2)
             .map(|host| host.ends_with(".openai.azure.com"))
             .unwrap_or(false)
     }
