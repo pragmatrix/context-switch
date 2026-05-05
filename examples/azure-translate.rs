@@ -182,8 +182,9 @@ async fn setup_audio_playback(
                     is_final,
                     text,
                     language,
+                    speaker,
                 } => {
-                    println!("Text: {text}, final: {is_final}, language: {language:?}")
+                    println!("Text ({is_final}, {language:?}, speaker: {speaker:?}): {text}");
                 }
                 Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {

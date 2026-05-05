@@ -22,16 +22,26 @@ async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
     tracing_subscriber::fmt::init();
 
-    let mut args = env::args();
-    match args.len() {
-        1 => recognize_from_microphone().await?,
-        2 => recognize_from_wav(Path::new(&args.nth(1).unwrap())).await?,
-        _ => bail!("Invalid number of arguments, expect zero or one"),
+    let mut input_file: Option<String> = None;
+    let mut diarization = false;
+    for arg in env::args().skip(1) {
+        if arg == "--diarization" {
+            diarization = true;
+        } else if input_file.is_none() {
+            input_file = Some(arg);
+        } else {
+            bail!("Invalid arguments. Usage: azure-transcribe [--diarization] [wav-file]");
+        }
+    }
+
+    match input_file {
+        None => recognize_from_microphone(diarization).await?,
+        Some(path) => recognize_from_wav(Path::new(&path), diarization).await?,
     }
     Ok(())
 }
 
-async fn recognize_from_wav(file: &Path) -> Result<()> {
+async fn recognize_from_wav(file: &Path, diarization: bool) -> Result<()> {
     // For now we always convert to 16khz single channel (this is what we use internally for
     // testing).
     let format = AudioFormat {
@@ -50,10 +60,10 @@ async fn recognize_from_wav(file: &Path) -> Result<()> {
         producer.produce(frame)?;
     }
 
-    recognize(format, input_consumer).await
+    recognize(format, input_consumer, diarization).await
 }
 
-async fn recognize_from_microphone() -> Result<()> {
+async fn recognize_from_microphone(diarization: bool) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets (e.g. AirPods) can switch to a
     // bidirectional profile. Without this, some devices report an input stream of zeros.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
@@ -105,10 +115,14 @@ async fn recognize_from_microphone() -> Result<()> {
 
     stream.play().expect("Failed to play stream");
 
-    recognize(format, input_consumer).await
+    recognize(format, input_consumer, diarization).await
 }
 
-async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Result<()> {
+async fn recognize(
+    format: AudioFormat,
+    mut input_consumer: AudioConsumer,
+    diarization: bool,
+) -> Result<()> {
     // TODO: clarify how to access configurations.
     let params = azure::transcribe::Params {
         host: None,
@@ -116,6 +130,7 @@ async fn recognize(format: AudioFormat, mut input_consumer: AudioConsumer) -> Re
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),
         language: LANGUAGE.into(),
+        diarization,
         speech_gate: false,
     };
 
