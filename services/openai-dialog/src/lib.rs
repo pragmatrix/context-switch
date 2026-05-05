@@ -16,8 +16,8 @@ use openai_api_rs::realtime::{
     client_event::{self, ClientEvent},
     server_event::{self, ServerEvent},
     types::{
-        self, ItemContentType, ItemRole, ItemStatus, ItemType, RealtimeVoice, ResponseStatus,
-        ToolChoice,
+        self, ItemContentType, ItemRole, ItemStatus, ItemType, OutputModality, RealtimeVoice,
+        ResponseStatus, ToolChoice,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -258,7 +258,7 @@ impl Client {
 
         {
             let mut send_update = false;
-            let mut session = types::Session::default();
+            let mut session = types::RealtimeSession::default();
 
             if let Some(instructions) = params.instructions {
                 session.instructions = Some(instructions);
@@ -266,13 +266,23 @@ impl Client {
             };
 
             if let Some(voice) = params.voice {
-                session.voice = Some(voice);
+                let mut audio = session.audio.unwrap_or(types::AudioConfig {
+                    input: None,
+                    output: None,
+                });
+                let mut output = audio.output.unwrap_or(types::AudioOutput {
+                    format: None,
+                    speed: 1.0,
+                    voice: None,
+                });
+                output.voice = Some(voice);
+                audio.output = Some(output);
+                session.audio = Some(audio);
                 send_update = true;
             }
 
             if let Some(temperature) = params.temperature {
-                session.temperature = Some(temperature);
-                send_update = true;
+                warn!("Ignoring unsupported realtime session temperature: {temperature}");
             }
 
             if !params.tools.is_empty() {
@@ -288,7 +298,7 @@ impl Client {
             if send_update {
                 self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
                     event_id: None,
-                    session,
+                    session: types::UntaggedSession::Realtime(session),
                 }))
                 .await?;
                 debug!("Session updated");
@@ -356,28 +366,41 @@ impl Client {
             }
         };
 
-        let session = session_created.session;
-
-        // PartialEq is not implemented for AudioFormat.
-        let Some(types::AudioFormat::PCM16) = session.input_audio_format else {
-            bail!(
-                "Unexpected input audio format: {:?}, expected {:?}",
-                session.input_audio_format,
-                types::AudioFormat::PCM16
-            )
+        let session = match session_created.session {
+            types::UntaggedSession::Realtime(session) => session,
+            other => bail!("Unexpected non-realtime session: {other:?}"),
         };
 
-        let Some(types::AudioFormat::PCM16) = session.output_audio_format else {
-            bail!(
-                "Unexpected output audio format: {:?}, expected {:?}",
-                session.output_audio_format,
-                types::AudioFormat::PCM16
-            )
-        };
+        let input_format = session
+            .audio
+            .as_ref()
+            .and_then(|a| a.input.as_ref())
+            .and_then(|i| i.format.as_ref());
+        let output_format = session
+            .audio
+            .as_ref()
+            .and_then(|a| a.output.as_ref())
+            .and_then(|o| o.format.as_ref());
 
-        let modalities = session.modalities.unwrap_or_default();
-        if !modalities.iter().any(|m| m == "audio") {
-            bail!("Expect `audio` modality: {:?}", modalities);
+        if let Some(format) = input_format
+            && !matches!(format, types::AudioFormat::Pcm(_))
+        {
+            bail!("Unexpected input audio format: {input_format:?}, expected PCM")
+        }
+
+        if let Some(format) = output_format
+            && !matches!(format, types::AudioFormat::Pcm(_))
+        {
+            bail!("Unexpected output audio format: {output_format:?}, expected PCM")
+        }
+
+        let modalities = session.output_modalities.unwrap_or_default();
+        if !modalities.is_empty()
+            && !modalities
+                .iter()
+                .any(|m| matches!(m, OutputModality::Audio))
+        {
+            bail!("Expect audio output modality: {:?}", modalities);
         }
 
         Ok(())
@@ -448,15 +471,27 @@ impl Client {
                         tools,
                         tool_choice,
                     } => {
+                        if let Some(temperature) = temperature {
+                            warn!("Ignoring unsupported realtime session temperature: {temperature}");
+                        }
+
+                        let audio = voice.map(|voice| types::AudioConfig {
+                            input: None,
+                            output: Some(types::AudioOutput {
+                                format: None,
+                                speed: 1.0,
+                                voice: Some(voice),
+                            }),
+                        });
+
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
-                            session: types::Session {
+                            session: types::UntaggedSession::Realtime(types::RealtimeSession {
                                 instructions,
-                                voice,
-                                temperature,
+                                audio,
                                 tools,
                                 tool_choice,
                                 ..Default::default()
-                            },
+                            }),
                             ..Default::default()
                         });
                         self.send_client_event(event).await?;
@@ -684,13 +719,16 @@ impl Client {
                 })
                 .await?;
             }
-            ServerEvent::SessionUpdated(server_event::SessionUpdated {
-                session: types::Session { tools, .. },
-                ..
-            }) => output.service_event(
-                OutputPath::Control,
-                ServiceOutputEvent::SessionUpdated { tools },
-            )?,
+            ServerEvent::SessionUpdated(server_event::SessionUpdated { session, .. }) => {
+                let tools = match session {
+                    types::UntaggedSession::Realtime(session) => session.tools,
+                    types::UntaggedSession::Transcription(_) => None,
+                };
+                output.service_event(
+                    OutputPath::Control,
+                    ServiceOutputEvent::SessionUpdated { tools },
+                )?
+            }
 
             response => {
                 trace!("Unhandled response: {:?}", response)
@@ -741,7 +779,7 @@ impl Client {
 
         let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
             event_id: Some(event_id.clone()),
-            response: Some(types::Session {
+            response: Some(types::RealtimeSession {
                 instructions: Some(prompt_request.0.clone()),
                 ..Default::default()
             }),
