@@ -188,13 +188,22 @@ impl Host {
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
 
-        Ok(Client::new(read, write))
+        Ok(Client::new(read, write, self.is_azure_host()))
+    }
+
+    fn is_azure_host(&self) -> bool {
+        self.client
+            .wss_url
+            .split('/').nth(2)
+            .map(|host| host.ends_with(".openai.azure.com"))
+            .unwrap_or(false)
     }
 }
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    use_tagged_session_update: bool,
 
     response_state: ResponseState,
     inflight_prompt: Option<(String, PromptRequest)>,
@@ -212,10 +221,12 @@ impl Client {
     fn new(
         read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        use_tagged_session_update: bool,
     ) -> Self {
         Self {
             read,
             write,
+            use_tagged_session_update,
             response_state: ResponseState::Idle,
             inflight_prompt: None,
             pending_prompts: Default::default(),
@@ -296,9 +307,17 @@ impl Client {
             }
 
             if send_update {
+                let payload = if self.use_tagged_session_update {
+                    client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(session))
+                } else {
+                    client_event::SessionUpdatePayload::Untagged(types::UntaggedSession::Realtime(
+                        session,
+                    ))
+                };
+
                 self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
                     event_id: None,
-                    session: types::UntaggedSession::Realtime(session),
+                    session: payload,
                 }))
                 .await?;
                 debug!("Session updated");
@@ -472,7 +491,9 @@ impl Client {
                         tool_choice,
                     } => {
                         if let Some(temperature) = temperature {
-                            warn!("Ignoring unsupported realtime session temperature: {temperature}");
+                            warn!(
+                                "Ignoring unsupported realtime session temperature: {temperature}"
+                            );
                         }
 
                         let audio = voice.map(|voice| types::AudioConfig {
@@ -484,14 +505,26 @@ impl Client {
                             }),
                         });
 
+                        let session = types::RealtimeSession {
+                            instructions,
+                            audio,
+                            tools,
+                            tool_choice,
+                            ..Default::default()
+                        };
+
+                        let payload = if self.use_tagged_session_update {
+                            client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(
+                                session,
+                            ))
+                        } else {
+                            client_event::SessionUpdatePayload::Untagged(
+                                types::UntaggedSession::Realtime(session),
+                            )
+                        };
+
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
-                            session: types::UntaggedSession::Realtime(types::RealtimeSession {
-                                instructions,
-                                audio,
-                                tools,
-                                tool_choice,
-                                ..Default::default()
-                            }),
+                            session: payload,
                             ..Default::default()
                         });
                         self.send_client_event(event).await?;
