@@ -25,6 +25,10 @@ struct Args {
     input: Option<PathBuf>,
     #[arg(long, num_args = 1.., value_delimiter = ',', default_values = ["de-DE"])]
     language: Vec<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    region: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -46,16 +50,24 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let languages = Languages::new(args.language)?;
+    let model = args.model.as_deref();
+    let region = args.region.as_deref();
 
     match args.input.as_deref() {
-        Some(path) => recognize_from_wav(args.provider, path, &languages).await?,
-        None => recognize_from_microphone(args.provider, &languages).await?,
+        Some(path) => recognize_from_wav(args.provider, path, &languages, model, region).await?,
+        None => recognize_from_microphone(args.provider, &languages, model, region).await?,
     }
 
     Ok(())
 }
 
-async fn recognize_from_wav(provider: Provider, file: &Path, languages: &Languages) -> Result<()> {
+async fn recognize_from_wav(
+    provider: Provider,
+    file: &Path,
+    languages: &Languages,
+    model: Option<&str>,
+    region: Option<&str>,
+) -> Result<()> {
     let format = AudioFormat {
         channels: 1,
         sample_rate: 16_000,
@@ -71,10 +83,15 @@ async fn recognize_from_wav(provider: Provider, file: &Path, languages: &Languag
         producer.produce(frame)?;
     }
 
-    recognize(provider, format, input_consumer, languages).await
+    recognize(provider, format, input_consumer, languages, model, region).await
 }
 
-async fn recognize_from_microphone(provider: Provider, languages: &Languages) -> Result<()> {
+async fn recognize_from_microphone(
+    provider: Provider,
+    languages: &Languages,
+    model: Option<&str>,
+    region: Option<&str>,
+) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
         Ok(sink) => Some(sink),
@@ -114,7 +131,7 @@ async fn recognize_from_microphone(provider: Provider, languages: &Languages) ->
 
     stream.play().expect("Failed to play stream");
 
-    recognize(provider, format, input_consumer, languages).await
+    recognize(provider, format, input_consumer, languages, model, region).await
 }
 
 async fn recognize(
@@ -122,6 +139,8 @@ async fn recognize(
     format: AudioFormat,
     mut input_consumer: AudioConsumer,
     languages: &Languages,
+    model: Option<&str>,
+    region: Option<&str>,
 ) -> Result<()> {
     let (output_producer, mut output_consumer) = unbounded_channel();
     let (conversation_input_producer, conversation_input_consumer) = channel(16_384);
@@ -129,6 +148,8 @@ async fn recognize(
     let conversation = start_conversation(
         provider,
         languages,
+        model,
+        region,
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
@@ -167,10 +188,15 @@ async fn recognize(
 async fn start_conversation(
     provider: Provider,
     languages: &Languages,
+    model: Option<&str>,
+    region: Option<&str>,
     conversation: Conversation,
 ) -> Result<()> {
     match provider {
         Provider::Azure => {
+            if region.is_some() {
+                bail!("--region is only supported for the google provider");
+            }
             let params = azure::transcribe::Params {
                 host: env::var("AZURE_HOST").ok(),
                 region: env::var("AZURE_REGION").ok(),
@@ -182,6 +208,9 @@ async fn start_conversation(
             AzureTranscribe.conversation(params, conversation).await
         }
         Provider::Elevenlabs => {
+            if region.is_some() {
+                bail!("--region is only supported for the google provider");
+            }
             let language = Some(
                 languages
                     .single()
@@ -203,25 +232,32 @@ async fn start_conversation(
             ElevenLabsTranscribe.conversation(params, conversation).await
         }
         Provider::Google => {
-            let endpoint = env::var("GOOGLE_TRANSCRIBE_ENDPOINT")
-                .ok()
+            let region = region
+                .map(str::to_owned)
+                .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok())
+                .or_else(|| env::var("GOOGLE_TRANSCRIBE_ENDPOINT").ok())
                 .map(|value| match value.as_str() {
-                    "global" => google_transcribe::transcribe::Provider::Global,
-                    "eu" => google_transcribe::transcribe::Provider::Eu,
-                    "us" => google_transcribe::transcribe::Provider::Us,
-                    _ => panic!("GOOGLE_TRANSCRIBE_ENDPOINT must be one of: global, eu, us"),
+                    "global" => google_transcribe::transcribe::Region::Global,
+                    "eu" => google_transcribe::transcribe::Region::Eu,
+                    "us" => google_transcribe::transcribe::Region::Us,
+                    _ => panic!("GOOGLE_TRANSCRIBE_REGION must be one of: global, eu, us"),
                 })
                 .unwrap_or_default();
 
             let params = google_transcribe::transcribe::Params {
-                model: env::var("GOOGLE_TRANSCRIBE_MODEL")
-                    .unwrap_or_else(|_| "latest_long".to_owned()),
+                model: model.map(str::to_owned).unwrap_or_else(|| {
+                    env::var("GOOGLE_TRANSCRIBE_MODEL")
+                        .unwrap_or_else(|_| "latest_long".to_owned())
+                }),
                 language: languages.join_csv(),
-                endpoint,
+                region,
             };
             GoogleTranscribe.conversation(params, conversation).await
         }
         Provider::Aristech => {
+            if region.is_some() {
+                bail!("--region is only supported for the google provider");
+            }
             let language = languages
                 .single()
                 .context("Aristech provider supports exactly one --language value")?

@@ -8,4 +8,11 @@ transcribe-azure-de-en:
     cargo run --example transcribe -- azure --language de-DE,en-US
 
 transcribe-google-de-en:
-    cargo run --example transcribe -- google --language de-DE,en-US
+    cargo run --example transcribe -- google --language de-DE,en-US --model chirp_3 --region eu
+
+
+transcribe-google-latest-short:
+    cargo run --example transcribe -- google --language de-DE --model latest_short --region eu
+
+transcribe-google-latest-long:
+    cargo run --example transcribe -- google --language de-DE --model latest_long --region eu
