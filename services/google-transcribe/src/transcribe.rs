@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -5,6 +7,7 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     StreamingRecognizeResponse, streaming_recognize_response::SpeechEventType,
 };
 use serde::Deserialize;
+use tokio::sync::Mutex;
 use tonic::Code;
 
 use context_switch_core::{
@@ -65,7 +68,7 @@ impl Service for GoogleTranscribe {
 
         let (producer, audio_consumer) = input_format.new_channel();
         let audio_format = audio_consumer.format;
-        let audio_receiver = std::sync::Arc::new(tokio::sync::Mutex::new(audio_consumer.receiver));
+        let audio_receiver = Arc::new(Mutex::new(audio_consumer.receiver));
         let producer_task = tokio::spawn(async move {
             while let Some(Input::Audio { frame }) = input.recv().await {
                 if producer.produce(frame).is_err() {
