@@ -10,10 +10,11 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
+use clap::{Parser, ValueEnum};
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use openai_api_rs::realtime::types;
-use openai_dialog::{OpenAIDialog, ServiceInputEvent, ServiceOutputEvent};
+use openai_dialog::{OpenAIDialog, Protocol, ServiceInputEvent, ServiceOutputEvent};
 use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
 use tokio::{
@@ -27,8 +28,33 @@ use context_switch_core::{
     conversation::{Conversation, Input, Output},
 };
 
+#[derive(Debug, Parser)]
+struct Cli {
+    #[arg(long, value_enum)]
+    protocol: Option<CliProtocol>,
+    #[arg(long)]
+    endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliProtocol {
+    #[value(name = "openai")]
+    OpenAI,
+    Azure,
+}
+
+impl From<CliProtocol> for Protocol {
+    fn from(value: CliProtocol) -> Self {
+        match value {
+            CliProtocol::OpenAI => Protocol::OpenAI,
+            CliProtocol::Azure => Protocol::Azure,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
     dotenvy::dotenv_override().context("Reading .env file")?;
     tracing_subscriber::fmt::init();
 
@@ -76,11 +102,11 @@ async fn main() -> Result<()> {
 
     let openai = OpenAIDialog;
     let mut params = openai_dialog::Params::new(key, model);
-    if let Ok(endpoint) = env::var("OPENAI_REALTIME_ENDPOINT")
-        && !endpoint.trim().is_empty()
-    {
-        params.host = Some(endpoint);
-    }
+    params.host = cli
+        .endpoint
+        .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok())
+        .filter(|endpoint| !endpoint.trim().is_empty());
+    params.protocol = cli.protocol.map(Into::into);
     params.tools.push(get_time_function_definition());
 
     let (output_sender, output_receiver) = unbounded_channel();

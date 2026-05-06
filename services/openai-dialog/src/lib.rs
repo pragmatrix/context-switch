@@ -12,7 +12,7 @@ use futures::{
     stream::{SplitSink, SplitStream},
 };
 use openai_api_rs::realtime::{
-    api::RealtimeClient,
+    api::{RealtimeClient, RealtimeProtocol},
     client_event::{self, ClientEvent},
     server_event::{self, ServerEvent},
     types::{
@@ -27,6 +27,7 @@ use tokio_tungstenite::{
     tungstenite::{Bytes, protocol::Message},
 };
 use tracing::{debug, info, trace, warn};
+use url::Url;
 use uuid::Uuid;
 
 use context_switch_core::{
@@ -39,6 +40,7 @@ use context_switch_core::{
 pub struct Params {
     pub api_key: String,
     pub model: String,
+    pub protocol: Option<Protocol>,
     pub host: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<RealtimeVoice>,
@@ -53,12 +55,29 @@ impl Params {
         Self {
             api_key: api_key.into(),
             model: model.into(),
+            protocol: None,
             host: None,
             instructions: None,
             voice: None,
             temperature: None,
             tools: vec![],
             tool_choice: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    OpenAI,
+    Azure,
+}
+
+impl Protocol {
+    fn to_realtime_protocol(self) -> RealtimeProtocol {
+        match self {
+            Protocol::OpenAI => RealtimeProtocol::OpenAI,
+            Protocol::Azure => RealtimeProtocol::Azure,
         }
     }
 }
@@ -80,10 +99,12 @@ impl Service for OpenAIDialog {
             bail!("Input and output audio formats must match for OpenAI dialog service");
         }
 
+        let protocol = resolve_protocol(params.protocol, params.host.as_deref())?;
+
         let host = if let Some(host) = &params.host {
-            Host::new_with_host(host, &params.api_key, &params.model)
+            Host::new_with_host(host, &params.api_key, &params.model, protocol)
         } else {
-            Host::new(&params.api_key, &params.model)
+            Host::new(&params.api_key, &params.model, protocol)
         };
         info!("Connecting to {host:?}");
         let mut client = host.connect().await?;
@@ -104,6 +125,52 @@ impl Service for OpenAIDialog {
             .await?;
 
         Ok(())
+    }
+}
+
+fn resolve_protocol(protocol: Option<Protocol>, host: Option<&str>) -> Result<Protocol> {
+    let protocol = match protocol {
+        Some(protocol) => Ok(protocol),
+        None => infer_protocol_from_host(host),
+    }?;
+
+    validate_protocol_host(protocol, host)?;
+    Ok(protocol)
+}
+
+fn validate_protocol_host(protocol: Protocol, host: Option<&str>) -> Result<()> {
+    match (protocol, host) {
+        (Protocol::Azure, None) => {
+            bail!(
+                "Protocol `azure` requires an Azure OpenAI `host` endpoint. Set `host` to your Azure OpenAI realtime websocket URL."
+            )
+        }
+        (Protocol::Azure, Some(_)) => Ok(()),
+        (Protocol::OpenAI, _) => Ok(()),
+    }
+}
+
+fn infer_protocol_from_host(host: Option<&str>) -> Result<Protocol> {
+    let host = match host {
+        Some(host) => host,
+        None => return Ok(Protocol::OpenAI),
+    };
+
+    let parsed = Url::parse(host).with_context(|| format!("Invalid host URL: {host}"))?;
+
+    let is_openai_realtime_endpoint = parsed.scheme() == "wss"
+        && parsed.host_str() == Some("api.openai.com")
+        && parsed.path() == "/v1/realtime";
+
+    if is_openai_realtime_endpoint {
+        return Ok(Protocol::OpenAI);
+    }
+
+    match parsed.host_str() {
+        Some(host) if host.ends_with(".openai.azure.com") => Ok(Protocol::Azure),
+        _ => bail!(
+            "Cannot infer protocol from host `{host}`. Set `protocol` explicitly to `openai` or `azure`, use `wss://api.openai.com/v1/realtime`, or use an Azure OpenAI host."
+        ),
     }
 }
 
@@ -165,18 +232,24 @@ impl fmt::Debug for Host {
 }
 
 impl Host {
-    pub fn new_with_host(host: &str, api_key: &str, model: &str) -> Self {
+    pub fn new_with_host(host: &str, api_key: &str, model: &str, protocol: Protocol) -> Self {
         Host {
-            client: RealtimeClient::new_with_endpoint(host.into(), api_key.into(), model.into()),
+            client: RealtimeClient::new_with_endpoint_and_protocol(
+                host.into(),
+                api_key.into(),
+                model.into(),
+                protocol.to_realtime_protocol(),
+            ),
         }
     }
 
-    pub fn new(api_key: &str, model: &str) -> Self {
+    pub fn new(api_key: &str, model: &str, protocol: Protocol) -> Self {
         Host {
-            client: RealtimeClient::new_with_endpoint(
+            client: RealtimeClient::new_with_endpoint_and_protocol(
                 "wss://api.openai.com/v1/realtime".into(),
                 api_key.into(),
                 model.into(),
+                protocol.to_realtime_protocol(),
             ),
         }
     }
@@ -188,23 +261,14 @@ impl Host {
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
 
-        Ok(Client::new(read, write, self.is_azure_host()))
-    }
-
-    fn is_azure_host(&self) -> bool {
-        self.client
-            .wss_url
-            .split('/')
-            .nth(2)
-            .map(|host| host.ends_with(".openai.azure.com"))
-            .unwrap_or(false)
+        Ok(Client::new(read, write, self.client.protocol))
     }
 }
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    use_tagged_session_update: bool,
+    protocol: RealtimeProtocol,
 
     response_state: ResponseState,
     inflight_prompt: Option<(String, PromptRequest)>,
@@ -222,15 +286,29 @@ impl Client {
     fn new(
         read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-        use_tagged_session_update: bool,
+        protocol: RealtimeProtocol,
     ) -> Self {
         Self {
             read,
             write,
-            use_tagged_session_update,
+            protocol,
             response_state: ResponseState::Idle,
             inflight_prompt: None,
             pending_prompts: Default::default(),
+        }
+    }
+
+    fn session_update_payload(
+        &self,
+        session: types::RealtimeSession,
+    ) -> client_event::SessionUpdatePayload {
+        match self.protocol {
+            RealtimeProtocol::OpenAI => client_event::SessionUpdatePayload::Untagged(
+                types::UntaggedSession::Realtime(session),
+            ),
+            RealtimeProtocol::Azure => {
+                client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(session))
+            }
         }
     }
 
@@ -308,13 +386,7 @@ impl Client {
             }
 
             if send_update {
-                let payload = if self.use_tagged_session_update {
-                    client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(session))
-                } else {
-                    client_event::SessionUpdatePayload::Untagged(types::UntaggedSession::Realtime(
-                        session,
-                    ))
-                };
+                let payload = self.session_update_payload(session);
 
                 self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
                     event_id: None,
@@ -514,15 +586,7 @@ impl Client {
                             ..Default::default()
                         };
 
-                        let payload = if self.use_tagged_session_update {
-                            client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(
-                                session,
-                            ))
-                        } else {
-                            client_event::SessionUpdatePayload::Untagged(
-                                types::UntaggedSession::Realtime(session),
-                            )
-                        };
+                        let payload = self.session_update_payload(session);
 
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
                             session: payload,
