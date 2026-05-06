@@ -352,18 +352,21 @@ impl Client {
             };
 
             if let Some(voice) = params.voice {
-                let mut audio = session.audio.unwrap_or(types::AudioConfig {
-                    input: None,
-                    output: None,
-                });
-                let mut output = audio.output.unwrap_or(types::AudioOutput {
-                    format: None,
-                    speed: 1.0,
-                    voice: None,
-                });
-                output.voice = Some(voice);
-                audio.output = Some(output);
-                session.audio = Some(audio);
+                match self.protocol {
+                    RealtimeProtocol::OpenAI => {
+                        session.voice = Some(voice);
+                    }
+                    RealtimeProtocol::Azure => {
+                        session.audio = Some(types::AudioConfig {
+                            input: None,
+                            output: Some(types::AudioOutput {
+                                format: None,
+                                speed: 1.0,
+                                voice: Some(voice),
+                            }),
+                        });
+                    }
+                }
                 send_update = true;
             }
 
@@ -554,17 +557,24 @@ impl Client {
                         tools,
                         tool_choice,
                     } => {
-                        let audio = voice.map(|voice| types::AudioConfig {
-                            input: None,
-                            output: Some(types::AudioOutput {
-                                format: None,
-                                speed: 1.0,
-                                voice: Some(voice),
-                            }),
-                        });
+                        let (voice, audio) = match self.protocol {
+                            RealtimeProtocol::OpenAI => (voice, None),
+                            RealtimeProtocol::Azure => {
+                                let audio = voice.map(|voice| types::AudioConfig {
+                                    input: None,
+                                    output: Some(types::AudioOutput {
+                                        format: None,
+                                        speed: 1.0,
+                                        voice: Some(voice),
+                                    }),
+                                });
+                                (None, audio)
+                            }
+                        };
 
                         let session = types::RealtimeSession {
                             instructions,
+                            voice,
                             audio,
                             tools,
                             tool_choice,
