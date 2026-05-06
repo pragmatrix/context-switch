@@ -9,8 +9,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::Code;
 
 use context_switch_core::{
-    AudioFormat, OutputModality, Service,
-    conversation::{Conversation, ConversationOutput, Input},
+    AudioFormat, AudioFrame, AudioProducer, BillingRecord, OutputModality, Service,
+    conversation::{BillingSchedule, Conversation, ConversationOutput, Input},
     language::Languages,
 };
 use tracing::{info, warn};
@@ -91,12 +91,11 @@ impl Service for GoogleTranscribe {
                     input_event = input.recv(), if audio_producer.is_some() => {
                         match input_event {
                             Some(Input::Audio { frame }) => {
-                                if let Some(transcribe_producer) = audio_producer.as_ref()
-                                    && let Err(error) = transcribe_producer.produce(frame)
-                                {
-                                    warn!(error = ?error, "Failed to forward audio frame to transcribe stream");
-                                    audio_producer = None;
-                                }
+                                forward_audio_and_emit_billing(
+                                    &mut audio_producer,
+                                    &output,
+                                    frame,
+                                )?;
                             }
                             Some(_) | None => {
                                 audio_producer = None;
@@ -114,6 +113,30 @@ impl Service for GoogleTranscribe {
         }
         Ok(())
     }
+}
+
+fn forward_audio_and_emit_billing(
+    audio_producer: &mut Option<AudioProducer>,
+    output: &ConversationOutput,
+    frame: AudioFrame,
+) -> Result<()> {
+    let duration = frame.duration();
+    if let Some(transcribe_producer) = audio_producer.as_ref()
+        && let Err(error) = transcribe_producer.produce(frame)
+    {
+        warn!(error = ?error, "Failed to forward audio frame to transcribe stream");
+        *audio_producer = None;
+        return Ok(());
+    }
+
+    output
+        .billing_records(
+            None,
+            None,
+            [BillingRecord::duration("input:audio", duration)],
+            BillingSchedule::Now,
+        )
+        .context("Failed to output billing records")
 }
 
 async fn transcribe_and_process_stream_session(
