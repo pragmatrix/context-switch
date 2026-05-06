@@ -1,27 +1,21 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use chrono::Local;
 use static_assertions::assert_impl_all;
-use tokio::{
-    select,
-    sync::mpsc::{Receiver, Sender, UnboundedSender, channel, unbounded_channel},
-    time,
-};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel, unbounded_channel};
+use tokio::{select, time};
 use tracing::{Span, error, info, warn};
 use tracing_futures::Instrument;
 
 use crate::{AudioTracer, ClientEvent, ConversationId, InputModality, ServerEvent};
-use context_switch_core::{
-    AudioFrame, BillingContext, Registry,
-    billing_collector::BillingCollector,
-    conversation::{Conversation, Input, Output},
-};
+use context_switch_core::billing_collector::BillingCollector;
+use context_switch_core::conversation::{Conversation, Input, Output};
+use context_switch_core::{AudioFrame, BillingContext, Registry};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -48,6 +42,7 @@ pub fn registry() -> Registry {
         .add_service("azure-synthesize", azure::AzureSynthesize)
         .add_service("azure-translate", azure::AzureTranslate)
         .add_service("elevenlabs-transcribe", elevenlabs::ElevenLabsTranscribe)
+        .add_service("google-transcribe", google_transcribe::GoogleTranscribe)
         .add_service("openai-dialog", openai_dialog::OpenAIDialog)
         .add_service("aristech-transcribe", aristech::AristechTranscribe)
         .add_service("aristech-synthesize", aristech::AristechSynthesize)

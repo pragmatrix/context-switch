@@ -1,5 +1,6 @@
 use std::fmt;
 
+use derive_more::Deref;
 use isolang::Language;
 use oxilangtag::LanguageTag;
 
@@ -23,6 +24,86 @@ impl fmt::Display for LanguageCodeError {
 }
 
 impl std::error::Error for LanguageCodeError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LanguageListError {
+    Empty,
+    MultipleValues { count: usize },
+}
+
+impl fmt::Display for LanguageListError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LanguageListError::Empty => write!(f, "language list must contain at least one value"),
+            LanguageListError::MultipleValues { count } => {
+                write!(f, "expected exactly one language value, got {count}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LanguageListError {}
+
+/// A non-empty list of normalized language codes.
+///
+/// Values are trimmed and empty entries are removed during construction.
+/// Construction fails if no non-empty values remain.
+#[derive(Debug, Clone, PartialEq, Eq, Deref)]
+pub struct Languages(Vec<String>);
+
+impl Languages {
+    /// Creates a non-empty language list from raw values.
+    pub fn new(values: Vec<String>) -> Result<Self, LanguageListError> {
+        let values = values
+            .into_iter()
+            .map(|x| x.trim().to_owned())
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>();
+
+        if values.is_empty() {
+            return Err(LanguageListError::Empty);
+        }
+
+        Ok(Self(values))
+    }
+
+    /// Creates a non-empty language list from a comma-separated string.
+    pub fn from_csv(language: &str) -> Result<Self, LanguageListError> {
+        Self::new(
+            language
+                .split(',')
+                .map(str::trim)
+                .filter(|x| !x.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        )
+    }
+
+    /// Returns the first language code.
+    ///
+    /// The list is guaranteed to be non-empty after construction.
+    pub fn first(&self) -> &String {
+        &self.0[0]
+    }
+
+    /// Returns the single language code.
+    ///
+    /// Fails if multiple language codes are present.
+    pub fn single(&self) -> Result<&String, LanguageListError> {
+        if self.0.len() == 1 {
+            Ok(self.first())
+        } else {
+            Err(LanguageListError::MultipleValues {
+                count: self.0.len(),
+            })
+        }
+    }
+
+    /// Returns the language codes joined by commas.
+    pub fn join_csv(&self) -> String {
+        self.0.join(",")
+    }
+}
 
 /// Converts a BCP 47 language tag into its ISO 639-3 language code.
 ///
