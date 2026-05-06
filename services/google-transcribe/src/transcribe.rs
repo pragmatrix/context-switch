@@ -7,17 +7,17 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     StreamingRecognizeResponse, streaming_recognize_response::SpeechEventType,
 };
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc::UnboundedReceiver};
 use tonic::Code;
 
 use context_switch_core::{
-    OutputModality, Service,
+    AudioFormat, OutputModality, Service,
     conversation::{Conversation, ConversationOutput, Input},
     language::Languages,
 };
 use tracing::{info, warn};
 
-use crate::Host;
+use crate::{Host, client::TranscribeClient};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,8 +42,9 @@ pub struct GoogleTranscribe;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionExit {
-    Finished,
-    Restart,
+    AudioInputEnded,
+    StoppedBySingleUtterance,
+    StoppedByTimeout,
 }
 
 #[async_trait]
@@ -59,7 +60,6 @@ impl Service for GoogleTranscribe {
             .any(|modality| matches!(modality, OutputModality::InterimText));
         let languages = Languages::from_csv(&params.language)
             .context("language must contain at least one locale code")?;
-        let include_detected_language = languages.len() > 1;
 
         let host = Host::new(params.region.into()).await?;
 
@@ -79,27 +79,22 @@ impl Service for GoogleTranscribe {
         });
 
         loop {
-            let response_stream = client
-                .transcribe(
-                    &params.model,
-                    &languages,
-                    interim_results,
-                    audio_format,
-                    audio_receiver.clone(),
-                )
-                .await?;
-
-            let session_exit = process_stream_session(
-                &params.model,
-                include_detected_language,
+            let session_exit = transcribe_and_process_stream_session(
+                &mut client,
+                &params,
+                &languages,
+                interim_results,
+                audio_format,
+                audio_receiver.clone(),
                 &output,
-                response_stream,
             )
             .await?;
 
             match session_exit {
-                SessionExit::Finished => break,
-                SessionExit::Restart => continue,
+                SessionExit::AudioInputEnded => break,
+                SessionExit::StoppedBySingleUtterance | SessionExit::StoppedByTimeout => {
+                    continue;
+                }
             }
         }
 
@@ -108,6 +103,36 @@ impl Service for GoogleTranscribe {
             .context("Failed to join input producer task")??;
         Ok(())
     }
+}
+
+async fn transcribe_and_process_stream_session(
+    client: &mut TranscribeClient,
+    params: &Params,
+    languages: &Languages,
+    interim_results: bool,
+    audio_format: AudioFormat,
+    audio_receiver: Arc<Mutex<UnboundedReceiver<Vec<i16>>>>,
+    output: &ConversationOutput,
+) -> Result<SessionExit> {
+    let include_detected_language = languages.len() > 1;
+
+    let response_stream = client
+        .transcribe(
+            &params.model,
+            languages,
+            interim_results,
+            audio_format,
+            audio_receiver,
+        )
+        .await?;
+
+    process_stream_session(
+        &params.model,
+        include_detected_language,
+        output,
+        response_stream,
+    )
+    .await
 }
 
 async fn process_stream_session<S>(
@@ -136,7 +161,7 @@ where
             saw_end_of_single_utterance = true;
             info!(
                 model = %model,
-                "Google streaming_recognize reported END_OF_SINGLE_UTTERANCE; restarting the stream"
+                "Google streaming_recognize reported END_OF_SINGLE_UTTERANCE"
             );
         }
 
@@ -198,9 +223,9 @@ where
     }
 
     Ok(if saw_end_of_single_utterance {
-        SessionExit::Restart
+        SessionExit::StoppedBySingleUtterance
     } else {
-        SessionExit::Finished
+        SessionExit::AudioInputEnded
     })
 }
 
@@ -218,9 +243,9 @@ fn handle_stream_error(
                 model = %model,
                 code = ?status_code,
                 message = %status_message,
-                "Google streaming_recognize returned CANCELLED after END_OF_SINGLE_UTTERANCE; restarting the stream"
+                "Google streaming_recognize returned CANCELLED after END_OF_SINGLE_UTTERANCE"
             );
-            return Ok(SessionExit::Restart);
+            return Ok(SessionExit::StoppedBySingleUtterance);
         }
 
         if should_restart_for_stream_limit(status_code, &status_message) {
@@ -228,9 +253,9 @@ fn handle_stream_error(
                 model = %model,
                 code = ?status_code,
                 message = %status_message,
-                "Google streaming_recognize hit stream limit/timeout; restarting the stream"
+                "Google streaming_recognize hit stream limit/timeout"
             );
-            return Ok(SessionExit::Restart);
+            return Ok(SessionExit::StoppedByTimeout);
         }
 
         warn!(
