@@ -29,6 +29,8 @@ struct Args {
     model: Option<String>,
     #[arg(long)]
     region: Option<String>,
+    #[arg(long)]
+    diarization: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -52,10 +54,15 @@ async fn main() -> Result<()> {
     let languages = Languages::new(args.language)?;
     let model = args.model.as_deref();
     let region = args.region.as_deref();
+    let diarization = args.diarization;
 
     match args.input.as_deref() {
-        Some(path) => recognize_from_wav(args.provider, path, &languages, model, region).await?,
-        None => recognize_from_microphone(args.provider, &languages, model, region).await?,
+        Some(path) => {
+            recognize_from_wav(args.provider, path, &languages, model, region, diarization).await?
+        }
+        None => {
+            recognize_from_microphone(args.provider, &languages, model, region, diarization).await?
+        }
     }
 
     Ok(())
@@ -67,6 +74,7 @@ async fn recognize_from_wav(
     languages: &Languages,
     model: Option<&str>,
     region: Option<&str>,
+    diarization: bool,
 ) -> Result<()> {
     let format = AudioFormat {
         channels: 1,
@@ -83,7 +91,16 @@ async fn recognize_from_wav(
         producer.produce(frame)?;
     }
 
-    recognize(provider, format, input_consumer, languages, model, region).await
+    recognize(
+        provider,
+        format,
+        input_consumer,
+        languages,
+        model,
+        region,
+        diarization,
+    )
+    .await
 }
 
 async fn recognize_from_microphone(
@@ -91,6 +108,7 @@ async fn recognize_from_microphone(
     languages: &Languages,
     model: Option<&str>,
     region: Option<&str>,
+    diarization: bool,
 ) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
@@ -131,7 +149,16 @@ async fn recognize_from_microphone(
 
     stream.play().expect("Failed to play stream");
 
-    recognize(provider, format, input_consumer, languages, model, region).await
+    recognize(
+        provider,
+        format,
+        input_consumer,
+        languages,
+        model,
+        region,
+        diarization,
+    )
+    .await
 }
 
 async fn recognize(
@@ -141,6 +168,7 @@ async fn recognize(
     languages: &Languages,
     model: Option<&str>,
     region: Option<&str>,
+    diarization: bool,
 ) -> Result<()> {
     let (output_producer, mut output_consumer) = unbounded_channel();
     let (conversation_input_producer, conversation_input_consumer) = channel(16_384);
@@ -150,6 +178,7 @@ async fn recognize(
         languages,
         model,
         region,
+        diarization,
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
@@ -190,6 +219,7 @@ async fn start_conversation(
     languages: &Languages,
     model: Option<&str>,
     region: Option<&str>,
+    diarization: bool,
     conversation: Conversation,
 ) -> Result<()> {
     match provider {
@@ -203,11 +233,15 @@ async fn start_conversation(
                 subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
                     .expect("AZURE_SUBSCRIPTION_KEY undefined"),
                 language: languages.join_csv(),
+                diarization,
                 speech_gate: false,
             };
             AzureTranscribe.conversation(params, conversation).await
         }
         Provider::Elevenlabs => {
+            if diarization {
+                bail!("--diarization is only supported for the azure provider");
+            }
             if region.is_some() {
                 bail!("--region is only supported for the google provider");
             }
@@ -234,6 +268,9 @@ async fn start_conversation(
                 .await
         }
         Provider::Google => {
+            if diarization {
+                bail!("--diarization is only supported for the azure provider");
+            }
             let region = region
                 .map(str::to_owned)
                 .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok());
@@ -259,6 +296,9 @@ async fn start_conversation(
             GoogleTranscribe.conversation(params, conversation).await
         }
         Provider::Aristech => {
+            if diarization {
+                bail!("--diarization is only supported for the azure provider");
+            }
             if region.is_some() {
                 bail!("--region is only supported for the google provider");
             }

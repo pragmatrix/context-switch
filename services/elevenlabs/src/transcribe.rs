@@ -447,7 +447,7 @@ fn process_server_json(
         }
         "partial_transcript" => {
             let event: PartialTranscript = serde_json::from_value(envelope.payload)?;
-            output.text(false, event.text, None)
+            output.text(false, event.text, None, None)
         }
         "committed_transcript" => {
             if include_language_detection {
@@ -455,7 +455,7 @@ fn process_server_json(
                 return Ok(());
             }
             let event: CommittedTranscript = serde_json::from_value(envelope.payload)?;
-            output.text(true, event.text, None)
+            output.text(true, event.text, None, None)
         }
         "committed_transcript_with_timestamps" => {
             let event: CommittedTranscriptWithTimestamps =
@@ -482,7 +482,7 @@ fn process_server_json(
                     }
                 });
 
-            output.text(true, text, language_code)
+            output.text(true, text, language_code, None)
         }
         // Not in the official documentation, but this happens when the language code is invalid.
         "invalid_request" => {

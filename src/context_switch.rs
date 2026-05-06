@@ -384,11 +384,13 @@ fn output_to_server_event(id: &ConversationId, output: Output) -> ServerEvent {
             is_final,
             text,
             language,
+            speaker,
         } => ServerEvent::Text {
             id: id.clone(),
             is_final,
             content: text,
             language,
+            speaker,
         },
         Output::RequestCompleted { request_id } => ServerEvent::RequestCompleted {
             id: id.clone(),

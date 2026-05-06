@@ -22,6 +22,8 @@ pub struct Params {
     pub subscription_key: String,
     pub language: String,
     #[serde(default)]
+    pub diarization: bool,
+    #[serde(default)]
     pub speech_gate: bool,
 }
 
@@ -54,6 +56,12 @@ impl Service for AzureTranscribe {
         let config = recognizer::Config::default()
             // Disable profanity filter.
             .set_profanity(recognizer::Profanity::Raw);
+
+        let config = if params.diarization {
+            config.enable_recognize_speaker()
+        } else {
+            config
+        };
 
         let config = if languages.len() == 1 {
             config.set_language(recognizer::Language::Custom(languages.first().clone()))
@@ -145,7 +153,7 @@ fn output_recognized_text(
     let recognizer::Recognized {
         text,
         primary_language,
-        ..
+        speaker_id: speaker,
     } = recognized;
 
     let language = if include_detected_language {
@@ -154,5 +162,9 @@ fn output_recognized_text(
         None
     };
 
-    output.text(is_final, text, language)
+    // Azure frequently reports speaker as "Unknown" during interim recognition,
+    // so we only emit speaker information for final text events.
+    let speaker = if is_final { speaker } else { None };
+
+    output.text(is_final, text, language, speaker)
 }
