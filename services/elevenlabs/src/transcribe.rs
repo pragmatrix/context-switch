@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
@@ -19,8 +19,8 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use context_switch_core::{
-    AudioFormat, Service,
-    conversation::{Conversation, ConversationInput, ConversationOutput, Input},
+    AudioFormat, AudioFrame, BillingRecord, Service,
+    conversation::{BillingSchedule, Conversation, ConversationInput, ConversationOutput, Input},
     language::{bcp47_to_iso639_3, iso639_to_bcp47},
 };
 
@@ -199,10 +199,12 @@ where
                         }
 
                         let previous_text = previous_text_for_next_chunk.take();
-                        let msg = build_audio_chunk_message(frame, false, previous_text)?;
-                        outbound_tx
-                            .send(msg)
-                            .map_err(|_| anyhow!("ElevenLabs websocket writer task stopped unexpectedly"))?;
+                        enqueue_audio_chunk_and_emit_billing(
+                            outbound_tx,
+                            output,
+                            frame,
+                            previous_text,
+                        )?;
                     }
                     Some(_) => {}
                     None => {
@@ -227,6 +229,28 @@ where
             }
         }
     }
+}
+
+fn enqueue_audio_chunk_and_emit_billing(
+    outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
+    output: &ConversationOutput,
+    frame: AudioFrame,
+    previous_text: Option<&str>,
+) -> Result<()> {
+    let duration = frame.duration();
+    let msg = build_audio_chunk_message(frame, false, previous_text)?;
+    outbound_tx
+        .send(msg)
+        .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+
+    output
+        .billing_records(
+            None,
+            None,
+            [BillingRecord::duration("input:audio", duration)],
+            BillingSchedule::Now,
+        )
+        .context("Failed to output billing records")
 }
 
 async fn shutdown_writer_task(mut writer_task: tokio::task::JoinHandle<Result<()>>) -> Result<()> {
@@ -292,9 +316,8 @@ fn build_endpoint(
         q.append_pair("commit_strategy", "vad");
 
         if let Some(language) = params.language.as_deref() {
-            let language_code = bcp47_to_iso639_3(language).map_err(|error| {
-                anyhow!("Invalid ElevenLabs params.language '{language}': {error}")
-            })?;
+            let language_code = bcp47_to_iso639_3(language)
+                .with_context(|| format!("Invalid ElevenLabs params.language '{language}'"))?;
             q.append_pair("language_code", language_code);
         }
         if let Some(vad_silence_threshold_secs) = params.vad_silence_threshold_secs {
