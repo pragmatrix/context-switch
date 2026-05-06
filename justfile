@@ -8,7 +8,7 @@ transcribe-azure-de-en:
     cargo run --example transcribe -- azure --language de-DE,en-US
 
 transcribe-azure-diarization:
-    cargo run --example azure-transcribe -- --diarization
+    cargo run --example transcribe -- azure --diarization
 
 transcribe-google-de-en:
     cargo run --example transcribe -- google --language de-DE,en-US --model chirp_3 --region eu
