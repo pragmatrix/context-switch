@@ -339,14 +339,14 @@ impl<'a> StreamTextOutput<'a> {
     }
 
     fn final_text(&mut self, text: String, language: Option<String>) -> Result<()> {
-        self.output.text(true, text, language)?;
+        self.output.text(true, text, language, None)?;
         self.pending_interim_text = None;
         Ok(())
     }
 
     fn interim_text(&mut self, text: String, language: Option<String>) -> Result<()> {
         self.pending_interim_text = Some((text.clone(), language.clone()));
-        self.output.text(false, text, language)
+        self.output.text(false, text, language, None)
     }
 }
 
@@ -354,7 +354,7 @@ impl Drop for StreamTextOutput<'_> {
     fn drop(&mut self) {
         if let Some((pending, language)) = self.pending_interim_text.take() {
             warn!("Interim text treated as final");
-            if let Err(error) = self.output.text(true, pending, language) {
+            if let Err(error) = self.output.text(true, pending, language, None) {
                 warn!(error = ?error, "Failed to output pending interim text as final");
             }
         }
