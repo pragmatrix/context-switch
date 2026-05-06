@@ -57,6 +57,12 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    info!(
+        "Starting {} v{}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     if let Ok(env_path) = env_path {
         info!("Environment variables loaded from {env_path:?}");
     }
