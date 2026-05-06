@@ -93,6 +93,7 @@ Configure the services by setting the appropriate environment variables in your 
 # OpenAI Configuration
 OPENAI_API_KEY=your_openai_key
 OPENAI_REALTIME_API_MODEL=gpt-4o-mini-realtime-preview
+OPENAI_REALTIME_ENDPOINT=
 
 # Azure Configuration
 AZURE_SUBSCRIPTION_KEY=your_azure_key
@@ -104,6 +105,13 @@ ELEVENLABS_API_KEY=your_elevenlabs_key
 # Audio Knife Configuration
 AUDIO_KNIFE_ADDRESS=127.0.0.1:8123
 ```
+
+For Azure OpenAI realtime endpoints (`*.openai.azure.com`), the realtime client automatically appends
+`api-key` as a query parameter to the websocket URL. For other hosts, it uses the standard
+`Authorization: Bearer ...` header.
+
+The websocket client does not follow redirects. If the endpoint responds with `3xx` (for example
+`302 Found`), update the configured endpoint URL to the final websocket target.
 
 ## License
 

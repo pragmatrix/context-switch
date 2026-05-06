@@ -80,6 +80,8 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 openai-api-rs = { workspace = true }
 serde_json = { workspace = true }
 chrono-tz = { version = "0.10.3" }
+url = { workspace = true }
+strum = { version = "0.28" }
 
 
 # For recognizing audio files in azure-transcribe.
