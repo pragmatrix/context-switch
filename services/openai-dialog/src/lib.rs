@@ -44,7 +44,6 @@ pub struct Params {
     pub host: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<RealtimeVoice>,
-    pub temperature: Option<f32>,
     #[serde(default)]
     pub tools: Vec<types::ToolDefinition>,
     tool_choice: Option<ToolChoice>,
@@ -59,7 +58,6 @@ impl Params {
             host: None,
             instructions: None,
             voice: None,
-            temperature: None,
             tools: vec![],
             tool_choice: None,
         }
@@ -191,8 +189,6 @@ pub enum ServiceInputEvent {
         instructions: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         voice: Option<RealtimeVoice>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        temperature: Option<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<types::ToolDefinition>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -369,10 +365,6 @@ impl Client {
                 audio.output = Some(output);
                 session.audio = Some(audio);
                 send_update = true;
-            }
-
-            if let Some(temperature) = params.temperature {
-                warn!("Ignoring unsupported realtime session temperature: {temperature}");
             }
 
             if !params.tools.is_empty() {
@@ -559,16 +551,9 @@ impl Client {
                     ServiceInputEvent::SessionUpdate {
                         instructions,
                         voice,
-                        temperature,
                         tools,
                         tool_choice,
                     } => {
-                        if let Some(temperature) = temperature {
-                            warn!(
-                                "Ignoring unsupported realtime session temperature: {temperature}"
-                            );
-                        }
-
                         let audio = voice.map(|voice| types::AudioConfig {
                             input: None,
                             output: Some(types::AudioOutput {
