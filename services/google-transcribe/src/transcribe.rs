@@ -2,9 +2,10 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    StreamingRecognizeResponse, streaming_recognize_response::SpeechEventType,
+    StreamingRecognizeResponse, WordInfo, streaming_recognize_response::SpeechEventType,
 };
 use serde::Deserialize;
+use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::Code;
 
@@ -22,6 +23,8 @@ use crate::{Host, client::TranscribeClient};
 pub struct Params {
     pub model: String,
     pub language: String,
+    #[serde(default)]
+    pub diarization: bool,
     #[serde(default)]
     pub region: Region,
 }
@@ -154,6 +157,7 @@ async fn transcribe_and_process_stream_session(
         .transcribe(
             &params.model,
             languages,
+            params.diarization,
             interim_results,
             audio_format,
             audio_receiver,
@@ -221,7 +225,12 @@ where
                 let language = include_detected_language
                     .then(|| one.language_code.trim().to_owned())
                     .filter(|x| !x.is_empty());
-                text_output.final_text(alternative.transcript.trim().to_owned(), language)?;
+                let speaker = speaker_with_max_assigned_characters(&alternative.words);
+                text_output.final_text(
+                    alternative.transcript.trim().to_owned(),
+                    language,
+                    speaker,
+                )?;
             }
             [_, ..] => {
                 let interim_text = response
@@ -321,6 +330,25 @@ fn should_restart_for_stream_limit(code: Code, message: &str) -> bool {
     code == Code::Aborted && message.contains("max duration of 5 minutes reached for stream")
 }
 
+fn speaker_with_max_assigned_characters(words: &[WordInfo]) -> Option<String> {
+    let mut char_count_by_speaker = HashMap::<&str, usize>::new();
+
+    for word in words {
+        let speaker = word.speaker_label.trim();
+        if speaker.is_empty() {
+            continue;
+        }
+
+        let spoken_chars = word.word.chars().count();
+        *char_count_by_speaker.entry(speaker).or_default() += spoken_chars;
+    }
+
+    char_count_by_speaker
+        .into_iter()
+        .max_by_key(|(_, char_count)| *char_count)
+        .map(|(speaker, _)| speaker.to_owned())
+}
+
 // Keeps interim/final emission behavior in one place across all exit paths.
 // If a session ends without any final result, we promote the last interim text
 // to final in Drop so callers still receive a terminal text event.
@@ -338,8 +366,13 @@ impl<'a> StreamTextOutput<'a> {
         }
     }
 
-    fn final_text(&mut self, text: String, language: Option<String>) -> Result<()> {
-        self.output.text(true, text, language, None)?;
+    fn final_text(
+        &mut self,
+        text: String,
+        language: Option<String>,
+        speaker: Option<String>,
+    ) -> Result<()> {
+        self.output.text(true, text, language, speaker)?;
         self.pending_interim_text = None;
         Ok(())
     }
