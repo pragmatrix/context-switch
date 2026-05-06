@@ -10,6 +10,9 @@ transcribe-azure-de-en:
 transcribe-azure-diarization:
     cargo run --example transcribe -- azure --diarization
 
+transcribe-azure-diarization-de:
+    cargo run --example transcribe -- azure --diarization --language de-DE
+
 transcribe-google-de-en:
     cargo run --example transcribe -- google --language de-DE,en-US --model chirp_3 --region eu
 
