@@ -236,14 +236,18 @@ async fn start_conversation(
         Provider::Google => {
             let region = region
                 .map(str::to_owned)
-                .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok())
-                .map(|value| match value.as_str() {
-                    "global" => google_transcribe::transcribe::Region::Global,
-                    "eu" => google_transcribe::transcribe::Region::Eu,
-                    "us" => google_transcribe::transcribe::Region::Us,
-                    _ => panic!("GOOGLE_TRANSCRIBE_REGION must be one of: global, eu, us"),
-                })
-                .unwrap_or_default();
+                .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok());
+
+            let region = match region.as_deref() {
+                Some("global") => google_transcribe::transcribe::Region::Global,
+                Some("eu") => google_transcribe::transcribe::Region::Eu,
+                Some("us") => google_transcribe::transcribe::Region::Us,
+                Some(invalid) => bail!(
+                    "Invalid GOOGLE_TRANSCRIBE_REGION '{}'. Must be one of: global, eu, us",
+                    invalid
+                ),
+                None => google_transcribe::transcribe::Region::default(),
+            };
 
             let params = google_transcribe::transcribe::Params {
                 model: model.map(str::to_owned).unwrap_or_else(|| {
