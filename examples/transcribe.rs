@@ -119,7 +119,8 @@ async fn recognize_from_microphone(
 ) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
-        Ok(sink) => {
+        Ok(mut sink) => {
+            sink.log_on_drop(false);
             println!("Opened default output sink for headset profile");
             Some(sink)
         }
@@ -279,9 +280,6 @@ async fn start_conversation(
                 .await
         }
         Provider::Google => {
-            if diarization {
-                bail!("--diarization is only supported for the azure provider");
-            }
             let region = region
                 .map(str::to_owned)
                 .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok());
@@ -297,11 +295,15 @@ async fn start_conversation(
                 None => google_transcribe::transcribe::Region::default(),
             };
 
+            // Check model/language/region feature support (including diarization):
+            // https://docs.cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages
+
             let params = google_transcribe::transcribe::Params {
                 model: model.map(str::to_owned).unwrap_or_else(|| {
                     env::var("GOOGLE_TRANSCRIBE_MODEL").unwrap_or_else(|_| "latest_long".to_owned())
                 }),
                 language: languages.join_csv(),
+                diarization,
                 region,
             };
             GoogleTranscribe.conversation(params, conversation).await

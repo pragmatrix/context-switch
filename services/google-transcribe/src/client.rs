@@ -14,8 +14,9 @@ use google_cloud_token::TokenSource;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::recognition_config::DecodingConfig;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    ExplicitDecodingConfig, RecognitionConfig, StreamingRecognitionConfig,
+    ExplicitDecodingConfig, RecognitionConfig, RecognitionFeatures, StreamingRecognitionConfig,
     StreamingRecognitionFeatures, StreamingRecognizeRequest, StreamingRecognizeResponse,
+    SpeakerDiarizationConfig,
     explicit_decoding_config,
 };
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streaming_recognize_request::StreamingRequest;
@@ -165,6 +166,7 @@ impl TranscribeClient {
         &mut self,
         model: &str,
         language_codes: &[String],
+        diarization: bool,
         interim_results: bool,
         audio_format: AudioFormat,
         mut audio_receiver: UnboundedReceiver<Vec<i16>>,
@@ -180,7 +182,13 @@ impl TranscribeClient {
             // TODO: configure
             model: model.into(),
             language_codes: language_codes.to_vec(),
-            features: None,
+            features: diarization.then_some(RecognitionFeatures {
+                diarization_config: Some(SpeakerDiarizationConfig {
+                    min_speaker_count: 0,
+                    max_speaker_count: 0,
+                }),
+                ..Default::default()
+            }),
             adaptation: None,
             transcript_normalization: None,
             denoiser_config: None,
@@ -206,6 +214,7 @@ impl TranscribeClient {
             recognizer = %recognizer,
             model = %model,
             language_codes = ?language_codes,
+            diarization,
             interim_results,
             "Starting Google streaming_recognize"
         );
