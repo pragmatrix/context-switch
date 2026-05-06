@@ -18,12 +18,14 @@ use context_switch_core::language::Languages;
 use context_switch_core::service::Service;
 use context_switch_core::{AudioFormat, AudioFrame, audio};
 
+const DEFAULT_LANGUAGE: &str = "en-US";
+
 #[derive(Debug, Parser)]
 struct Args {
     #[arg(value_enum)]
     provider: Provider,
     input: Option<PathBuf>,
-    #[arg(long, num_args = 1.., value_delimiter = ',', default_values = ["de-DE"])]
+    #[arg(long, num_args = 1.., value_delimiter = ',')]
     language: Vec<String>,
     #[arg(long)]
     model: Option<String>,
@@ -51,7 +53,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
-    let languages = Languages::new(args.language)?;
+    let language = if args.language.is_empty() {
+        vec![DEFAULT_LANGUAGE.to_owned()]
+    } else {
+        args.language
+    };
+    let languages = Languages::new(language)?;
     let model = args.model.as_deref();
     let region = args.region.as_deref();
     let diarization = args.diarization;
@@ -112,7 +119,10 @@ async fn recognize_from_microphone(
 ) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
-        Ok(sink) => Some(sink),
+        Ok(sink) => {
+            println!("Opened default output sink for headset profile");
+            Some(sink)
+        }
         Err(e) => {
             println!("Warning: Failed to open default output sink: {e}");
             None
@@ -126,6 +136,7 @@ async fn recognize_from_microphone(
     let config = device
         .default_input_config()
         .expect("Failed to get default input config");
+    println!("config: {config:?}");
 
     let format = AudioFormat::new(config.channels(), config.sample_rate());
     let (producer, input_consumer) = format.new_channel();

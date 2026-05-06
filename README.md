@@ -60,11 +60,14 @@ The project includes several examples showcasing different functionalities:
 # Run OpenAI dialog example
 cargo run --example openai-dialog
 
-# Run Azure transcribe example
-cargo run --example azure-transcribe
+# Run generic transcribe example with Azure provider
+cargo run --example transcribe -- azure
 
-# Run ElevenLabs transcribe example
-cargo run --example elevenlabs-transcribe
+# Run generic transcribe example with ElevenLabs provider
+cargo run --example transcribe -- elevenlabs
+
+# Run generic transcribe example with Aristech provider
+cargo run --example transcribe -- aristech
 
 # Run Azure synthesize example
 cargo run --example azure-synthesize
