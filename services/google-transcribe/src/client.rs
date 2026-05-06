@@ -19,7 +19,6 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     explicit_decoding_config,
 };
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streaming_recognize_request::StreamingRequest;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::transport;
 use tracing::debug;
@@ -168,7 +167,7 @@ impl TranscribeClient {
         language_codes: &[String],
         interim_results: bool,
         audio_format: AudioFormat,
-        audio_receiver: Arc<Mutex<UnboundedReceiver<Vec<i16>>>>,
+        mut audio_receiver: UnboundedReceiver<Vec<i16>>,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>> + 'a> {
         let decoding_config = ExplicitDecodingConfig {
             // We only support 16-bit signed little-endian PCM samples here for now.
@@ -220,12 +219,9 @@ impl TranscribeClient {
             yield config_request;
 
             loop {
-                let maybe_audio = {
-                    let mut receiver = audio_receiver.lock().await;
-                    receiver.recv().await
-                };
+                let audio = audio_receiver.recv().await;
 
-                let Some(audio) = maybe_audio else {
+                let Some(audio) = audio else {
                     break;
                 };
 

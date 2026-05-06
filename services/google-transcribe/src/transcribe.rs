@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -7,7 +5,7 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     StreamingRecognizeResponse, streaming_recognize_response::SpeechEventType,
 };
 use serde::Deserialize;
-use tokio::sync::{Mutex, mpsc::UnboundedReceiver};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::Code;
 
 use context_switch_core::{
@@ -66,41 +64,54 @@ impl Service for GoogleTranscribe {
         let mut client = host.client().await?;
         let (mut input, output) = conversation.start()?;
 
-        let (producer, audio_consumer) = input_format.new_channel();
-        let audio_format = audio_consumer.format;
-        let audio_receiver = Arc::new(Mutex::new(audio_consumer.receiver));
-        let producer_task = tokio::spawn(async move {
-            while let Some(Input::Audio { frame }) = input.recv().await {
-                if producer.produce(frame).is_err() {
-                    break;
-                }
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-
         loop {
-            let session_exit = transcribe_and_process_stream_session(
+            let (audio_producer, audio_consumer) = input_format.new_channel();
+            let audio_format = audio_consumer.format;
+            let audio_receiver = audio_consumer.receiver;
+            // `None` means the sender has been dropped intentionally so the audio receiver
+            // closes and the current streaming request can finish cleanly.
+            let mut audio_producer = Some(audio_producer);
+
+            let session_future = transcribe_and_process_stream_session(
                 &mut client,
                 &params,
                 &languages,
                 interim_results,
                 audio_format,
-                audio_receiver.clone(),
+                audio_receiver,
                 &output,
-            )
-            .await?;
+            );
+            tokio::pin!(session_future);
+
+            let session_exit = loop {
+                tokio::select! {
+                    session_exit = &mut session_future => {
+                        break session_exit?;
+                    }
+                    input_event = input.recv(), if audio_producer.is_some() => {
+                        match input_event {
+                            Some(Input::Audio { frame }) => {
+                                if let Some(transcribe_producer) = audio_producer.as_ref()
+                                    && let Err(error) = transcribe_producer.produce(frame)
+                                {
+                                    warn!(error = ?error, "Failed to forward audio frame to transcribe stream");
+                                    audio_producer = None;
+                                }
+                            }
+                            Some(_) | None => {
+                                audio_producer = None;
+                            }
+                        }
+                    }
+                }
+            };
 
             match session_exit {
                 SessionExit::AudioInputEnded => break,
-                SessionExit::StoppedBySingleUtterance | SessionExit::StoppedByTimeout => {
-                    continue;
-                }
+                SessionExit::StoppedBySingleUtterance => continue,
+                SessionExit::StoppedByTimeout => continue,
             }
         }
-
-        producer_task
-            .await
-            .context("Failed to join input producer task")??;
         Ok(())
     }
 }
@@ -111,7 +122,7 @@ async fn transcribe_and_process_stream_session(
     languages: &Languages,
     interim_results: bool,
     audio_format: AudioFormat,
-    audio_receiver: Arc<Mutex<UnboundedReceiver<Vec<i16>>>>,
+    audio_receiver: UnboundedReceiver<Vec<i16>>,
     output: &ConversationOutput,
 ) -> Result<SessionExit> {
     let include_detected_language = languages.len() > 1;
@@ -147,7 +158,6 @@ where
     let mut saw_end_of_single_utterance = false;
     futures::pin_mut!(response_stream);
     let mut text_output = StreamTextOutput::new(output);
-
     while let Some(response) = response_stream.next().await {
         let response = match response {
             Ok(response) => response,
