@@ -156,16 +156,9 @@ fn infer_protocol_from_host(host: Option<&str>) -> Result<Protocol> {
 
     let parsed = Url::parse(host).with_context(|| format!("Invalid host URL: {host}"))?;
 
-    let is_openai_realtime_endpoint = parsed.scheme() == "wss"
-        && parsed.host_str() == Some("api.openai.com")
-        && parsed.path() == "/v1/realtime";
-
-    if is_openai_realtime_endpoint {
-        return Ok(Protocol::OpenAI);
-    }
-
-    match parsed.host_str() {
-        Some(host) if host.ends_with(".openai.azure.com") => Ok(Protocol::Azure),
+    match (parsed.scheme(), parsed.host_str(), parsed.path()) {
+        ("wss", Some("api.openai.com"), "/v1/realtime") => Ok(Protocol::OpenAI),
+        (_, Some(host), _) if host.ends_with(".openai.azure.com") => Ok(Protocol::Azure),
         _ => bail!(
             "Cannot infer protocol from host `{host}`. Set `protocol` explicitly to `openai` or `azure`, use `wss://api.openai.com/v1/realtime`, or use an Azure OpenAI host."
         ),
@@ -458,16 +451,12 @@ impl Client {
             other => bail!("Unexpected non-realtime session: {other:?}"),
         };
 
-        let input_format = session
-            .audio
-            .as_ref()
+        // OpenAI may omit audio here; treat missing as default behavior.
+        let audio = session.audio.as_ref();
+
+        let input_format = audio
             .and_then(|a| a.input.as_ref())
             .and_then(|i| i.format.as_ref());
-        let output_format = session
-            .audio
-            .as_ref()
-            .and_then(|a| a.output.as_ref())
-            .and_then(|o| o.format.as_ref());
 
         if let Some(format) = input_format
             && !matches!(format, types::AudioFormat::Pcm(_))
@@ -475,12 +464,17 @@ impl Client {
             bail!("Unexpected input audio format: {input_format:?}, expected PCM")
         }
 
+        let output_format = audio
+            .and_then(|a| a.output.as_ref())
+            .and_then(|o| o.format.as_ref());
+
         if let Some(format) = output_format
             && !matches!(format, types::AudioFormat::Pcm(_))
         {
             bail!("Unexpected output audio format: {output_format:?}, expected PCM")
         }
 
+        // OpenAI may omit output modalities here; treat missing as default behavior.
         let modalities = session.output_modalities.unwrap_or_default();
         if !modalities.is_empty()
             && !modalities
