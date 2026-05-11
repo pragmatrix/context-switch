@@ -35,6 +35,8 @@ struct Cli {
     protocol: Option<CliProtocol>,
     #[arg(long)]
     endpoint: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
     #[arg(long, value_parser = realtime_voice_value_parser())]
     voice: Option<types::RealtimeVoice>,
 }
@@ -114,7 +116,11 @@ async fn main() -> Result<()> {
     stream.play().expect("Failed to play stream");
 
     let key = env::var("OPENAI_API_KEY").unwrap();
-    let model = env::var("OPENAI_REALTIME_API_MODEL").unwrap();
+    let model = cli
+        .model
+        .or_else(|| env::var("OPENAI_REALTIME_API_MODEL").ok())
+        .filter(|model| !model.trim().is_empty())
+        .context("Provide --model or set OPENAI_REALTIME_API_MODEL")?;
 
     let openai = OpenAIDialog;
     let mut params = openai_dialog::Params::new(key, model);
