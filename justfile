@@ -25,3 +25,6 @@ transcribe-google-latest-long:
 transcribe-google-diarization:
     cargo run --example transcribe -- google --diarization --language de-DE --model chirp_3 --region eu
 
+openai-dialog-realtime-2:
+    cargo run --example openai-dialog -- --protocol openai --model gpt-realtime-2
+    

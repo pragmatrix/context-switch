@@ -250,14 +250,13 @@ impl Host {
             .await
             .map_err(|e| anyhow!(e.to_string()))?;
 
-        Ok(Client::new(read, write, self.client.protocol))
+        Ok(Client::new(read, write))
     }
 }
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    protocol: RealtimeProtocol,
 
     response_state: ResponseState,
     inflight_prompt: Option<(String, PromptRequest)>,
@@ -275,29 +274,13 @@ impl Client {
     fn new(
         read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-        protocol: RealtimeProtocol,
     ) -> Self {
         Self {
             read,
             write,
-            protocol,
             response_state: ResponseState::Idle,
             inflight_prompt: None,
             pending_prompts: Default::default(),
-        }
-    }
-
-    fn session_update_payload(
-        &self,
-        session: types::RealtimeSession,
-    ) -> client_event::SessionUpdatePayload {
-        match self.protocol {
-            RealtimeProtocol::OpenAI => client_event::SessionUpdatePayload::Untagged(
-                types::UntaggedSession::Realtime(session),
-            ),
-            RealtimeProtocol::Azure => {
-                client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(session))
-            }
         }
     }
 
@@ -345,21 +328,14 @@ impl Client {
             };
 
             if let Some(voice) = params.voice {
-                match self.protocol {
-                    RealtimeProtocol::OpenAI => {
-                        session.voice = Some(voice);
-                    }
-                    RealtimeProtocol::Azure => {
-                        session.audio = Some(types::AudioConfig {
-                            input: None,
-                            output: Some(types::AudioOutput {
-                                format: None,
-                                speed: 1.0,
-                                voice: Some(voice),
-                            }),
-                        });
-                    }
-                }
+                session.audio = Some(types::AudioConfig {
+                    input: None,
+                    output: Some(types::AudioOutput {
+                        format: None,
+                        speed: 1.0,
+                        voice: Some(voice),
+                    }),
+                });
                 send_update = true;
             }
 
@@ -374,11 +350,11 @@ impl Client {
             }
 
             if send_update {
-                let payload = self.session_update_payload(session);
-
                 self.send_client_event(ClientEvent::SessionUpdate(client_event::SessionUpdate {
                     event_id: None,
-                    session: payload,
+                    session: client_event::SessionUpdatePayload::Tagged(types::Session::Realtime(
+                        session,
+                    )),
                 }))
                 .await?;
                 debug!("Session updated");
@@ -551,34 +527,27 @@ impl Client {
                         tools,
                         tool_choice,
                     } => {
-                        let (voice, audio) = match self.protocol {
-                            RealtimeProtocol::OpenAI => (voice, None),
-                            RealtimeProtocol::Azure => {
-                                let audio = voice.map(|voice| types::AudioConfig {
-                                    input: None,
-                                    output: Some(types::AudioOutput {
-                                        format: None,
-                                        speed: 1.0,
-                                        voice: Some(voice),
-                                    }),
-                                });
-                                (None, audio)
-                            }
-                        };
+                        let audio = voice.map(|voice| types::AudioConfig {
+                            input: None,
+                            output: Some(types::AudioOutput {
+                                format: None,
+                                speed: 1.0,
+                                voice: Some(voice),
+                            }),
+                        });
 
                         let session = types::RealtimeSession {
                             instructions,
-                            voice,
                             audio,
                             tools,
                             tool_choice,
                             ..Default::default()
                         };
 
-                        let payload = self.session_update_payload(session);
-
                         let event = ClientEvent::SessionUpdate(client_event::SessionUpdate {
-                            session: payload,
+                            session: client_event::SessionUpdatePayload::Tagged(
+                                types::Session::Realtime(session),
+                            ),
                             ..Default::default()
                         });
                         self.send_client_event(event).await?;
