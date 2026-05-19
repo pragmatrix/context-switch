@@ -1,7 +1,6 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
 use std::{
-    env,
     num::{NonZeroU16, NonZeroU32},
     str::FromStr,
     thread,
@@ -13,18 +12,8 @@ use chrono::Utc;
 use clap::{Parser, ValueEnum};
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use gemini_live::types as gemini_types;
-use google_dialog::{GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent};
-use openai_api_rs::realtime::types as openai_types;
-use openai_dialog::{
-    OpenAIDialog, Protocol, ServiceInputEvent as OpenAIServiceInputEvent,
-    ServiceOutputEvent as OpenAIServiceOutputEvent,
-};
-use reqwest::Url;
 use rodio::{DeviceSinkBuilder, Player, Source};
-use serde::Deserialize;
 use serde_json::json;
-use strum::VariantNames;
 use tokio::{
     select,
     sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
@@ -32,9 +21,11 @@ use tokio::{
 use tracing::info;
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, Service, audio,
+    AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input, Output},
 };
+
+mod dialog_providers;
 
 #[derive(Debug, Parser)]
 struct Cli {
@@ -62,11 +53,8 @@ enum Provider {
 }
 
 impl Provider {
-    fn output_format(self, input_format: AudioFormat) -> AudioFormat {
-        match self {
-            Provider::OpenAI | Provider::AzureOpenAI => input_format,
-            Provider::Google => AudioFormat::new(1, gemini_live::audio::OUTPUT_SAMPLE_RATE),
-        }
+    fn api(self) -> &'static dyn dialog_providers::ProviderApi {
+        dialog_providers::provider_api(self)
     }
 }
 
@@ -101,7 +89,7 @@ async fn main() -> Result<()> {
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
     let input_format = AudioFormat::new(channels, sample_rate);
-    let output_format = cli.provider.output_format(input_format);
+    let output_format = cli.provider.api().output_format(input_format);
 
     let (input_sender, input_receiver) = channel(256);
     let input_sender2 = input_sender.clone();
@@ -160,352 +148,31 @@ async fn main() -> Result<()> {
 }
 
 fn list_available_voices(provider: Provider) -> Result<()> {
-    match provider {
-        Provider::OpenAI | Provider::AzureOpenAI => {
-            println!("Available voices for {:?}:", provider);
-            for voice in <openai_types::RealtimeVoice as VariantNames>::VARIANTS {
-                println!("- {voice}");
-            }
-            Ok(())
-        }
-        Provider::Google => {
-            println!("Available voices for {:?}:", provider);
-            for voice in GEMINI_VOICES {
-                println!("- {voice}");
-            }
-            Ok(())
-        }
+    println!("Available voices for {:?}:", provider);
+    for voice in provider.api().voices() {
+        println!("- {voice}");
     }
+    Ok(())
 }
 
 async fn list_available_models(cli: &Cli) -> Result<()> {
-    match cli.provider {
-        Provider::OpenAI => list_openai_models(cli).await,
-        Provider::AzureOpenAI => list_azure_models(cli),
-        Provider::Google => list_google_models(cli).await,
-    }
-}
-
-async fn list_openai_models(cli: &Cli) -> Result<()> {
-    let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
-    let endpoint = cli
-        .endpoint
-        .clone()
-        .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok());
-    let models_url = openai_models_url(endpoint.as_deref())?;
-
-    let response: OpenAIModelsResponse = reqwest::Client::new()
-        .get(models_url)
-        .bearer_auth(key)
-        .send()
-        .await
-        .context("Requesting OpenAI models")?
-        .error_for_status()
-        .context("OpenAI models request failed")?
-        .json()
-        .await
-        .context("Decoding OpenAI models response")?;
-
-    let mut models: Vec<_> = response
-        .data
-        .into_iter()
-        .map(|m| m.id)
-        .filter(|id| is_openai_realtime_model(id))
-        .collect();
-    models.sort();
-
-    println!("Available models for OpenAI:");
-    if models.is_empty() {
-        println!("- No realtime-capable models were returned by the models endpoint.");
-        println!("- Ensure your API key has access to OpenAI Realtime API models.");
-    } else {
-        for model in models {
-            println!("- {model}");
-        }
-    }
-    Ok(())
-}
-
-fn is_openai_realtime_model(model_id: &str) -> bool {
-    model_id.to_ascii_lowercase().contains("realtime")
-}
-
-fn list_azure_models(cli: &Cli) -> Result<()> {
-    println!("Available models for Azure:");
-    println!("- Azure Realtime uses deployment names configured in your Azure OpenAI resource.");
-    println!("- The realtime endpoint does not provide a provider-agnostic model listing API here.");
-
-    if let Some(model) = cli
-        .model
-        .clone()
-        .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
-        .filter(|m| !m.trim().is_empty())
-    {
-        println!("- Configured deployment/model: {model}");
-    } else {
-        println!(
-            "- Set --model or AZURE_OPENAI_REALTIME_API_MODEL to your Azure deployment name."
-        );
-    }
-
-    Ok(())
-}
-
-async fn list_google_models(cli: &Cli) -> Result<()> {
-    let key = env::var("GEMINI_API_KEY").context("GEMINI_API_KEY undefined")?;
-    let endpoint = cli
-        .endpoint
-        .clone()
-        .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok());
-    let models_url = google_models_url(endpoint.as_deref())?;
-
-    let response: GeminiModelsResponse = reqwest::Client::new()
-        .get(models_url)
-        .query(&[("key", key)])
-        .send()
-        .await
-        .context("Requesting Gemini models")?
-        .error_for_status()
-        .context("Gemini models request failed")?
-        .json()
-        .await
-        .context("Decoding Gemini models response")?;
-
-    let mut live_models: Vec<_> = response
-        .models
-        .into_iter()
-        .filter(|m| is_gemini_live_model(&m.name, &m.supported_generation_methods))
-        .map(|m| m.name)
-        .collect();
-    live_models.sort();
-
-    println!("Available models for Google (Live API capable):");
-    if live_models.is_empty() {
-        println!("- No Live-capable models were detected from models.list.");
-        println!("- This can happen when model metadata does not include Live-specific methods.");
-        println!("- Try explicitly using a known Live model, for example:");
-        println!("  - models/gemini-3.1-flash-live-preview");
-        println!("  - models/gemini-2.5-flash-live-preview");
-    } else {
-        for model in live_models {
-            println!("- {model}");
-        }
-    }
-    Ok(())
-}
-
-fn is_gemini_live_model(model_name: &str, methods: &[String]) -> bool {
-    if model_name.to_ascii_lowercase().contains("live") {
-        return true;
-    }
-
-    methods.iter().any(|method| {
-        method.eq_ignore_ascii_case("bidiGenerateContent")
-            || method.eq_ignore_ascii_case("streamGenerateContent")
-    })
-}
-
-fn openai_models_url(endpoint: Option<&str>) -> Result<String> {
-    const OPENAI_MODELS_ENDPOINT: &str = "https://api.openai.com/v1/models";
-
-    let Some(endpoint) = endpoint else {
-        return Ok(OPENAI_MODELS_ENDPOINT.to_owned());
+    let request = dialog_providers::ListModelsRequest {
+        endpoint: cli.endpoint.clone(),
+        model: cli.model.clone(),
     };
-
-    let mut url = Url::parse(endpoint)
-        .or_else(|_| Url::parse(OPENAI_MODELS_ENDPOINT))
-        .context("Parsing OpenAI model list URL")?;
-
-    let normalized_scheme = match url.scheme() {
-        "wss" => "https".to_owned(),
-        "ws" => "http".to_owned(),
-        other => other.to_owned(),
-    };
-    url.set_scheme(&normalized_scheme).ok();
-    url.set_path("/v1/models");
-    url.set_query(None);
-    Ok(url.to_string())
-}
-
-fn google_models_url(endpoint: Option<&str>) -> Result<String> {
-    const GOOGLE_MODELS_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/models";
-
-    let Some(endpoint) = endpoint else {
-        return Ok(GOOGLE_MODELS_ENDPOINT.to_owned());
-    };
-
-    let mut url = Url::parse(endpoint)
-        .or_else(|_| Url::parse(GOOGLE_MODELS_ENDPOINT))
-        .context("Parsing Gemini model list URL")?;
-
-    let normalized_scheme = match url.scheme() {
-        "wss" => "https".to_owned(),
-        "ws" => "http".to_owned(),
-        other => other.to_owned(),
-    };
-    url.set_scheme(&normalized_scheme).ok();
-    url.set_path("/v1beta/models");
-    url.set_query(None);
-    Ok(url.to_string())
-}
-
-const GEMINI_VOICES: &[&str] = &[
-    "Zephyr",
-    "Puck",
-    "Charon",
-    "Kore",
-    "Fenrir",
-    "Leda",
-    "Orus",
-    "Aoede",
-    "Callirrhoe",
-    "Autonoe",
-    "Enceladus",
-    "Iapetus",
-    "Umbriel",
-    "Algieba",
-    "Despina",
-    "Erinome",
-    "Algenib",
-    "Rasalgethi",
-    "Laomedeia",
-    "Achernar",
-    "Alnilam",
-    "Schedar",
-    "Gacrux",
-    "Pulcherrima",
-    "Achird",
-    "Zubenelgenubi",
-    "Vindemiatrix",
-    "Sadachbia",
-    "Sadaltager",
-    "Sulafat",
-];
-
-#[derive(Debug, Deserialize)]
-struct OpenAIModelsResponse {
-    data: Vec<OpenAIModel>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIModel {
-    id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiModelsResponse {
-    #[serde(default)]
-    models: Vec<GeminiModel>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiModel {
-    name: String,
-    #[serde(default)]
-    supported_generation_methods: Vec<String>,
+    cli.provider.api().list_models(request).await
 }
 
 async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()> {
-    match cli.provider {
-        Provider::OpenAI => {
-            let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
-            let model = cli
-                .model
-                .clone()
-                .or_else(|| env::var("OPENAI_REALTIME_API_MODEL").ok())
-                .filter(|model| !model.trim().is_empty())
-                .context("Provide --model or set OPENAI_REALTIME_API_MODEL")?;
-
-            let mut params = openai_dialog::Params::new(key, model);
-            params.host = cli
-                .endpoint
-                .clone()
-                .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok())
-                .filter(|endpoint| !endpoint.trim().is_empty());
-            params.protocol = Some(Protocol::OpenAI);
-            params.voice = cli
-                .voice
-                .as_deref()
-                .map(parse_realtime_voice_value)
-                .transpose()?;
-            params.tools.push(openai_get_time_function_definition());
-
-            OpenAIDialog.conversation(params, conversation).await
-        }
-        Provider::AzureOpenAI => {
-            let key = env::var("AZURE_OPENAI_API_KEY")
-                .context("AZURE_OPENAI_API_KEY undefined")?;
-            let model = cli
-                .model
-                .clone()
-                .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
-                .filter(|model| !model.trim().is_empty())
-                .context("Provide --model or set AZURE_OPENAI_REALTIME_API_MODEL")?;
-
-            let mut params = openai_dialog::Params::new(key, model);
-            params.host = cli
-                .endpoint
-                .clone()
-                .or_else(|| env::var("AZURE_OPENAI_REALTIME_ENDPOINT").ok())
-                .filter(|endpoint| !endpoint.trim().is_empty());
-            params.protocol = Some(Protocol::Azure);
-            params.voice = cli
-                .voice
-                .as_deref()
-                .map(parse_realtime_voice_value)
-                .transpose()?;
-            params.tools.push(openai_get_time_function_definition());
-
-            OpenAIDialog.conversation(params, conversation).await
-        }
-        Provider::Google => {
-            let key = env::var("GEMINI_API_KEY").context("GEMINI_API_KEY undefined")?;
-            let model = cli
-                .model
-                .clone()
-                .or_else(|| env::var("GEMINI_LIVE_API_MODEL").ok())
-                .filter(|model| !model.trim().is_empty())
-                .unwrap_or_else(|| "gemini-3.1-flash-live-preview".to_owned());
-
-            let mut params = google_dialog::Params::new(key, model);
-            params.host = cli
-                .endpoint
-                .clone()
-                .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok())
-                .filter(|endpoint| !endpoint.trim().is_empty());
-            params.voice = cli
-                .voice
-                .as_deref()
-                .map(parse_gemini_voice_value)
-                .transpose()?;
-            params.output_audio_transcription = true;
-            params.tools.push(gemini_get_time_tool());
-
-            GoogleDialog.conversation(params, conversation).await
-        }
-    }
-}
-
-fn parse_realtime_voice_value(value: &str) -> Result<openai_types::RealtimeVoice> {
-    openai_types::RealtimeVoice::from_str(value)
-        .map_err(|e| anyhow::anyhow!("Invalid voice value `{value}`: {e}"))
-}
-
-fn parse_gemini_voice_value(value: &str) -> Result<String> {
-    if GEMINI_VOICES.iter().any(|v| v.eq_ignore_ascii_case(value)) {
-        let voice = GEMINI_VOICES
-            .iter()
-            .find(|v| v.eq_ignore_ascii_case(value))
-            .copied()
-            .unwrap_or(value)
-            .to_owned();
-        Ok(voice)
-    } else {
-        let available = GEMINI_VOICES.join(", ");
-        bail!(
-            "Invalid Gemini voice `{value}`. Available voices: {available}"
-        )
-    }
+    let request = dialog_providers::StartConversationRequest {
+        endpoint: cli.endpoint.clone(),
+        model: cli.model.clone(),
+        voice: cli.voice.clone(),
+    };
+    cli.provider
+        .api()
+        .start_conversation(request, conversation)
+        .await
 }
 
 enum AudioCommand {
@@ -585,42 +252,7 @@ fn handle_service_event(
     input: &Sender<Input>,
     value: serde_json::Value,
 ) -> Result<()> {
-    let call = match provider {
-        Provider::OpenAI | Provider::AzureOpenAI => match serde_json::from_value(value)? {
-            OpenAIServiceOutputEvent::FunctionCall {
-                name,
-                call_id,
-                arguments,
-            } => Some(FunctionCall {
-                name,
-                call_id,
-                arguments,
-            }),
-            OpenAIServiceOutputEvent::SessionUpdated { tools } => {
-                info!("Session updated: {tools:?}");
-                None
-            }
-        },
-        Provider::Google => match serde_json::from_value(value)? {
-            google_dialog::ServiceOutputEvent::FunctionCall {
-                name,
-                call_id,
-                arguments,
-            } => Some(FunctionCall {
-                name,
-                call_id,
-                arguments: Some(arguments),
-            }),
-            google_dialog::ServiceOutputEvent::ToolCallCancellation { call_ids } => {
-                info!("Tool calls cancelled: {call_ids:?}");
-                None
-            }
-            google_dialog::ServiceOutputEvent::SessionUpdated { tools } => {
-                info!("Session updated: {tools:?}");
-                None
-            }
-        },
-    };
+    let call = provider.api().parse_service_event(value)?;
 
     if let Some(call) = call {
         info!(
@@ -642,17 +274,9 @@ fn send_function_result(
     name: String,
     result: String,
 ) -> Result<()> {
-    let output = json!({ "time": serde_json::Value::String(result) });
-    let value = match provider {
-        Provider::OpenAI | Provider::AzureOpenAI => {
-            serde_json::to_value(&OpenAIServiceInputEvent::FunctionCallResult { call_id, output })?
-        }
-        Provider::Google => serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
-            call_id,
-            name,
-            output,
-        })?,
-    };
+    let value = provider
+        .api()
+        .function_result_event(call_id, Some(name), result)?;
     input.try_send(Input::ServiceEvent { value })?;
     Ok(())
 }
@@ -663,25 +287,6 @@ struct FunctionCall {
     name: String,
     arguments: Option<serde_json::Value>,
 }
-
-fn openai_get_time_function_definition() -> openai_types::ToolDefinition {
-    openai_types::ToolDefinition::Function {
-        name: "get_time".into(),
-        description: "The current time to the exact second.".into(),
-        parameters: get_time_parameters_schema(),
-    }
-}
-
-fn gemini_get_time_tool() -> gemini_types::Tool {
-    gemini_types::Tool::FunctionDeclarations(vec![gemini_types::FunctionDeclaration {
-        name: "get_time".into(),
-        description: "The current time to the exact second.".into(),
-        parameters: get_time_parameters_schema(),
-        scheduling: None,
-        behavior: None,
-    }])
-}
-
 fn get_time_parameters_schema() -> serde_json::Value {
     json!({
         "type": "object",
