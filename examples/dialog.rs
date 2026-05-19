@@ -22,6 +22,7 @@ use openai_dialog::{
 };
 use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
+use strum::VariantNames;
 use tokio::{
     select,
     sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
@@ -37,6 +38,8 @@ use context_switch_core::{
 struct Cli {
     #[arg(value_enum)]
     provider: Provider,
+    #[arg(long)]
+    list_voices: bool,
     #[arg(long)]
     endpoint: Option<String>,
     #[arg(long)]
@@ -65,6 +68,12 @@ impl Provider {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.list_voices {
+        list_available_voices(cli.provider)?;
+        return Ok(());
+    }
+
     dotenvy::dotenv_override().context("Reading .env file")?;
     tracing_subscriber::fmt::init();
 
@@ -137,6 +146,21 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn list_available_voices(provider: Provider) -> Result<()> {
+    match provider {
+        Provider::OpenAI | Provider::Azure => {
+            println!("Available voices for {:?}:", provider);
+            for voice in <openai_types::RealtimeVoice as VariantNames>::VARIANTS {
+                println!("- {voice}");
+            }
+            Ok(())
+        }
+        Provider::Google => {
+            bail!("Voice listing is only available for openai and azure providers")
+        }
+    }
 }
 
 async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()> {
