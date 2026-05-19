@@ -56,14 +56,15 @@ struct Cli {
 enum Provider {
     #[value(name = "openai")]
     OpenAI,
-    Azure,
+    #[value(name = "azure-openai")]
+    AzureOpenAI,
     Google,
 }
 
 impl Provider {
     fn output_format(self, input_format: AudioFormat) -> AudioFormat {
         match self {
-            Provider::OpenAI | Provider::Azure => input_format,
+            Provider::OpenAI | Provider::AzureOpenAI => input_format,
             Provider::Google => AudioFormat::new(1, gemini_live::audio::OUTPUT_SAMPLE_RATE),
         }
     }
@@ -160,7 +161,7 @@ async fn main() -> Result<()> {
 
 fn list_available_voices(provider: Provider) -> Result<()> {
     match provider {
-        Provider::OpenAI | Provider::Azure => {
+        Provider::OpenAI | Provider::AzureOpenAI => {
             println!("Available voices for {:?}:", provider);
             for voice in <openai_types::RealtimeVoice as VariantNames>::VARIANTS {
                 println!("- {voice}");
@@ -180,7 +181,7 @@ fn list_available_voices(provider: Provider) -> Result<()> {
 async fn list_available_models(cli: &Cli) -> Result<()> {
     match cli.provider {
         Provider::OpenAI => list_openai_models(cli).await,
-        Provider::Azure => list_azure_models(cli),
+        Provider::AzureOpenAI => list_azure_models(cli),
         Provider::Google => list_google_models(cli).await,
     }
 }
@@ -237,12 +238,14 @@ fn list_azure_models(cli: &Cli) -> Result<()> {
     if let Some(model) = cli
         .model
         .clone()
-        .or_else(|| env::var("OPENAI_REALTIME_API_MODEL").ok())
+        .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
         .filter(|m| !m.trim().is_empty())
     {
         println!("- Configured deployment/model: {model}");
     } else {
-        println!("- Set --model or OPENAI_REALTIME_API_MODEL to your Azure deployment name.");
+        println!(
+            "- Set --model or AZURE_OPENAI_REALTIME_API_MODEL to your Azure deployment name."
+        );
     }
 
     Ok(())
@@ -404,7 +407,7 @@ struct GeminiModel {
 
 async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()> {
     match cli.provider {
-        Provider::OpenAI | Provider::Azure => {
+        Provider::OpenAI => {
             let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
             let model = cli
                 .model
@@ -419,11 +422,33 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
                 .clone()
                 .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok())
                 .filter(|endpoint| !endpoint.trim().is_empty());
-            params.protocol = Some(match cli.provider {
-                Provider::OpenAI => Protocol::OpenAI,
-                Provider::Azure => Protocol::Azure,
-                Provider::Google => unreachable!(),
-            });
+            params.protocol = Some(Protocol::OpenAI);
+            params.voice = cli
+                .voice
+                .as_deref()
+                .map(parse_realtime_voice_value)
+                .transpose()?;
+            params.tools.push(openai_get_time_function_definition());
+
+            OpenAIDialog.conversation(params, conversation).await
+        }
+        Provider::AzureOpenAI => {
+            let key = env::var("AZURE_OPENAI_API_KEY")
+                .context("AZURE_OPENAI_API_KEY undefined")?;
+            let model = cli
+                .model
+                .clone()
+                .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
+                .filter(|model| !model.trim().is_empty())
+                .context("Provide --model or set AZURE_OPENAI_REALTIME_API_MODEL")?;
+
+            let mut params = openai_dialog::Params::new(key, model);
+            params.host = cli
+                .endpoint
+                .clone()
+                .or_else(|| env::var("AZURE_OPENAI_REALTIME_ENDPOINT").ok())
+                .filter(|endpoint| !endpoint.trim().is_empty());
+            params.protocol = Some(Protocol::Azure);
             params.voice = cli
                 .voice
                 .as_deref()
@@ -561,7 +586,7 @@ fn handle_service_event(
     value: serde_json::Value,
 ) -> Result<()> {
     let call = match provider {
-        Provider::OpenAI | Provider::Azure => match serde_json::from_value(value)? {
+        Provider::OpenAI | Provider::AzureOpenAI => match serde_json::from_value(value)? {
             OpenAIServiceOutputEvent::FunctionCall {
                 name,
                 call_id,
@@ -619,7 +644,7 @@ fn send_function_result(
 ) -> Result<()> {
     let output = json!({ "time": serde_json::Value::String(result) });
     let value = match provider {
-        Provider::OpenAI | Provider::Azure => {
+        Provider::OpenAI | Provider::AzureOpenAI => {
             serde_json::to_value(&OpenAIServiceInputEvent::FunctionCallResult { call_id, output })?
         }
         Provider::Google => serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
