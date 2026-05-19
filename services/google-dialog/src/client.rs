@@ -7,9 +7,10 @@ use gemini_live::{
     ReconnectPolicy, Session, SessionConfig,
     transport::{Auth, Endpoint, TransportConfig},
     types::{
-        AudioTranscriptionConfig, Content, FunctionDeclaration, FunctionResponse, GenerationConfig,
-        Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig, ServerEvent,
-        SessionResumptionConfig, SetupConfig, SpeechConfig, Tool, UsageMetadata, VoiceConfig,
+        AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionDeclaration,
+        FunctionResponse, GenerationConfig, GoogleSearchTool, Modality, ModalityTokenCount, Part,
+        PrebuiltVoiceConfig, ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow,
+        SpeechConfig, ThinkingConfig, Tool, UsageMetadata, VoiceConfig,
     },
 };
 use tracing::{debug, info, trace};
@@ -103,15 +104,26 @@ impl Client {
                         prebuilt_voice_config: PrebuiltVoiceConfig { voice_name },
                     },
                 }),
+                thinking_config: self.params.thinking_level.map(|thinking_level| ThinkingConfig {
+                    thinking_level: Some(thinking_level),
+                    ..Default::default()
+                }),
+                temperature: self.params.temperature,
                 ..Default::default()
             }),
             system_instruction: self.params.instructions.clone().map(system_instruction),
-            tools: (!self.params.tools.is_empty()).then(|| self.params.tools.clone()),
+            tools: setup_tools(&self.params),
             realtime_input_config: self.params.realtime_input_config.clone(),
             // Opt in so Gemini sends resume handles. The session layer stores
             // the latest handle and patches it into reconnect setup messages,
             // keeping context across GoAway-triggered reconnects.
             session_resumption: Some(SessionResumptionConfig::default()),
+            context_window_compression: self.params.context_window_compression.then_some(
+                ContextWindowCompressionConfig {
+                    sliding_window: Some(SlidingWindow::default()),
+                    ..Default::default()
+                },
+            ),
             input_audio_transcription: self
                 .params
                 .input_audio_transcription
@@ -262,6 +274,18 @@ fn system_instruction(text: String) -> Content {
 
 fn output_transcription_enabled(params: &Params) -> bool {
     params.output_audio_transcription
+}
+
+fn setup_tools(params: &Params) -> Option<Vec<Tool>> {
+    let mut tools = params.tools.clone();
+    if params.enable_search
+        && !tools
+            .iter()
+            .any(|tool| matches!(tool, Tool::GoogleSearch(_)))
+    {
+        tools.push(Tool::GoogleSearch(GoogleSearchTool::default()));
+    }
+    (!tools.is_empty()).then_some(tools)
 }
 
 fn function_declarations(tools: &[Tool]) -> Option<Vec<FunctionDeclaration>> {

@@ -1,16 +1,27 @@
-use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, Tool};
+use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub api_key: String,
+    /// Gemini Live model name, with or without the `models/` prefix.
     pub model: String,
     pub host: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<String>,
+    pub temperature: Option<f32>,
+    /// Gemini 3.1 thinking level (`minimal`, `low`, `medium`, or `high`).
+    pub thinking_level: Option<ThinkingLevel>,
+    /// Enabled by default to avoid context-window exhaustion during long audio sessions.
+    #[serde(default = "default_true")]
+    pub context_window_compression: bool,
+    /// Add Gemini's built-in Google Search tool unless it is already present.
+    #[serde(default)]
+    pub enable_search: bool,
     #[serde(default)]
     pub tools: Vec<Tool>,
+    /// Gemini realtime input behavior, including VAD and turn coverage.
     pub realtime_input_config: Option<RealtimeInputConfig>,
     #[serde(default)]
     pub input_audio_transcription: bool,
@@ -26,12 +37,20 @@ impl Params {
             host: None,
             instructions: None,
             voice: None,
+            temperature: None,
+            thinking_level: None,
+            context_window_compression: true,
+            enable_search: false,
             tools: vec![],
             realtime_input_config: None,
             input_audio_transcription: false,
             output_audio_transcription: false,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
