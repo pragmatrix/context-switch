@@ -117,13 +117,18 @@ async fn main() -> Result<()> {
     stream.play().expect("Failed to play stream");
 
     let (output_sender, output_receiver) = unbounded_channel();
+    // Keep text enabled at the context-switch layer for Google.
     let conversation = Conversation::new(
         InputModality::Audio {
             format: input_format,
         },
-        [OutputModality::Audio {
-            format: output_format,
-        }],
+        [
+            OutputModality::Audio {
+                format: output_format,
+            },
+            OutputModality::Text,
+            OutputModality::InterimText,
+        ],
         input_receiver,
         output_sender,
     );
@@ -224,8 +229,8 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Text { text, .. } => {
-                    info!("Output text: {text}");
+                output @ Output::Text { .. } => {
+                    println!("{output:?}");
                 }
                 Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {

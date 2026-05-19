@@ -10,21 +10,21 @@ pub struct Params {
     pub host: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<String>,
+
     pub temperature: Option<f32>,
     /// Gemini 3.1 thinking level (`minimal`, `low`, `medium`, or `high`).
     pub thinking_level: Option<ThinkingLevel>,
     /// Enabled by default to avoid context-window exhaustion during long audio sessions.
     #[serde(default = "default_true")]
     pub context_window_compression: bool,
-    /// Add Gemini's built-in Google Search tool unless it is already present.
-    #[serde(default)]
-    pub enable_search: bool,
     #[serde(default)]
     pub tools: Vec<Tool>,
     /// Gemini realtime input behavior, including VAD and turn coverage.
     pub realtime_input_config: Option<RealtimeInputConfig>,
+    /// Enable server-side transcription of user input audio.
     #[serde(default)]
     pub input_audio_transcription: bool,
+    /// Enable server-side transcription of model output audio.
     #[serde(default)]
     pub output_audio_transcription: bool,
 }
@@ -40,7 +40,6 @@ impl Params {
             temperature: None,
             thinking_level: None,
             context_window_compression: true,
-            enable_search: false,
             tools: vec![],
             realtime_input_config: None,
             input_audio_transcription: false,

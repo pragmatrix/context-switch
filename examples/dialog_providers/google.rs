@@ -91,6 +91,7 @@ impl ProviderApi for GoogleProvider {
             .as_deref()
             .map(parse_voice_value)
             .transpose()?;
+        params.input_audio_transcription = true;
         params.output_audio_transcription = true;
         params.tools.push(get_time_tool());
 

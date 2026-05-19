@@ -8,7 +8,7 @@ use gemini_live::{
     transport::{Auth, Endpoint, TransportConfig},
     types::{
         AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionDeclaration,
-        FunctionResponse, GenerationConfig, GoogleSearchTool, Modality, ModalityTokenCount, Part,
+        FunctionResponse, GenerationConfig, Modality, ModalityTokenCount, Part,
         PrebuiltVoiceConfig, ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow,
         SpeechConfig, ThinkingConfig, Tool, UsageMetadata, VoiceConfig,
     },
@@ -21,6 +21,12 @@ pub struct Client {
     params: Params,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TextOutputConfig {
+    text: bool,
+    interim: bool,
+}
+
 impl Client {
     pub fn new(params: Params) -> Self {
         Self { params }
@@ -30,13 +36,19 @@ impl Client {
         self,
         _input_format: AudioFormat,
         output_format: AudioFormat,
-        output_transcription: bool,
+        text_output_enabled: bool,
+        interim_text_output_enabled: bool,
         mut input: ConversationInput,
         output: ConversationOutput,
     ) -> Result<()> {
+        let text_output = TextOutputConfig {
+            text: text_output_enabled,
+            interim: interim_text_output_enabled,
+        };
         let billing_scope = self.params.model.clone();
         let tools = function_declarations(&self.params.tools);
-        let mut session = Session::connect(self.session_config(output_transcription))
+        let mut output_transcription_buffer = String::new();
+        let mut session = Session::connect(self.session_config(text_output)?)
             .await
             .context("Connecting to Gemini Live")?;
         output.service_event(
@@ -57,7 +69,7 @@ impl Client {
                 event = session.next_event() => {
                     match event {
                         Some(event) => {
-                            match self.process_event(event, output_format, output_transcription, &output, &billing_scope).await? {
+                            match self.process_event(event, output_format, text_output, &output, &billing_scope, &mut output_transcription_buffer).await? {
                                 FlowControl::Continue => {}
                                 FlowControl::End => break,
                             }
@@ -75,7 +87,7 @@ impl Client {
         Ok(())
     }
 
-    fn session_config(&self, output_transcription: bool) -> SessionConfig {
+    fn session_config(&self, text_output: TextOutputConfig) -> Result<SessionConfig> {
         let transport = TransportConfig {
             endpoint: self
                 .params
@@ -87,32 +99,54 @@ impl Client {
             ..Default::default()
         };
 
-        SessionConfig {
+        Ok(SessionConfig {
             transport,
-            setup: self.setup_config(output_transcription),
+            setup: self.setup_config(text_output)?,
             reconnect: ReconnectPolicy::default(),
-        }
+        })
     }
 
-    fn setup_config(&self, output_transcription: bool) -> SetupConfig {
-        SetupConfig {
+    fn setup_config(&self, text_output: TextOutputConfig) -> Result<SetupConfig> {
+        let input_audio_transcription = self
+            .params
+            .input_audio_transcription
+            .then_some(AudioTranscriptionConfig {});
+        let output_audio_transcription = self
+            .params
+            .output_audio_transcription
+            .then_some(AudioTranscriptionConfig {});
+
+        if !(text_output.text || text_output.interim)
+            && (input_audio_transcription.is_some() || output_audio_transcription.is_some())
+        {
+            bail!(
+                "Google dialog requires text output modality when transcription is enabled: if inputAudioTranscription or outputAudioTranscription is set, add OutputModality::Text or OutputModality::InterimText to the conversation output modalities, or set both transcription flags to false."
+            );
+        }
+
+        Ok(SetupConfig {
             model: model_resource_name(&self.params.model),
             generation_config: Some(GenerationConfig {
+                // NOTE: Enabling Modality::Text here currently causes a Gemini setup-time
+                // "Internal error encountered." in this service flow.
                 response_modalities: Some(vec![Modality::Audio]),
                 speech_config: self.params.voice.clone().map(|voice_name| SpeechConfig {
                     voice_config: VoiceConfig {
                         prebuilt_voice_config: PrebuiltVoiceConfig { voice_name },
                     },
                 }),
-                thinking_config: self.params.thinking_level.map(|thinking_level| ThinkingConfig {
-                    thinking_level: Some(thinking_level),
-                    ..Default::default()
-                }),
+                thinking_config: self
+                    .params
+                    .thinking_level
+                    .map(|thinking_level| ThinkingConfig {
+                        thinking_level: Some(thinking_level),
+                        ..Default::default()
+                    }),
                 temperature: self.params.temperature,
                 ..Default::default()
             }),
             system_instruction: self.params.instructions.clone().map(system_instruction),
-            tools: setup_tools(&self.params),
+            tools: (!self.params.tools.is_empty()).then(|| self.params.tools.clone()),
             realtime_input_config: self.params.realtime_input_config.clone(),
             // Opt in so Gemini sends resume handles. The session layer stores
             // the latest handle and patches it into reconnect setup messages,
@@ -124,15 +158,10 @@ impl Client {
                     ..Default::default()
                 },
             ),
-            input_audio_transcription: self
-                .params
-                .input_audio_transcription
-                .then_some(AudioTranscriptionConfig {}),
-            output_audio_transcription: (output_transcription_enabled(&self.params))
-                .then_some(AudioTranscriptionConfig {})
-                .or_else(|| output_transcription.then_some(AudioTranscriptionConfig {})),
+            input_audio_transcription,
+            output_audio_transcription,
             ..Default::default()
-        }
+        })
     }
 
     async fn process_input(&self, session: &Session, input: Input) -> Result<()> {
@@ -184,17 +213,17 @@ impl Client {
         &self,
         event: ServerEvent,
         output_format: AudioFormat,
-        output_transcription: bool,
+        text_output: TextOutputConfig,
         output: &ConversationOutput,
         billing_scope: &str,
+        output_transcription_buffer: &mut String,
     ) -> Result<FlowControl> {
         trace!(?event, "Gemini Live event");
         match event {
             ServerEvent::SetupComplete => {}
             ServerEvent::ModelText(text) => {
-                if output_transcription {
-                    output.text(true, text, None, None)?;
-                }
+                // This does not seem to work, even when we enable TEXT response modalities.
+                debug!(%text, "Gemini model text");
             }
             ServerEvent::ModelAudio(audio) => {
                 let frame = AudioFrame::from_le_bytes(output_format, &audio);
@@ -202,17 +231,36 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
+                if text_output.text && !output_transcription_buffer.is_empty() {
+                    output.text(
+                        true,
+                        std::mem::take(output_transcription_buffer),
+                        None,
+                        Some(self.params.model.clone()),
+                    )?;
+                } else {
+                    output_transcription_buffer.clear();
+                }
                 output.request_completed(None)?;
             }
             ServerEvent::Interrupted => {
+                output_transcription_buffer.clear();
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
-                debug!(%text, "Gemini input transcription");
+                if text_output.text {
+                    output.text(true, text, None, None)?;
+                }
             }
             ServerEvent::OutputTranscription(text) => {
-                if output_transcription {
-                    output.text(true, text, None, None)?;
+                output_transcription_buffer.push_str(&text);
+                if text_output.interim {
+                    output.text(
+                        false,
+                        output_transcription_buffer.clone(),
+                        None,
+                        Some(self.params.model.clone()),
+                    )?;
                 }
             }
             ServerEvent::ToolCall(calls) => {
@@ -270,22 +318,6 @@ fn system_instruction(text: String) -> Content {
             inline_data: None,
         }],
     }
-}
-
-fn output_transcription_enabled(params: &Params) -> bool {
-    params.output_audio_transcription
-}
-
-fn setup_tools(params: &Params) -> Option<Vec<Tool>> {
-    let mut tools = params.tools.clone();
-    if params.enable_search
-        && !tools
-            .iter()
-            .any(|tool| matches!(tool, Tool::GoogleSearch(_)))
-    {
-        tools.push(Tool::GoogleSearch(GoogleSearchTool::default()));
-    }
-    (!tools.is_empty()).then_some(tools)
 }
 
 fn function_declarations(tools: &[Tool]) -> Option<Vec<FunctionDeclaration>> {
