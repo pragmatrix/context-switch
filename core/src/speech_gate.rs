@@ -13,6 +13,7 @@ pub fn make_speech_gate_processor(
     make_speech_gate_processor_soft_rms(threshold, attack_ms, release_ms, 0.01)
 }
 
+// spellcheck: ignore
 // Returns a processing function that can be called for each AudioFrame (mono, 16kHz, i16)
 // #[allow(unused)]
 // pub fn make_speech_gate_processor_(

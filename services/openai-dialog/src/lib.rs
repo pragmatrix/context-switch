@@ -493,6 +493,7 @@ impl Client {
                 warn!("Unexpected text input");
             }
             Input::Audio { frame } => {
+                // spellcheck: ignore
                 // debug!("Sending frame: {:?}", audio_frame.duration());
                 self.send_frame(frame).await?;
             }
@@ -709,7 +710,7 @@ impl Client {
                                 // This means that audio scheduled before will finish playing before
                                 // the client receives the event to execute the function call.
                                 //
-                                // For example if we use a prompt to initiate a function call, it
+                                // For example, if we use a prompt to initiate a function call, it
                                 // might overtake currently pending audio output and an answer
                                 // before the participant even heard the audio.
                                 OutputPath::Media,

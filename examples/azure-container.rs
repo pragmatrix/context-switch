@@ -84,11 +84,12 @@ async fn main() -> Result<()> {
 
     //    let language = "en-US";
 
+    // spellcheck: ignore
     // Azure
     //{
     // let host = env::var("AZURE_HOST").unwrap();
     // let key = env::var("AZURE_SUBSCRIPTION_KEY").unwrap();
-
+    //
     // let host = azure::Host::from_host(host, key)?;
     // let mut client = host.connect_recognizer(language).await?;
     // let stream = client.transcribe(consumer).await?;
