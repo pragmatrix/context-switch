@@ -13,6 +13,7 @@ members = [
     "services/aristech",
     "services/azure",
     "services/elevenlabs",
+    "services/google-dialog",
     "services/google-transcribe", 
     "services/openai-dialog", 
     "services/playback",
@@ -29,6 +30,7 @@ edition = "2024"
 context-switch-core = { workspace = true }
 
 openai-dialog = { path = "services/openai-dialog" }
+google-dialog = { workspace = true }
 azure = { workspace = true }
 azure-speech = { workspace = true }
 aristech = { workspace = true }
@@ -73,6 +75,8 @@ rodio = { workspace = true, features = ["playback"] }
 azure = { workspace = true }
 aristech = { workspace = true }
 google-transcribe = { workspace = true }
+google-dialog = { workspace = true }
+gemini-live = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
@@ -96,6 +100,8 @@ playback = { path = "services/playback" }
 aristech = { path = "services/aristech" }
 elevenlabs = { path = "services/elevenlabs" }
 google-transcribe = { path = "services/google-transcribe" }
+google-dialog = { path = "services/google-dialog" }
+gemini-live = "0.1.8"
 
 anyhow = "1.0.102"
 derive_more = { version = "2.1.1", features = ["full"] }
