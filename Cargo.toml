@@ -81,6 +81,7 @@ google-dialog = { workspace = true }
 gemini-live = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+reqwest = { workspace = true }
 
 # For advanced params in openai-dialog
 openai-api-rs = { workspace = true }

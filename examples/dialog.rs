@@ -20,7 +20,9 @@ use openai_dialog::{
     OpenAIDialog, Protocol, ServiceInputEvent as OpenAIServiceInputEvent,
     ServiceOutputEvent as OpenAIServiceOutputEvent,
 };
+use reqwest::Url;
 use rodio::{DeviceSinkBuilder, Player, Source};
+use serde::Deserialize;
 use serde_json::json;
 use strum::VariantNames;
 use tokio::{
@@ -38,6 +40,8 @@ use context_switch_core::{
 struct Cli {
     #[arg(value_enum)]
     provider: Provider,
+    #[arg(long)]
+    list_models: bool,
     #[arg(long)]
     list_voices: bool,
     #[arg(long)]
@@ -68,6 +72,12 @@ impl Provider {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.list_models {
+        let _ = dotenvy::dotenv_override();
+        list_available_models(&cli).await?;
+        return Ok(());
+    }
 
     if cli.list_voices {
         list_available_voices(cli.provider)?;
@@ -158,9 +168,238 @@ fn list_available_voices(provider: Provider) -> Result<()> {
             Ok(())
         }
         Provider::Google => {
-            bail!("Voice listing is only available for openai and azure providers")
+            println!("Available voices for {:?}:", provider);
+            for voice in GEMINI_VOICES {
+                println!("- {voice}");
+            }
+            Ok(())
         }
     }
+}
+
+async fn list_available_models(cli: &Cli) -> Result<()> {
+    match cli.provider {
+        Provider::OpenAI => list_openai_models(cli).await,
+        Provider::Azure => list_azure_models(cli),
+        Provider::Google => list_google_models(cli).await,
+    }
+}
+
+async fn list_openai_models(cli: &Cli) -> Result<()> {
+    let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
+    let endpoint = cli
+        .endpoint
+        .clone()
+        .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok());
+    let models_url = openai_models_url(endpoint.as_deref())?;
+
+    let response: OpenAIModelsResponse = reqwest::Client::new()
+        .get(models_url)
+        .bearer_auth(key)
+        .send()
+        .await
+        .context("Requesting OpenAI models")?
+        .error_for_status()
+        .context("OpenAI models request failed")?
+        .json()
+        .await
+        .context("Decoding OpenAI models response")?;
+
+    let mut models: Vec<_> = response
+        .data
+        .into_iter()
+        .map(|m| m.id)
+        .filter(|id| is_openai_realtime_model(id))
+        .collect();
+    models.sort();
+
+    println!("Available models for OpenAI:");
+    if models.is_empty() {
+        println!("- No realtime-capable models were returned by the models endpoint.");
+        println!("- Ensure your API key has access to OpenAI Realtime API models.");
+    } else {
+        for model in models {
+            println!("- {model}");
+        }
+    }
+    Ok(())
+}
+
+fn is_openai_realtime_model(model_id: &str) -> bool {
+    model_id.to_ascii_lowercase().contains("realtime")
+}
+
+fn list_azure_models(cli: &Cli) -> Result<()> {
+    println!("Available models for Azure:");
+    println!("- Azure Realtime uses deployment names configured in your Azure OpenAI resource.");
+    println!("- The realtime endpoint does not provide a provider-agnostic model listing API here.");
+
+    if let Some(model) = cli
+        .model
+        .clone()
+        .or_else(|| env::var("OPENAI_REALTIME_API_MODEL").ok())
+        .filter(|m| !m.trim().is_empty())
+    {
+        println!("- Configured deployment/model: {model}");
+    } else {
+        println!("- Set --model or OPENAI_REALTIME_API_MODEL to your Azure deployment name.");
+    }
+
+    Ok(())
+}
+
+async fn list_google_models(cli: &Cli) -> Result<()> {
+    let key = env::var("GEMINI_API_KEY").context("GEMINI_API_KEY undefined")?;
+    let endpoint = cli
+        .endpoint
+        .clone()
+        .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok());
+    let models_url = google_models_url(endpoint.as_deref())?;
+
+    let response: GeminiModelsResponse = reqwest::Client::new()
+        .get(models_url)
+        .query(&[("key", key)])
+        .send()
+        .await
+        .context("Requesting Gemini models")?
+        .error_for_status()
+        .context("Gemini models request failed")?
+        .json()
+        .await
+        .context("Decoding Gemini models response")?;
+
+    let mut live_models: Vec<_> = response
+        .models
+        .into_iter()
+        .filter(|m| is_gemini_live_model(&m.name, &m.supported_generation_methods))
+        .map(|m| m.name)
+        .collect();
+    live_models.sort();
+
+    println!("Available models for Google (Live API capable):");
+    if live_models.is_empty() {
+        println!("- No Live-capable models were detected from models.list.");
+        println!("- This can happen when model metadata does not include Live-specific methods.");
+        println!("- Try explicitly using a known Live model, for example:");
+        println!("  - models/gemini-3.1-flash-live-preview");
+        println!("  - models/gemini-2.5-flash-live-preview");
+    } else {
+        for model in live_models {
+            println!("- {model}");
+        }
+    }
+    Ok(())
+}
+
+fn is_gemini_live_model(model_name: &str, methods: &[String]) -> bool {
+    if model_name.to_ascii_lowercase().contains("live") {
+        return true;
+    }
+
+    methods.iter().any(|method| {
+        method.eq_ignore_ascii_case("bidiGenerateContent")
+            || method.eq_ignore_ascii_case("streamGenerateContent")
+    })
+}
+
+fn openai_models_url(endpoint: Option<&str>) -> Result<String> {
+    const OPENAI_MODELS_ENDPOINT: &str = "https://api.openai.com/v1/models";
+
+    let Some(endpoint) = endpoint else {
+        return Ok(OPENAI_MODELS_ENDPOINT.to_owned());
+    };
+
+    let mut url = Url::parse(endpoint)
+        .or_else(|_| Url::parse(OPENAI_MODELS_ENDPOINT))
+        .context("Parsing OpenAI model list URL")?;
+
+    let normalized_scheme = match url.scheme() {
+        "wss" => "https".to_owned(),
+        "ws" => "http".to_owned(),
+        other => other.to_owned(),
+    };
+    url.set_scheme(&normalized_scheme).ok();
+    url.set_path("/v1/models");
+    url.set_query(None);
+    Ok(url.to_string())
+}
+
+fn google_models_url(endpoint: Option<&str>) -> Result<String> {
+    const GOOGLE_MODELS_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+
+    let Some(endpoint) = endpoint else {
+        return Ok(GOOGLE_MODELS_ENDPOINT.to_owned());
+    };
+
+    let mut url = Url::parse(endpoint)
+        .or_else(|_| Url::parse(GOOGLE_MODELS_ENDPOINT))
+        .context("Parsing Gemini model list URL")?;
+
+    let normalized_scheme = match url.scheme() {
+        "wss" => "https".to_owned(),
+        "ws" => "http".to_owned(),
+        other => other.to_owned(),
+    };
+    url.set_scheme(&normalized_scheme).ok();
+    url.set_path("/v1beta/models");
+    url.set_query(None);
+    Ok(url.to_string())
+}
+
+const GEMINI_VOICES: &[&str] = &[
+    "Zephyr",
+    "Puck",
+    "Charon",
+    "Kore",
+    "Fenrir",
+    "Leda",
+    "Orus",
+    "Aoede",
+    "Callirrhoe",
+    "Autonoe",
+    "Enceladus",
+    "Iapetus",
+    "Umbriel",
+    "Algieba",
+    "Despina",
+    "Erinome",
+    "Algenib",
+    "Rasalgethi",
+    "Laomedeia",
+    "Achernar",
+    "Alnilam",
+    "Schedar",
+    "Gacrux",
+    "Pulcherrima",
+    "Achird",
+    "Zubenelgenubi",
+    "Vindemiatrix",
+    "Sadachbia",
+    "Sadaltager",
+    "Sulafat",
+];
+
+#[derive(Debug, Deserialize)]
+struct OpenAIModelsResponse {
+    data: Vec<OpenAIModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIModel {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiModelsResponse {
+    #[serde(default)]
+    models: Vec<GeminiModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiModel {
+    name: String,
+    #[serde(default)]
+    supported_generation_methods: Vec<String>,
 }
 
 async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()> {
@@ -209,7 +448,11 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
                 .clone()
                 .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok())
                 .filter(|endpoint| !endpoint.trim().is_empty());
-            params.voice = cli.voice.clone();
+            params.voice = cli
+                .voice
+                .as_deref()
+                .map(parse_gemini_voice_value)
+                .transpose()?;
             params.output_audio_transcription = true;
             params.tools.push(gemini_get_time_tool());
 
@@ -221,6 +464,23 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
 fn parse_realtime_voice_value(value: &str) -> Result<openai_types::RealtimeVoice> {
     openai_types::RealtimeVoice::from_str(value)
         .map_err(|e| anyhow::anyhow!("Invalid voice value `{value}`: {e}"))
+}
+
+fn parse_gemini_voice_value(value: &str) -> Result<String> {
+    if GEMINI_VOICES.iter().any(|v| v.eq_ignore_ascii_case(value)) {
+        let voice = GEMINI_VOICES
+            .iter()
+            .find(|v| v.eq_ignore_ascii_case(value))
+            .copied()
+            .unwrap_or(value)
+            .to_owned();
+        Ok(voice)
+    } else {
+        let available = GEMINI_VOICES.join(", ");
+        bail!(
+            "Invalid Gemini voice `{value}`. Available voices: {available}"
+        )
+    }
 }
 
 enum AudioCommand {
