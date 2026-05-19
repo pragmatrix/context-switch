@@ -1,7 +1,6 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
 use std::{
-    env,
     num::{NonZeroU16, NonZeroU32},
     str::FromStr,
     thread,
@@ -10,12 +9,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Parser, ValueEnum};
 use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use openai_api_rs::realtime::types;
-use openai_dialog::{OpenAIDialog, Protocol, ServiceInputEvent, ServiceOutputEvent};
 use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
 use tokio::{
@@ -25,54 +21,58 @@ use tokio::{
 use tracing::info;
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, Service, audio,
+    AudioFormat, AudioFrame, audio,
     conversation::{Conversation, Input, Output},
 };
 
+mod dialog_providers;
+
 #[derive(Debug, Parser)]
 struct Cli {
-    #[arg(long, value_enum)]
-    protocol: Option<CliProtocol>,
+    #[arg(value_enum)]
+    provider: Provider,
+    #[arg(long)]
+    list_models: bool,
+    #[arg(long)]
+    list_voices: bool,
     #[arg(long)]
     endpoint: Option<String>,
     #[arg(long)]
     model: Option<String>,
-    #[arg(long, value_parser = realtime_voice_value_parser())]
-    voice: Option<types::RealtimeVoice>,
+    #[arg(long)]
+    voice: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum CliProtocol {
+enum Provider {
     #[value(name = "openai")]
     OpenAI,
-    Azure,
+    #[value(name = "azure-openai")]
+    AzureOpenAI,
+    Google,
 }
 
-fn realtime_voice_value_parser() -> impl TypedValueParser<Value = types::RealtimeVoice> {
-    PossibleValuesParser::new(<types::RealtimeVoice as strum::VariantNames>::VARIANTS).try_map(
-        |value| {
-            parse_realtime_voice_value(&value)
-                .map_err(|e| format!("Invalid voice value `{value}`: {e}"))
-        },
-    )
-}
-
-fn parse_realtime_voice_value(value: &str) -> Result<types::RealtimeVoice, strum::ParseError> {
-    types::RealtimeVoice::from_str(value)
-}
-
-impl From<CliProtocol> for Protocol {
-    fn from(value: CliProtocol) -> Self {
-        match value {
-            CliProtocol::OpenAI => Protocol::OpenAI,
-            CliProtocol::Azure => Protocol::Azure,
-        }
+impl Provider {
+    fn api(self) -> &'static dyn dialog_providers::ProviderApi {
+        dialog_providers::provider_api(self)
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.list_models {
+        let _ = dotenvy::dotenv_override();
+        list_available_models(&cli).await?;
+        return Ok(());
+    }
+
+    if cli.list_voices {
+        list_available_voices(cli.provider)?;
+        return Ok(());
+    }
+
     dotenvy::dotenv_override().context("Reading .env file")?;
     tracing_subscriber::fmt::init();
 
@@ -88,19 +88,21 @@ async fn main() -> Result<()> {
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
-    let format = AudioFormat::new(channels, sample_rate);
+    let input_format = AudioFormat::new(channels, sample_rate);
+    let output_format = cli.provider.api().output_format(input_format);
 
     let (input_sender, input_receiver) = channel(256);
-
     let input_sender2 = input_sender.clone();
 
-    // Create and run the input stream
     let stream = device
         .build_input_stream(
             &input_config.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
-                let frame = AudioFrame { format, samples };
+                let frame = AudioFrame {
+                    format: input_format,
+                    samples,
+                };
                 if input_sender2.try_send(Input::Audio { frame }).is_err() {
                     println!("Failed to send audio data")
                 }
@@ -108,62 +110,74 @@ async fn main() -> Result<()> {
             move |err| {
                 eprintln!("Error occurred on stream: {err}");
             },
-            // timeout
             Some(Duration::from_secs(1)),
         )
         .expect("Failed to build input stream");
 
     stream.play().expect("Failed to play stream");
 
-    let key = env::var("OPENAI_API_KEY").unwrap();
-    let model = cli
-        .model
-        .or_else(|| env::var("OPENAI_REALTIME_API_MODEL").ok())
-        .filter(|model| !model.trim().is_empty())
-        .context("Provide --model or set OPENAI_REALTIME_API_MODEL")?;
-
-    let openai = OpenAIDialog;
-    let mut params = openai_dialog::Params::new(key, model);
-    params.host = cli
-        .endpoint
-        .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok())
-        .filter(|endpoint| !endpoint.trim().is_empty());
-    params.protocol = cli.protocol.map(Into::into);
-    params.voice = cli.voice;
-    params.tools.push(get_time_function_definition());
-
     let (output_sender, output_receiver) = unbounded_channel();
-
+    // Keep text enabled at the context-switch layer for Google.
     let conversation = Conversation::new(
-        InputModality::Audio { format },
-        [OutputModality::Audio { format }],
+        InputModality::Audio {
+            format: input_format,
+        },
+        [
+            OutputModality::Audio {
+                format: output_format,
+            },
+            OutputModality::Text,
+            OutputModality::InterimText,
+        ],
         input_receiver,
         output_sender,
     );
 
-    let mut conversation = openai.conversation(params, conversation);
-
-    let playback_task = setup_audio_playback(format, input_sender, output_receiver).await;
-
-    // Spawn audio playback task
+    let conversation = start_conversation(&cli, conversation);
+    tokio::pin!(conversation);
+    let playback_task =
+        setup_audio_playback(cli.provider, output_format, input_sender, output_receiver).await;
     let mut playback_handle = tokio::spawn(playback_task);
 
     select! {
-        // Drive conversation
         r = &mut conversation => {
-            // When conversation ends, wait for playback to complete before returning.
             let _ = playback_handle.await;
             r?
         }
-
-        // Drive playback
         r = &mut playback_handle => {
             r??
         }
-
     }
 
     Ok(())
+}
+
+fn list_available_voices(provider: Provider) -> Result<()> {
+    println!("Available voices for {:?}:", provider);
+    for voice in provider.api().voices() {
+        println!("- {voice}");
+    }
+    Ok(())
+}
+
+async fn list_available_models(cli: &Cli) -> Result<()> {
+    let request = dialog_providers::ListModelsRequest {
+        endpoint: cli.endpoint.clone(),
+        model: cli.model.clone(),
+    };
+    cli.provider.api().list_models(request).await
+}
+
+async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()> {
+    let request = dialog_providers::StartConversationRequest {
+        endpoint: cli.endpoint.clone(),
+        model: cli.model.clone(),
+        voice: cli.voice.clone(),
+    };
+    cli.provider
+        .api()
+        .start_conversation(request, conversation)
+        .await
 }
 
 enum AudioCommand {
@@ -173,16 +187,14 @@ enum AudioCommand {
 }
 
 async fn setup_audio_playback(
+    provider: Provider,
     format: AudioFormat,
     input: Sender<Input>,
     mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = Result<()>> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
-    // Spawn a dedicated audio thread
     let playback_thread = thread::spawn(move || {
-        // Create output stream in the audio thread
-
         let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
         let player = Player::connect_new(sink_handle.mixer());
 
@@ -208,8 +220,6 @@ async fn setup_audio_playback(
         player.sleep_until_end();
     });
 
-    // Create async task to forward frames to the audio thread
-
     async move {
         while let Some(output) = output.recv().await {
             match output {
@@ -219,59 +229,80 @@ async fn setup_audio_playback(
                         break;
                     }
                 }
-                Output::Text { .. } | Output::RequestCompleted { .. } => {}
+                output @ Output::Text { .. } => {
+                    println!("{output:?}");
+                }
+                Output::RequestCompleted { .. } => {}
                 Output::ClearAudio => {
                     if cmd_tx.send(AudioCommand::Clear).is_err() {
                         break;
                     }
                 }
-                Output::ServiceEvent { value, .. } => match serde_json::from_value(value)? {
-                    ServiceOutputEvent::FunctionCall {
-                        name,
-                        call_id,
-                        arguments,
-                    } => {
-                        info!("Processing function `{name}` with arguments `{arguments:?}`");
-                        let result = call_function(&name, arguments)?;
-                        info!("Function result: `{result}`");
-                        let value = ServiceInputEvent::FunctionCallResult {
-                            call_id,
-                            output: json! ({ "time": serde_json::Value::String(result) }),
-                        };
-                        let value = serde_json::to_value(&value)?;
-                        input.try_send(Input::ServiceEvent { value })?;
-                    }
-                    ServiceOutputEvent::SessionUpdated { tools } => {
-                        info!("Session Updated: {tools:?}");
-                    }
-                },
+                Output::ServiceEvent { value, .. } => {
+                    handle_service_event(provider, &input, value)?;
+                }
                 Output::BillingRecords { records, scope, .. } => {
                     info!("Billing: scope: {scope:?}, records: {records:?}");
                 }
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);
-        // TODO: this may block!
         let _ = playback_thread.join();
         Ok(())
     }
 }
 
-fn get_time_function_definition() -> types::ToolDefinition {
-    types::ToolDefinition::Function {
-        name: "get_time".into(),
-        description: "The current time to the exact second.".into(),
-        parameters: json!({
-            "type": "object",
-            "properties": {
-                "location": {
-                    "type": "string",
-                    "description": "IANA time zone identifier of the region and city."
-                }
-            },
-            "required": ["location"]
-        }),
+fn handle_service_event(
+    provider: Provider,
+    input: &Sender<Input>,
+    value: serde_json::Value,
+) -> Result<()> {
+    let call = provider.api().parse_service_event(value)?;
+
+    if let Some(call) = call {
+        info!(
+            "Processing function `{}` with arguments `{:?}`",
+            call.name, call.arguments
+        );
+        let result = call_function(&call.name, call.arguments)?;
+        info!("Function result: `{result}`");
+        send_function_result(provider, input, call.call_id, call.name, result)?;
     }
+
+    Ok(())
+}
+
+fn send_function_result(
+    provider: Provider,
+    input: &Sender<Input>,
+    call_id: String,
+    name: String,
+    result: String,
+) -> Result<()> {
+    let value = provider
+        .api()
+        .function_result_event(call_id, Some(name), result)?;
+    input.try_send(Input::ServiceEvent { value })?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct FunctionCall {
+    call_id: String,
+    name: String,
+    arguments: Option<serde_json::Value>,
+}
+fn get_time_parameters_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "location": {
+                "type": "string",
+                "description": "IANA time zone identifier of the region and city."
+            }
+        },
+        "required": ["location"]
+    })
 }
 
 fn call_function(name: &str, arguments: Option<serde_json::Value>) -> Result<String> {

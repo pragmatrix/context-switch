@@ -15,5 +15,6 @@ pub mod services {
     pub use aristech::AristechTranscribe;
     pub use azure::AzureTranscribe;
     pub use elevenlabs::ElevenLabsTranscribe;
+    pub use google_dialog::GoogleDialog;
     pub use google_transcribe::GoogleTranscribe;
 }

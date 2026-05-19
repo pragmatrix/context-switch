@@ -6,3 +6,8 @@
 	path = external/openai-api-rs
 	url = ../openai-api-rs.git
 	branch = "context-switch-v9.0.0"
+[submodule "external/gemini-live-rs"]
+	path = external/gemini-live-rs
+	url = ../gemini-live-rs.git
+	branch = context-switch
+
