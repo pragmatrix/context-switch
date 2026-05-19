@@ -8,8 +8,8 @@ use gemini_live::{
     transport::{Auth, Endpoint, TransportConfig},
     types::{
         AudioTranscriptionConfig, Content, FunctionDeclaration, FunctionResponse, GenerationConfig,
-        Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig, ServerEvent, SetupConfig,
-        SpeechConfig, Tool, UsageMetadata, VoiceConfig,
+        Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig, ServerEvent,
+        SessionResumptionConfig, SetupConfig, SpeechConfig, Tool, UsageMetadata, VoiceConfig,
     },
 };
 use tracing::{debug, info, trace};
@@ -108,6 +108,10 @@ impl Client {
             system_instruction: self.params.instructions.clone().map(system_instruction),
             tools: (!self.params.tools.is_empty()).then(|| self.params.tools.clone()),
             realtime_input_config: self.params.realtime_input_config.clone(),
+            // Opt in so Gemini sends resume handles. The session layer stores
+            // the latest handle and patches it into reconnect setup messages,
+            // keeping context across GoAway-triggered reconnects.
+            session_resumption: Some(SessionResumptionConfig::default()),
             input_audio_transcription: self
                 .params
                 .input_audio_transcription
