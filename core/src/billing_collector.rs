@@ -12,13 +12,13 @@ pub struct BillingRecords {
     records: Vec<BillingRecord>,
 }
 
-/// Type definition for the inner HashMap key in BillingCollector
-/// Contains (service, scope, name)
+/// Type definition for the inner `HashMap` key in `BillingCollector`
+/// Contains `(service, scope, name)`
 type BillingRecordKey = (String, Option<String>, String);
 
 #[derive(Debug, Default)]
 pub struct BillingCollector {
-    /// The inner HashMap uses (service, scope, name) as the key and stores the BillingRecordValue.
+    /// The inner `HashMap` uses `(service, scope, name)` as the key and stores the `BillingRecordValue`.
     /// The scope is optional.
     records: HashMap<BillingId, HashMap<BillingRecordKey, BillingRecordValue>>,
 }

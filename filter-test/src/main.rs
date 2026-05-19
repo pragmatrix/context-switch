@@ -26,7 +26,7 @@ struct Args {
     inputs: Vec<PathBuf>,
 
     /// Threshold for the speech gate (0.0 - 1.0)
-    /// Higher values (0.1-0.2) provide more aggressive noise reduction
+    /// Higher values `(0.1-0.2)` provide more aggressive noise reduction
     /// A value of 0.05 provides balanced noise reduction for most audio
     #[arg(short, long, default_value = "0.05")]
     threshold: f32,

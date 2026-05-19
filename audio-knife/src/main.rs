@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
         )
         .with_state(state);
 
-    // IMPORTANT: attempt to set TCP_NODELAY on every incoming connection.
+    // IMPORTANT: attempt to set `TCP_NODELAY` on every incoming connection.
     // We need to disable the Nagle algorithm to properly support low latency
     // live streaming small audio packets.
     let listener = TcpListener::bind(addr).await?.tap_io(|tcp_stream| {

@@ -207,7 +207,7 @@ impl ConversationInput {
     }
 }
 
-// For billing, or other purposes, it's very convenient the the output can be cloned. See
+// For billing, or other purposes, it's very convenient the output can be cloned. See
 // azure-transcribe for example.
 #[derive(Debug, Clone)]
 pub struct ConversationOutput {

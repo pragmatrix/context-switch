@@ -1,4 +1,4 @@
-//! mod_audio_fork specific types and audio processing.
+//! `mod_audio_fork` specific types and audio processing.
 
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};

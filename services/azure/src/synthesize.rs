@@ -222,7 +222,7 @@ enum BillingScope {
 }
 
 fn voice_to_billing_scope(voice: &str) -> Result<BillingScope> {
-    // The voice name typically follows a pattern like "en-US-JennyNeural" or "en-US-JennyMultilingualNeural"
+    // The voice name typically follows a pattern like `en-US-JennyNeural` or `en-US-JennyMultilingualNeural`
     match voice {
         v if v.ends_with("TurboMultilingualNeural") => Ok(BillingScope::TurboMultilingualNeural),
         v if v.ends_with("MultilingualNeuralHD") => Ok(BillingScope::MultilingualNeuralHD),

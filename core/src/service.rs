@@ -6,7 +6,7 @@
 //! handling and lifetime.
 //!
 //! ADR: Output is provided through a channel. Compared to async streams, this simplifies the
-//! implementation and does not couple the straem production code to the receiver.
+//! implementation and does not couple the stream production code to the receiver.
 //!
 //! ADR: Asynchronous stopping of a conversation done by dropping the input channel. After that,
 //! more output may be supplied (say for example intermediate recognized text).

@@ -38,7 +38,7 @@ impl Registry {
     }
 }
 
-/// We wrap the service to able to do Params deserialization.
+/// We wrap the service to able to do Parameters deserialization.
 #[async_trait]
 pub trait WrappedService: fmt::Debug {
     async fn converse(&self, params: Value, conversation: Conversation) -> Result<()>;
