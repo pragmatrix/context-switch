@@ -103,7 +103,7 @@ pub enum ServerEvent {
         speaker: Option<String>,
     },
     /// A completed event is sent when the client request that triggered Audio or Text responses has
-    /// has been fully processed.
+    /// been fully processed.
     #[serde(rename_all = "camelCase")]
     RequestCompleted {
         id: ConversationId,

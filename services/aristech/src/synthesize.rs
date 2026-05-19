@@ -36,7 +36,7 @@ impl Service for AristechSynthesize {
         conversation.require_text_input_only()?;
         let output_format = conversation.require_single_audio_output()?;
 
-        // Resolve default voice if none is set
+        // Resolve to default voice if none is set
         // TODO: Add the possibility to determine this from a language parameter and the
         // `get_voices` function if no voice_id is provided.
         let voice = params.voice.unwrap_or_else(|| "anne_de_DE".to_string());

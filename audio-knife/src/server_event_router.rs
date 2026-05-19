@@ -1,7 +1,7 @@
 //! A component that routes server events that are received from ContextSwitch to multiple
 //! conversation targets.
 //!
-//! Conceptually, this is similar to a reverse proxy.
+//! Conceptually this is similar to a reverse proxy.
 use std::collections::{HashMap, hash_map::Entry};
 
 use anyhow::{Context, Result, bail};

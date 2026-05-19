@@ -23,7 +23,7 @@ use context_switch::{AudioFormat, OutputModality, OutputPath, ServerEvent};
 
 /// Runs an event scheduler that manages the timing of events sent to FreeSWITCH.
 ///
-/// This delays audio pakets if more than 5 seconds are pending, and control pakets if currently
+/// This delays audio packets if more than 5 seconds are pending, and control packets if currently
 /// audio is being assumed to be played back.
 pub async fn event_scheduler(
     mut receiver: UnboundedReceiver<ServerEvent>,
@@ -60,7 +60,7 @@ pub async fn event_scheduler(
                     }
                     // Control path events are sent out immediately.
                     sender.send(event).context("Sending control event")?;
-                    // Even though only a control event was short circuited we need to kick the the
+                    // Even though only a control event was short circuited we need to kick the
                     // media scheduler.
                 }
                 OutputPath::Media => {
@@ -102,7 +102,7 @@ impl MediaEventScheduler {
         }
     }
 
-    /// TODO: There could be situation in which ... when there is a conversation crossover ... the
+    /// TODO: There could be situation in which … when there is a conversation crossover … the
     /// started event was not sent yet when we received audio here. In this case, we have to ignore
     /// the audio and warn about it.
     pub fn notify_started(&mut self, modalities: &[OutputModality]) -> Result<()> {
@@ -119,7 +119,7 @@ impl MediaEventScheduler {
         if let ServerEvent::ClearAudio { .. } = event {
             self.input_media_events
                 .retain(|e| !matches!(e, ServerEvent::Audio { .. }));
-            // All the non-audio event before `ClearAudio` must be sent asap, too.
+            // All the non-audio event before `ClearAudio` must be sent as soon as possible, too.
             self.audio_finished = now;
             self.timed_events.iter_mut().for_each(|(t, _)| *t = now);
         }

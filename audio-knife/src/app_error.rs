@@ -8,7 +8,7 @@ use axum::{
 #[allow(unused)]
 pub struct AppError(anyhow::Error);
 
-// Tell axum how to convert `AppError` into a response.
+// Tell Axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         (StatusCode::BAD_REQUEST, self.0.to_string()).into_response()

@@ -51,7 +51,7 @@ pub struct Params {
     pub api_key: String,
     /// Optional realtime model. Defaults to `scribe_v2_realtime` when omitted.
     pub model: Option<String>,
-    /// Optional websocket endpoint override.
+    /// Optional WebSocket endpoint override.
     pub host: Option<String>,
     /// Optional language hint in BCP 47 format (for example `en-US`).
     pub language: Option<String>,

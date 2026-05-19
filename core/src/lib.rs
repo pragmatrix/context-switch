@@ -108,9 +108,9 @@ impl AudioConsumer {
     }
 }
 
-// TODO: This might be overengineered, we probably are fine with Sender<AudioFrame> and
-// Receiver<AudioFrame> without checking the format for which I guess the receiver is actually
-// responsible, _and_ it might even ok for the receiver to receive different audio formats, e.g. in
+// TODO: This might be overengineered, we probably are fine with `Sender<AudioFrame>` and
+// `Receiver<AudioFrame>` without checking the format for which I guess the receiver is actually
+// responsible, _and_ it might even okay for the receiver to receive different audio formats, e.g. in
 // low QoS situations?
 #[derive(Debug)]
 pub struct AudioProducer {
@@ -132,7 +132,7 @@ impl AudioProducer {
     }
 }
 
-/// Create an unidirectional audio channel.
+/// Create a unidirectional audio channel.
 pub fn audio_channel(format: AudioFormat) -> (AudioProducer, AudioConsumer) {
     let (producer, consumer) = mpsc::unbounded_channel();
     (

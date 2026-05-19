@@ -52,7 +52,7 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing-futures = "0.2.5"
 
-# todo: is this needed?
+# TODO: Is this needed?
 uuid = { workspace = true }
 
 # audio tracing
