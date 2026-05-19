@@ -22,6 +22,8 @@ members = [
 [workspace.package]
 version = "2.3.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/pragmatrix/context-switch"
 
 [dependencies]
 
@@ -101,13 +103,27 @@ aristech = { path = "services/aristech" }
 elevenlabs = { path = "services/elevenlabs" }
 google-transcribe = { path = "services/google-transcribe" }
 google-dialog = { path = "services/google-dialog" }
-gemini-live = "0.1.8"
+gemini-live = { path = "external/gemini-live-rs/crates/gemini-live" }
+
+# Dependencies required by `external/gemini-live-rs/crates/gemini-live`.
+# The submodule crate inherits these via `workspace = true`, so we keep them
+# centralized here and grouped to make future sync/review straightforward.
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+bytes = "1.11"
+thiserror = "2.0"
+rustls = { version = "0.23", features = ["ring"], default-features = false }
+google-cloud-auth = { version = "1.9.0", default-features = false }
 
 anyhow = "1.0.102"
 derive_more = { version = "2.1.1", features = ["full"] }
 static_assertions = "1.1.0"
 async-stream = { version = "0.3.6" }
-tokio = { version = "1.50.0", features = ["sync"] }
+# Tokio features are intentionally explicit:
+# - sync: channels/mutexes used throughout services
+# - rt + macros: runtime and `tokio::select!`/task macros used by gemini-live
+# - time: timeout/sleep used by gemini-live session/transport logic
+tokio = { version = "1.50.0", features = ["sync", "rt", "macros", "time"] }
 futures = "0.3.31"
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.149"
