@@ -279,16 +279,43 @@ fn bill_usage(
     billing_scope: &str,
     usage: UsageMetadata,
 ) -> Result<()> {
-    let prompt_audio = modality_count(&usage.prompt_tokens_details, "AUDIO");
-    let prompt_text = modality_count(&usage.prompt_tokens_details, "TEXT");
+    // TODO(gemini-live): Move input billing back to disjoint modality buckets once
+    // `UsageMetadata` exposes `cache_tokens_details` and
+    // `tool_use_prompt_tokens_details` from the Live API protocol.
+    //
+    // Why this is needed:
+    // - Input audio and input text may have different prices.
+    // - `prompt_tokens_details` already includes cached/tool prompt usage.
+    // - Without cached/tool modality details, splitting prompt input into
+    //   audio/text can overlap with cached/tool categories and double count.
+    //
+    // Current fallback keeps input categories disjoint, but loses input
+    // modality precision:
+    // - tokens:input
+    // - tokens:input:cached
+    // - tokens:input:tool
+    //
+    // Target mapping after gemini-live exposes the missing fields:
+    // - tokens:input:audio        = prompt_audio - cached_audio - tool_audio
+    // - tokens:input:text         = prompt_text  - cached_text  - tool_text
+    // - tokens:input:audio:cached = cached_audio
+    // - tokens:input:text:cached  = cached_text
+    // - tokens:input:audio:tool   = tool_audio
+    // - tokens:input:text:tool    = tool_text
+    let prompt_total = usage.prompt_token_count as usize;
+    let cached_total = usage.cached_content_token_count as usize;
+    let tool_total = usage.tool_use_prompt_token_count as usize;
     let response_audio = modality_count(&usage.response_tokens_details, "AUDIO");
     let response_text = modality_count(&usage.response_tokens_details, "TEXT");
 
+    let prompt_uncached_untool = prompt_total
+        .checked_sub(cached_total + tool_total)
+        .context("Invalid Gemini usage: prompt tokens less than cached+tool prompt tokens")?;
+
     let records = [
-        BillingRecord::count("tokens:input:audio", prompt_audio),
-        BillingRecord::count("tokens:input:text", prompt_text),
-        BillingRecord::count("tokens:input:cached", usage.cached_content_token_count as _),
-        BillingRecord::count("tokens:input:tool", usage.tool_use_prompt_token_count as _),
+        BillingRecord::count("tokens:input", prompt_uncached_untool),
+        BillingRecord::count("tokens:input:cached", cached_total),
+        BillingRecord::count("tokens:input:tool", tool_total),
         BillingRecord::count("tokens:output:audio", response_audio),
         BillingRecord::count("tokens:output:text", response_text),
         BillingRecord::count("tokens:thoughts", usage.thoughts_token_count as _),
