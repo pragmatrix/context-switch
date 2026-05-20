@@ -11,11 +11,14 @@ pub struct Params {
     pub instructions: Option<String>,
     pub voice: Option<String>,
 
+    /// Sampling temperature. Valid range: `0.0..=2.0`.
+    /// If omitted, Gemini uses the model-specific default temperature.
     pub temperature: Option<f32>,
     /// Gemini 3.1 thinking level (`minimal`, `low`, `medium`, or `high`).
+    /// In Live API, Gemini 3.1 defaults to `minimal` when omitted.
     pub thinking_level: Option<ThinkingLevel>,
     /// Enabled by default to avoid context-window exhaustion during long audio sessions.
-    #[serde(default = "default_true")]
+    #[serde(default = "default_context_window_compression")]
     pub context_window_compression: bool,
     #[serde(default)]
     pub tools: Vec<Tool>,
@@ -39,7 +42,7 @@ impl Params {
             voice: None,
             temperature: None,
             thinking_level: None,
-            context_window_compression: true,
+            context_window_compression: default_context_window_compression(),
             tools: vec![],
             realtime_input_config: None,
             input_audio_transcription: false,
@@ -48,7 +51,7 @@ impl Params {
     }
 }
 
-fn default_true() -> bool {
+fn default_context_window_compression() -> bool {
     true
 }
 
@@ -76,7 +79,7 @@ pub enum ServiceOutputEvent {
         arguments: serde_json::Value,
     },
     #[serde(rename_all = "camelCase")]
-    ToolCallCancellation { call_ids: Vec<String> },
+    ToolCallCancellation { call_id: String },
     SessionUpdated {
         #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<FunctionDeclaration>>,

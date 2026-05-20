@@ -3,7 +3,9 @@ use std::env;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use gemini_live::types as gemini_types;
-use google_dialog::{GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent};
+use google_dialog::{
+    GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent, ServiceOutputEvent,
+};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;

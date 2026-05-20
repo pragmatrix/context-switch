@@ -36,7 +36,7 @@ impl Client {
         let billing_scope = self.params.model.clone();
         let tools = function_declarations(&self.params.tools);
         let mut output_transcription_buffer = String::new();
-        let mut session = Session::connect(self.session_config(text_outputs)?)
+        let mut session = Session::connect(session_config(&self.params, text_outputs)?)
             .await
             .context("Connecting to Gemini Live")?;
         output.service_event(
@@ -79,83 +79,6 @@ impl Client {
         debug!("Closing session");
         session.close().await.context("Closing session")?;
         Ok(())
-    }
-
-    fn session_config(&self, text_outputs: TextOutputs) -> Result<SessionConfig> {
-        let transport = TransportConfig {
-            endpoint: self
-                .params
-                .host
-                .clone()
-                .map(Endpoint::Custom)
-                .unwrap_or_default(),
-            auth: Auth::ApiKey(self.params.api_key.clone()),
-            ..Default::default()
-        };
-
-        Ok(SessionConfig {
-            transport,
-            setup: self.setup_config(text_outputs)?,
-            reconnect: ReconnectPolicy::default(),
-        })
-    }
-
-    fn setup_config(&self, text_outputs: TextOutputs) -> Result<SetupConfig> {
-        let input_audio_transcription = self
-            .params
-            .input_audio_transcription
-            .then_some(AudioTranscriptionConfig {});
-        let output_audio_transcription = self
-            .params
-            .output_audio_transcription
-            .then_some(AudioTranscriptionConfig {});
-
-        if !(text_outputs.text || text_outputs.interim)
-            && (input_audio_transcription.is_some() || output_audio_transcription.is_some())
-        {
-            bail!(
-                "Google dialog requires text output modality when transcription is enabled: if inputAudioTranscription or outputAudioTranscription is set, add OutputModality::Text or OutputModality::InterimText to the conversation output modalities, or set both transcription flags to false."
-            );
-        }
-
-        Ok(SetupConfig {
-            model: model_resource_name(&self.params.model),
-            generation_config: Some(GenerationConfig {
-                // NOTE: Enabling Modality::Text here currently causes a Gemini setup-time
-                // "Internal error encountered." in this service flow.
-                response_modalities: Some(vec![Modality::Audio]),
-                speech_config: self.params.voice.clone().map(|voice_name| SpeechConfig {
-                    voice_config: VoiceConfig {
-                        prebuilt_voice_config: PrebuiltVoiceConfig { voice_name },
-                    },
-                }),
-                thinking_config: self
-                    .params
-                    .thinking_level
-                    .map(|thinking_level| ThinkingConfig {
-                        thinking_level: Some(thinking_level),
-                        ..Default::default()
-                    }),
-                temperature: self.params.temperature,
-                ..Default::default()
-            }),
-            system_instruction: self.params.instructions.clone().map(system_instruction),
-            tools: (!self.params.tools.is_empty()).then(|| self.params.tools.clone()),
-            realtime_input_config: self.params.realtime_input_config.clone(),
-            // Opt in so Gemini sends resume handles. The session layer stores
-            // the latest handle and patches it into reconnect setup messages,
-            // keeping context across GoAway-triggered reconnects.
-            session_resumption: Some(SessionResumptionConfig::default()),
-            context_window_compression: self.params.context_window_compression.then_some(
-                ContextWindowCompressionConfig {
-                    sliding_window: Some(SlidingWindow::default()),
-                    ..Default::default()
-                },
-            ),
-            input_audio_transcription,
-            output_audio_transcription,
-            ..Default::default()
-        })
     }
 
     async fn process_input(&self, session: &Session, input: Input) -> Result<()> {
@@ -307,6 +230,91 @@ impl Client {
     }
 }
 
+fn function_declarations(tools: &[Tool]) -> Option<Vec<FunctionDeclaration>> {
+    let declarations: Vec<_> = tools
+        .iter()
+        .filter_map(|tool| match tool {
+            Tool::FunctionDeclarations(declarations) => Some(declarations.as_slice()),
+            Tool::GoogleSearch(_) => None,
+        })
+        .flatten()
+        .cloned()
+        .collect();
+
+    (!declarations.is_empty()).then_some(declarations)
+}
+
+fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
+    let transport = TransportConfig {
+        endpoint: params
+            .host
+            .clone()
+            .map(Endpoint::Custom)
+            .unwrap_or_default(),
+        auth: Auth::ApiKey(params.api_key.clone()),
+        ..Default::default()
+    };
+
+    Ok(SessionConfig {
+        transport,
+        setup: setup_config(params, text_outputs)?,
+        reconnect: ReconnectPolicy::default(),
+    })
+}
+
+fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfig> {
+    let input_audio_transcription = params
+        .input_audio_transcription
+        .then_some(AudioTranscriptionConfig {});
+    let output_audio_transcription = params
+        .output_audio_transcription
+        .then_some(AudioTranscriptionConfig {});
+
+    if !(text_outputs.text || text_outputs.interim)
+        && (input_audio_transcription.is_some() || output_audio_transcription.is_some())
+    {
+        bail!(
+            "Google dialog requires text output modality when transcription is enabled: if inputAudioTranscription or outputAudioTranscription is set, add OutputModality::Text or OutputModality::InterimText to the conversation output modalities, or set both transcription flags to false."
+        );
+    }
+
+    Ok(SetupConfig {
+        model: model_resource_name(&params.model),
+        generation_config: Some(GenerationConfig {
+            // NOTE: Enabling Modality::Text here currently causes a Gemini setup-time
+            // "Internal error encountered." in this service flow.
+            response_modalities: Some(vec![Modality::Audio]),
+            speech_config: params.voice.clone().map(|voice_name| SpeechConfig {
+                voice_config: VoiceConfig {
+                    prebuilt_voice_config: PrebuiltVoiceConfig { voice_name },
+                },
+            }),
+            thinking_config: params.thinking_level.map(|thinking_level| ThinkingConfig {
+                thinking_level: Some(thinking_level),
+                ..Default::default()
+            }),
+            temperature: params.temperature,
+            ..Default::default()
+        }),
+        system_instruction: params.instructions.clone().map(system_instruction),
+        tools: (!params.tools.is_empty()).then(|| params.tools.clone()),
+        realtime_input_config: params.realtime_input_config.clone(),
+        // Opt in so Gemini sends resume handles. The session layer stores
+        // the latest handle and patches it into reconnect setup messages,
+        // keeping context across GoAway-triggered reconnects.
+        session_resumption: Some(SessionResumptionConfig::default()),
+        context_window_compression: params.context_window_compression.then_some(
+            ContextWindowCompressionConfig {
+                sliding_window: Some(SlidingWindow::default()),
+                ..Default::default()
+            },
+        ),
+        input_audio_transcription,
+        output_audio_transcription,
+        ..Default::default()
+    })
+}
+
 fn model_resource_name(model: &str) -> String {
     if model.starts_with("models/") {
         model.to_owned()
@@ -323,20 +331,6 @@ fn system_instruction(text: String) -> Content {
             inline_data: None,
         }],
     }
-}
-
-fn function_declarations(tools: &[Tool]) -> Option<Vec<FunctionDeclaration>> {
-    let declarations: Vec<_> = tools
-        .iter()
-        .filter_map(|tool| match tool {
-            Tool::FunctionDeclarations(declarations) => Some(declarations.as_slice()),
-            Tool::GoogleSearch(_) => None,
-        })
-        .flatten()
-        .cloned()
-        .collect();
-
-    (!declarations.is_empty()).then_some(declarations)
 }
 
 fn bill_usage(
