@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use tracing::info;
 
-use context_switch_core::{Service, conversation::Conversation};
+use context_switch_core::{Conversation, Service};
 
 mod client;
 mod host;

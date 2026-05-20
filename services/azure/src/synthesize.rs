@@ -13,8 +13,7 @@ use tracing::debug;
 
 use crate::Host;
 use context_switch_core::{
-    AudioFrame, BillingRecord, Service,
-    conversation::{BillingSchedule, Conversation, Input},
+    AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, Service,
 };
 
 #[derive(Debug, Serialize, Deserialize)]

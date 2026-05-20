@@ -2,20 +2,12 @@ use std::collections::VecDeque;
 
 use anyhow::{Context, Result, bail};
 use base64::prelude::*;
-use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, OutputPath, audio,
-    conversation::{BillingSchedule, ConversationInput, ConversationOutput, Input},
-};
-use futures::{
-    SinkExt, StreamExt,
-    stream::{SplitSink, SplitStream},
-};
-use openai_api_rs::realtime::{
-    client_event::{self, ClientEvent},
-    server_event::{self, ServerEvent},
-    types::{
-        self, ItemContentType, ItemRole, ItemStatus, ItemType, OutputModality, ResponseStatus,
-    },
+use futures::stream::{SplitSink, SplitStream};
+use futures::{SinkExt, StreamExt};
+use openai_api_rs::realtime::client_event::{self, ClientEvent};
+use openai_api_rs::realtime::server_event::{self, ServerEvent};
+use openai_api_rs::realtime::types::{
+    self, ItemContentType, ItemRole, ItemStatus, ItemType, OutputModality, ResponseStatus,
 };
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::{
@@ -26,6 +18,10 @@ use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
+use context_switch_core::{
+    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
+    Input, OutputPath, audio,
+};
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,

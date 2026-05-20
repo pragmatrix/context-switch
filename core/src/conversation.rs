@@ -168,7 +168,7 @@ impl ConversationInput {
         self.input.recv().await
     }
 
-    /// Run a nested service conversation with one single input request and wait until its
+    /// Run a nested service conversation with one single input request and wait until it's
     /// completed.
     ///
     /// All output is sent to the conversation output.

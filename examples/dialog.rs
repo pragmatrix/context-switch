@@ -60,10 +60,12 @@ impl Provider {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv_override().context("Reading .env file")?;
+    tracing_subscriber::fmt::init();
+
     let cli = Cli::parse();
 
     if cli.list_models {
-        let _ = dotenvy::dotenv_override();
         list_available_models(&cli).await?;
         return Ok(());
     }
@@ -72,9 +74,6 @@ async fn main() -> Result<()> {
         list_available_voices(cli.provider)?;
         return Ok(());
     }
-
-    dotenvy::dotenv_override().context("Reading .env file")?;
-    tracing_subscriber::fmt::init();
 
     let host = cpal::default_host();
     let device = host

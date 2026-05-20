@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use tracing::info;
 
-use context_switch_core::{AudioFormat, OutputModality, Service, conversation::Conversation};
+use context_switch_core::{AudioFormat, Conversation, OutputModality, Service};
 
 mod client;
 mod types;

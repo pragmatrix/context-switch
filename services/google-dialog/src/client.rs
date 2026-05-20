@@ -1,8 +1,5 @@
 use anyhow::{Context, Result, bail};
-use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, OutputPath,
-    conversation::{BillingSchedule, ConversationInput, ConversationOutput, Input},
-};
+
 use gemini_live::{
     ReconnectPolicy, Session, SessionConfig,
     transport::{Auth, Endpoint, TransportConfig},
@@ -16,6 +13,10 @@ use gemini_live::{
 use tracing::{debug, info, trace};
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
+use context_switch_core::{
+    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
+    Input, OutputPath,
+};
 
 pub struct Client {
     params: Params,

@@ -10,9 +10,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tonic::Code;
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, AudioProducer, BillingRecord, OutputModality, Service,
-    conversation::{BillingSchedule, Conversation, ConversationOutput, Input},
-    language::Languages,
+    AudioFormat, AudioFrame, AudioProducer, BillingRecord, BillingSchedule, Conversation,
+    ConversationOutput, Input, OutputModality, Service, language::Languages,
 };
 use tracing::{info, warn};
 
@@ -176,7 +175,7 @@ async fn transcribe_and_process_stream_session(
 async fn process_stream_session<S>(
     model: &str,
     include_detected_language: bool,
-    output: &context_switch_core::conversation::ConversationOutput,
+    output: &ConversationOutput,
     response_stream: S,
 ) -> Result<SessionExit>
 where

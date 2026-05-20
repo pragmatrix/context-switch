@@ -12,10 +12,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use tonic::codegen::CompressionEncoding;
 
-use context_switch_core::{
-    Service,
-    conversation::{Conversation, Input},
-};
+use context_switch_core::{Conversation, Input, Service};
 
 /// Authentication configuration
 #[derive(Debug, Deserialize)]

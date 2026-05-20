@@ -1,7 +1,7 @@
 pub mod audio;
 pub mod billing_collector;
 mod billing_context;
-pub mod conversation;
+mod conversation;
 mod duration;
 pub mod language;
 mod protocol;
@@ -15,6 +15,7 @@ use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use billing_context::BillingContext;
+pub use conversation::*;
 pub use duration::Duration;
 pub use protocol::*;
 pub use registry::*;

@@ -1,6 +1,6 @@
 use std::{env, str::FromStr};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use openai_api_rs::realtime::types as openai_types;
 use openai_dialog::{
@@ -13,7 +13,8 @@ use serde_json::json;
 use strum::VariantNames;
 
 use crate::{FunctionCall, get_time_parameters_schema};
-use context_switch_core::{AudioFormat, Service, conversation::Conversation};
+use context_switch_core::conversation::Conversation;
+use context_switch_core::{AudioFormat, Service};
 
 use super::{ListModelsRequest, ProviderApi, StartConversationRequest};
 
@@ -83,7 +84,7 @@ impl ProviderApi for OpenAIProvider {
     }
 
     fn voices(&self) -> &'static [&'static str] {
-        <openai_types::RealtimeVoice as VariantNames>::VARIANTS
+        openai_types::RealtimeVoice::VARIANTS
     }
 
     async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
@@ -128,7 +129,7 @@ impl ProviderApi for OpenAIProvider {
 
 pub fn parse_realtime_voice_value(value: &str) -> Result<openai_types::RealtimeVoice> {
     openai_types::RealtimeVoice::from_str(value)
-        .map_err(|error| anyhow::anyhow!("Invalid voice value `{value}`: {error}"))
+        .map_err(|error| anyhow!("Invalid voice value `{value}`: {error}"))
 }
 
 pub fn get_time_function_definition() -> openai_types::ToolDefinition {
