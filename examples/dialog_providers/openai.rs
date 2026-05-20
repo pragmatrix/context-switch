@@ -21,53 +21,6 @@ pub struct OpenAIProvider;
 
 #[async_trait(?Send)]
 impl ProviderApi for OpenAIProvider {
-    fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
-        input_format
-    }
-
-    fn voices(&self) -> &'static [&'static str] {
-        <openai_types::RealtimeVoice as VariantNames>::VARIANTS
-    }
-
-    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
-        let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
-        let endpoint = request
-            .endpoint
-            .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok());
-        let models_url = models_url(endpoint.as_deref())?;
-
-        let response: OpenAIModelsResponse = reqwest::Client::new()
-            .get(models_url)
-            .bearer_auth(key)
-            .send()
-            .await
-            .context("Requesting OpenAI models")?
-            .error_for_status()
-            .context("OpenAI models request failed")?
-            .json()
-            .await
-            .context("Decoding OpenAI models response")?;
-
-        let mut models: Vec<_> = response
-            .data
-            .into_iter()
-            .map(|model| model.id)
-            .filter(|id| is_realtime_model(id))
-            .collect();
-        models.sort();
-
-        println!("Available models for OpenAI:");
-        if models.is_empty() {
-            println!("- No realtime-capable models were returned by the models endpoint.");
-            println!("- Ensure your API key has access to OpenAI Realtime API models.");
-        } else {
-            for model in models {
-                println!("- {model}");
-            }
-        }
-        Ok(())
-    }
-
     async fn start_conversation(
         &self,
         request: StartConversationRequest,
@@ -123,6 +76,53 @@ impl ProviderApi for OpenAIProvider {
         let output = json!({ "time": serde_json::Value::String(result) });
         serde_json::to_value(&OpenAIServiceInputEvent::FunctionCallResult { call_id, output })
             .map_err(Into::into)
+    }
+
+    fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
+        input_format
+    }
+
+    fn voices(&self) -> &'static [&'static str] {
+        <openai_types::RealtimeVoice as VariantNames>::VARIANTS
+    }
+
+    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
+        let key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY undefined")?;
+        let endpoint = request
+            .endpoint
+            .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok());
+        let models_url = models_url(endpoint.as_deref())?;
+
+        let response: OpenAIModelsResponse = reqwest::Client::new()
+            .get(models_url)
+            .bearer_auth(key)
+            .send()
+            .await
+            .context("Requesting OpenAI models")?
+            .error_for_status()
+            .context("OpenAI models request failed")?
+            .json()
+            .await
+            .context("Decoding OpenAI models response")?;
+
+        let mut models: Vec<_> = response
+            .data
+            .into_iter()
+            .map(|model| model.id)
+            .filter(|id| is_realtime_model(id))
+            .collect();
+        models.sort();
+
+        println!("Available models for OpenAI:");
+        if models.is_empty() {
+            println!("- No realtime-capable models were returned by the models endpoint.");
+            println!("- Ensure your API key has access to OpenAI Realtime API models.");
+        } else {
+            for model in models {
+                println!("- {model}");
+            }
+        }
+        Ok(())
     }
 }
 

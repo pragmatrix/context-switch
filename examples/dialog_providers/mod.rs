@@ -19,9 +19,6 @@ pub struct StartConversationRequest {
 
 #[async_trait(?Send)]
 pub trait ProviderApi {
-    fn output_format(&self, input_format: AudioFormat) -> AudioFormat;
-    fn voices(&self) -> &'static [&'static str];
-    async fn list_models(&self, request: ListModelsRequest) -> Result<()>;
     async fn start_conversation(
         &self,
         request: StartConversationRequest,
@@ -34,6 +31,9 @@ pub trait ProviderApi {
         name: Option<String>,
         result: String,
     ) -> Result<serde_json::Value>;
+    fn output_format(&self, input_format: AudioFormat) -> AudioFormat;
+    fn voices(&self) -> &'static [&'static str];
+    async fn list_models(&self, request: ListModelsRequest) -> Result<()>;
 }
 
 pub fn provider_api(provider: Provider) -> &'static dyn ProviderApi {

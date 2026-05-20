@@ -17,58 +17,6 @@ pub struct GoogleProvider;
 
 #[async_trait(?Send)]
 impl ProviderApi for GoogleProvider {
-    fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {
-        AudioFormat::new(1, gemini_live::audio::OUTPUT_SAMPLE_RATE)
-    }
-
-    fn voices(&self) -> &'static [&'static str] {
-        VOICES
-    }
-
-    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
-        let key = env::var("GEMINI_API_KEY").context("GEMINI_API_KEY undefined")?;
-        let endpoint = request
-            .endpoint
-            .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok());
-        let models_url = models_url(endpoint.as_deref())?;
-
-        let response: GeminiModelsResponse = reqwest::Client::new()
-            .get(models_url)
-            .query(&[("key", key)])
-            .send()
-            .await
-            .context("Requesting Gemini models")?
-            .error_for_status()
-            .context("Gemini models request failed")?
-            .json()
-            .await
-            .context("Decoding Gemini models response")?;
-
-        let mut live_models: Vec<_> = response
-            .models
-            .into_iter()
-            .filter(|model| is_live_model(&model.name, &model.supported_generation_methods))
-            .map(|model| model.name)
-            .collect();
-        live_models.sort();
-
-        println!("Available models for Google (Live API capable):");
-        if live_models.is_empty() {
-            println!("- No Live-capable models were detected from models.list.");
-            println!(
-                "- This can happen when model metadata does not include Live-specific methods."
-            );
-            println!("- Try explicitly using a known Live model, for example:");
-            println!("  - models/gemini-3.1-flash-live-preview");
-            println!("  - models/gemini-2.5-flash-live-preview");
-        } else {
-            for model in live_models {
-                println!("- {model}");
-            }
-        }
-        Ok(())
-    }
-
     async fn start_conversation(
         &self,
         request: StartConversationRequest,
@@ -134,6 +82,58 @@ impl ProviderApi for GoogleProvider {
             output,
         })
         .map_err(Into::into)
+    }
+
+    fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {
+        AudioFormat::new(1, gemini_live::audio::OUTPUT_SAMPLE_RATE)
+    }
+
+    fn voices(&self) -> &'static [&'static str] {
+        VOICES
+    }
+
+    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
+        let key = env::var("GEMINI_API_KEY").context("GEMINI_API_KEY undefined")?;
+        let endpoint = request
+            .endpoint
+            .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok());
+        let models_url = models_url(endpoint.as_deref())?;
+
+        let response: GeminiModelsResponse = reqwest::Client::new()
+            .get(models_url)
+            .query(&[("key", key)])
+            .send()
+            .await
+            .context("Requesting Gemini models")?
+            .error_for_status()
+            .context("Gemini models request failed")?
+            .json()
+            .await
+            .context("Decoding Gemini models response")?;
+
+        let mut live_models: Vec<_> = response
+            .models
+            .into_iter()
+            .filter(|model| is_live_model(&model.name, &model.supported_generation_methods))
+            .map(|model| model.name)
+            .collect();
+        live_models.sort();
+
+        println!("Available models for Google (Live API capable):");
+        if live_models.is_empty() {
+            println!("- No Live-capable models were detected from models.list.");
+            println!(
+                "- This can happen when model metadata does not include Live-specific methods."
+            );
+            println!("- Try explicitly using a known Live model, for example:");
+            println!("  - models/gemini-3.1-flash-live-preview");
+            println!("  - models/gemini-2.5-flash-live-preview");
+        } else {
+            for model in live_models {
+                println!("- {model}");
+            }
+        }
+        Ok(())
     }
 }
 

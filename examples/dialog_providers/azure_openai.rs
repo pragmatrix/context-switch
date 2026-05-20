@@ -15,38 +15,6 @@ pub struct AzureOpenAIProvider;
 
 #[async_trait(?Send)]
 impl ProviderApi for AzureOpenAIProvider {
-    fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
-        input_format
-    }
-
-    fn voices(&self) -> &'static [&'static str] {
-        <openai_types::RealtimeVoice as VariantNames>::VARIANTS
-    }
-
-    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
-        println!("Available models for Azure:");
-        println!(
-            "- Azure Realtime uses deployment names configured in your Azure OpenAI resource."
-        );
-        println!(
-            "- The realtime endpoint does not provide a provider-agnostic model listing API here."
-        );
-
-        if let Some(model) = request
-            .model
-            .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
-            .filter(|model| !model.trim().is_empty())
-        {
-            println!("- Configured deployment/model: {model}");
-        } else {
-            println!(
-                "- Set --model or AZURE_OPENAI_REALTIME_API_MODEL to your Azure deployment name."
-            );
-        }
-
-        Ok(())
-    }
-
     async fn start_conversation(
         &self,
         request: StartConversationRequest,
@@ -86,5 +54,37 @@ impl ProviderApi for AzureOpenAIProvider {
         result: String,
     ) -> Result<serde_json::Value> {
         OpenAIProvider.function_result_event(call_id, None, result)
+    }
+
+    fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
+        input_format
+    }
+
+    fn voices(&self) -> &'static [&'static str] {
+        <openai_types::RealtimeVoice as VariantNames>::VARIANTS
+    }
+
+    async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
+        println!("Available models for Azure:");
+        println!(
+            "- Azure Realtime uses deployment names configured in your Azure OpenAI resource."
+        );
+        println!(
+            "- The realtime endpoint does not provide a provider-agnostic model listing API here."
+        );
+
+        if let Some(model) = request
+            .model
+            .or_else(|| env::var("AZURE_OPENAI_REALTIME_API_MODEL").ok())
+            .filter(|model| !model.trim().is_empty())
+        {
+            println!("- Configured deployment/model: {model}");
+        } else {
+            println!(
+                "- Set --model or AZURE_OPENAI_REALTIME_API_MODEL to your Azure deployment name."
+            );
+        }
+
+        Ok(())
     }
 }
