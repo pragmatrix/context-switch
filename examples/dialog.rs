@@ -301,6 +301,7 @@ struct FunctionCall {
     name: String,
     arguments: Option<serde_json::Value>,
 }
+
 fn get_time_parameters_schema() -> serde_json::Value {
     json!({
         "type": "object",

@@ -1,15 +1,13 @@
 use anyhow::{Context, Result, bail};
 
-use gemini_live::{
-    ReconnectPolicy, Session, SessionConfig,
-    transport::{Auth, Endpoint, TransportConfig},
-    types::{
-        AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionDeclaration,
-        FunctionResponse, GenerationConfig, Modality, ModalityTokenCount, Part,
-        PrebuiltVoiceConfig, ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow,
-        SpeechConfig, ThinkingConfig, Tool, UsageMetadata, VoiceConfig,
-    },
+use gemini_live::transport::{Auth, Endpoint, TransportConfig};
+use gemini_live::types::{
+    AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionDeclaration,
+    FunctionResponse, GenerationConfig, Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig,
+    ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow, SpeechConfig, ThinkingConfig,
+    Tool, UsageMetadata, VoiceConfig,
 };
+use gemini_live::{ReconnectPolicy, Session, SessionConfig};
 use tracing::{debug, info, trace};
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
@@ -18,6 +16,7 @@ use context_switch_core::{
     Input, OutputPath,
 };
 
+#[derive(Debug)]
 pub struct Client {
     params: Params,
 }
@@ -35,7 +34,6 @@ impl Client {
 
     pub async fn dialog(
         self,
-        _input_format: AudioFormat,
         output_format: AudioFormat,
         text_output_enabled: bool,
         interim_text_output_enabled: bool,

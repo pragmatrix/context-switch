@@ -20,7 +20,7 @@ impl Service for GoogleDialog {
     type Params = Params;
 
     async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
-        let input_format = conversation.require_audio_input()?;
+        let _input_format = conversation.require_audio_input()?;
         let output_format = conversation.require_one_audio_output()?;
         let text_outputs = TextOutputs::from_modalities(&conversation.output_modalities)?;
 
@@ -37,7 +37,6 @@ impl Service for GoogleDialog {
         let (input, output) = conversation.start()?;
         Client::new(params)
             .dialog(
-                input_format,
                 output_format,
                 text_outputs.text,
                 text_outputs.interim,
