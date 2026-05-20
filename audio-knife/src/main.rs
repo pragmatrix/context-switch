@@ -37,8 +37,8 @@ use tokio::{
 use tracing::{Instrument, Span, debug, error, info, info_span};
 
 use context_switch::{
-    AudioFormat, AudioFrame, ClientEvent, ContextSwitch, ConversationId, InputModality,
-    ServerEvent, audio, billing_collector::BillingCollector, conversation::BillingId,
+    AudioFormat, AudioFrame, BillingId, ClientEvent, ContextSwitch, ConversationId, InputModality,
+    ServerEvent, audio, billing_collector::BillingCollector,
 };
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use uuid::Uuid;

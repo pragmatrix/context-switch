@@ -14,8 +14,7 @@ use tracing_futures::Instrument;
 
 use crate::{AudioTracer, ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::billing_collector::BillingCollector;
-use context_switch_core::conversation::{Conversation, Input, Output};
-use context_switch_core::{AudioFrame, BillingContext, Registry};
+use context_switch_core::{AudioFrame, BillingContext, Conversation, Input, Output, Registry};
 
 #[derive(Debug)]
 pub struct ContextSwitch {
@@ -44,6 +43,7 @@ pub fn registry() -> Registry {
         .add_service("elevenlabs-transcribe", elevenlabs::ElevenLabsTranscribe)
         .add_service("google-transcribe", google_transcribe::GoogleTranscribe)
         .add_service("openai-dialog", openai_dialog::OpenAIDialog)
+        .add_service("google-dialog", google_dialog::GoogleDialog)
         .add_service("aristech-transcribe", aristech::AristechTranscribe)
         .add_service("aristech-synthesize", aristech::AristechSynthesize)
 }
@@ -225,7 +225,7 @@ async fn process_conversation_protected(
     let service = registry.service(&service_name)?;
 
     // Temporarily use an unbounded channel for output forwarding because we may process rather
-    // large audio files (local playback for example) in one go are are not yet able to block sends.
+    // large audio files (local playback for example) in one go and are not able to block sends.
     let (output_sender, mut output_receiver) = unbounded_channel();
     // We might receive a large number of audio frames before the service can process them.
     let (input_sender, input_receiver) = channel(256);

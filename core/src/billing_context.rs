@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 
-use crate::{BillingRecord, billing_collector::BillingCollector, conversation::BillingId};
+use crate::BillingRecord;
+use crate::billing_collector::BillingCollector;
+use crate::conversation::BillingId;
 
 #[derive(Debug, Clone)]
 pub struct BillingContext {

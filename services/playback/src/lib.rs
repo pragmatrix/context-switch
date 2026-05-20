@@ -1,25 +1,19 @@
-use std::{
-    fs::{self, File},
-    io::{self, BufReader},
-    num::{NonZeroU16, NonZeroU32},
-    path::{Path, PathBuf},
-};
+use std::fs::{self, File};
+use std::io::{self, BufReader};
+use std::num::{NonZeroU16, NonZeroU32};
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use context_switch_core::{BillingRecord, audio, conversation::BillingSchedule};
-use rodio::{
-    Decoder, Source,
-    conversions::{ChannelCountConverter, SampleRateConverter},
-};
+use rodio::conversions::{ChannelCountConverter, SampleRateConverter};
+use rodio::{Decoder, Source};
 use serde::{Deserialize, Serialize};
 use tokio::task;
 use tracing::{debug, error};
 use url::Url;
 
 use context_switch_core::{
-    AudioFormat, AudioFrame, Service,
-    conversation::{Conversation, Input},
+    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, Service, audio,
 };
 
 mod stream_reader;
@@ -353,7 +347,7 @@ pub fn check_supported_audio_type(
     } else {
         let guessed_mime = mime_guess2::from_path(path)
             .first()
-            .ok_or_else(|| anyhow::anyhow!("Invalid audio url (should end in `.mp3` or `.wav`)"))?;
+            .ok_or_else(|| anyhow!("Invalid audio url (should end in `.mp3` or `.wav`)"))?;
         guessed_mime.essence_str().to_string()
     };
 

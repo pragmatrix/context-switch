@@ -103,9 +103,10 @@ mod helper {
 
     use anyhow::Result;
     use async_trait::async_trait;
-    use tokio::{sync::mpsc::Sender, time};
+    use tokio::sync::mpsc::Sender;
+    use tokio::time;
 
-    use context_switch_core::{Service, conversation::Conversation};
+    use context_switch_core::{Conversation, Service};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Notification {

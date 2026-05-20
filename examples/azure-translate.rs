@@ -1,26 +1,19 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{
-    env,
-    num::{NonZeroU16, NonZeroU32},
-    thread,
-    time::Duration,
-};
+use std::env;
+use std::num::{NonZeroU16, NonZeroU32};
+use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use azure::AzureTranslate;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{DeviceSinkBuilder, Player, Source};
+use tokio::select;
+use tokio::sync::mpsc::{UnboundedReceiver, channel, unbounded_channel};
 
 use context_switch::{InputModality, OutputModality};
-use context_switch_core::{
-    AudioFormat, AudioFrame, Service, audio,
-    conversation::{Conversation, Input, Output},
-};
-use tokio::{
-    select,
-    sync::mpsc::{UnboundedReceiver, channel, unbounded_channel},
-};
+use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, Service, audio};
 
 #[tokio::main]
 async fn main() -> Result<()> {

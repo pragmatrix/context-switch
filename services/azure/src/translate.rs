@@ -8,8 +8,8 @@ use tracing::{debug, error};
 
 use crate::Host;
 use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, OutputModality, OutputPath, Service,
-    conversation::{BillingSchedule, Conversation, Input},
+    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, OutputModality,
+    OutputPath, Service,
 };
 
 #[derive(Debug, Deserialize)]

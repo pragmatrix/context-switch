@@ -10,10 +10,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use context_switch_core::{
-    AudioFormat, AudioFrame, Service,
-    conversation::{Conversation, Input},
-};
+use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Service};
 
 //TODO: Add `language` field as alternative to `voice_id`
 #[derive(Debug, Serialize, Deserialize)]

@@ -13,10 +13,9 @@ use context_switch::services::{
     AristechTranscribe, AzureTranscribe, ElevenLabsTranscribe, GoogleTranscribe,
 };
 use context_switch::{AudioConsumer, InputModality, OutputModality};
-use context_switch_core::conversation::{Conversation, Input};
 use context_switch_core::language::Languages;
 use context_switch_core::service::Service;
-use context_switch_core::{AudioFormat, AudioFrame, audio};
+use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, audio};
 
 const DEFAULT_LANGUAGE: &str = "en-US";
 

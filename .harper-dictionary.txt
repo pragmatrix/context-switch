@@ -2,6 +2,7 @@ AirPods
 BCP
 ContextSwitch
 FreeSWITCH
-Inband
+alsa
+inband
 seekable
 subtag

@@ -9,12 +9,9 @@ use tokio::{
 };
 
 use aristech::transcribe::{ApiKeyAuth, AuthConfig, CredentialsAuth, Params as AristechParams};
+
 use context_switch::{InputModality, OutputModality, services::AristechTranscribe};
-use context_switch_core::{
-    AudioFormat, AudioFrame, audio,
-    conversation::{Conversation, Input},
-    service::Service,
-};
+use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, audio, service::Service};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,6 +25,7 @@ async fn main() -> Result<()> {
     let device = host
         .default_input_device()
         .expect("Failed to get default input device");
+    // spellcheck: ignore
     // let config = device
     //     .default_input_config()
     //     .expect("Failed to get default input config");
