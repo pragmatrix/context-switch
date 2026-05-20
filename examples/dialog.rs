@@ -93,6 +93,7 @@ async fn main() -> Result<()> {
     let (input_sender, input_receiver) = channel(256);
     let input_sender2 = input_sender.clone();
 
+    // Create and run the input stream
     let stream = device
         .build_input_stream(
             &input_config.into(),
@@ -109,6 +110,7 @@ async fn main() -> Result<()> {
             move |err| {
                 eprintln!("Error occurred on stream: {err}");
             },
+            // Timeout
             Some(Duration::from_secs(1)),
         )
         .expect("Failed to build input stream");
@@ -136,13 +138,17 @@ async fn main() -> Result<()> {
     tokio::pin!(conversation);
     let playback_task =
         setup_audio_playback(cli.provider, output_format, input_sender, output_receiver).await;
+    // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
 
     select! {
+        // Drive conversation
         r = &mut conversation => {
+            // When conversation ends, wait for playback to complete before returning.
             let _ = playback_handle.await;
             r?
         }
+        // Drive playback
         r = &mut playback_handle => {
             r??
         }
@@ -193,7 +199,9 @@ async fn setup_audio_playback(
 ) -> impl std::future::Future<Output = Result<()>> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
 
+    // Spawn a dedicated audio thread
     let playback_thread = thread::spawn(move || {
+        // Create output stream in the audio thread
         let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
         let player = Player::connect_new(sink_handle.mixer());
 
@@ -219,6 +227,7 @@ async fn setup_audio_playback(
         player.sleep_until_end();
     });
 
+    // Create async task to forward frames to the audio thread
     async move {
         while let Some(output) = output.recv().await {
             match output {
@@ -246,6 +255,7 @@ async fn setup_audio_playback(
             }
         }
         let _ = cmd_tx.send(AudioCommand::Stop);
+        // TODO: this may block!
         let _ = playback_thread.join();
         Ok(())
     }
