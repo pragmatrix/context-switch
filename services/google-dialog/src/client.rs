@@ -10,7 +10,7 @@ use gemini_live::types::{
 use gemini_live::{ReconnectPolicy, Session, SessionConfig};
 use tracing::{debug, info, trace};
 
-use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
+use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
     Input, OutputPath,
@@ -21,12 +21,6 @@ pub struct Client {
     params: Params,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TextOutputConfig {
-    text: bool,
-    interim: bool,
-}
-
 impl Client {
     pub fn new(params: Params) -> Self {
         Self { params }
@@ -35,19 +29,14 @@ impl Client {
     pub async fn dialog(
         self,
         output_format: AudioFormat,
-        text_output_enabled: bool,
-        interim_text_output_enabled: bool,
+        text_outputs: TextOutputs,
         mut input: ConversationInput,
         output: ConversationOutput,
     ) -> Result<()> {
-        let text_output = TextOutputConfig {
-            text: text_output_enabled,
-            interim: interim_text_output_enabled,
-        };
         let billing_scope = self.params.model.clone();
         let tools = function_declarations(&self.params.tools);
         let mut output_transcription_buffer = String::new();
-        let mut session = Session::connect(self.session_config(text_output)?)
+        let mut session = Session::connect(self.session_config(text_outputs)?)
             .await
             .context("Connecting to Gemini Live")?;
         output.service_event(
@@ -68,7 +57,7 @@ impl Client {
                 event = session.next_event() => {
                     match event {
                         Some(event) => {
-                            match self.process_event(event, output_format, text_output, &output, &billing_scope, &mut output_transcription_buffer).await? {
+                            match self.process_event(event, output_format, text_outputs, &output, &billing_scope, &mut output_transcription_buffer).await? {
                                 FlowControl::Continue => {}
                                 FlowControl::End => break,
                             }
@@ -86,7 +75,7 @@ impl Client {
         Ok(())
     }
 
-    fn session_config(&self, text_output: TextOutputConfig) -> Result<SessionConfig> {
+    fn session_config(&self, text_outputs: TextOutputs) -> Result<SessionConfig> {
         let transport = TransportConfig {
             endpoint: self
                 .params
@@ -100,12 +89,12 @@ impl Client {
 
         Ok(SessionConfig {
             transport,
-            setup: self.setup_config(text_output)?,
+            setup: self.setup_config(text_outputs)?,
             reconnect: ReconnectPolicy::default(),
         })
     }
 
-    fn setup_config(&self, text_output: TextOutputConfig) -> Result<SetupConfig> {
+    fn setup_config(&self, text_outputs: TextOutputs) -> Result<SetupConfig> {
         let input_audio_transcription = self
             .params
             .input_audio_transcription
@@ -115,7 +104,7 @@ impl Client {
             .output_audio_transcription
             .then_some(AudioTranscriptionConfig {});
 
-        if !(text_output.text || text_output.interim)
+        if !(text_outputs.text || text_outputs.interim)
             && (input_audio_transcription.is_some() || output_audio_transcription.is_some())
         {
             bail!(
@@ -212,7 +201,7 @@ impl Client {
         &self,
         event: ServerEvent,
         output_format: AudioFormat,
-        text_output: TextOutputConfig,
+        text_outputs: TextOutputs,
         output: &ConversationOutput,
         billing_scope: &str,
         output_transcription_buffer: &mut String,
@@ -230,7 +219,7 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
-                if text_output.text && !output_transcription_buffer.is_empty() {
+                if text_outputs.text && !output_transcription_buffer.is_empty() {
                     output.text(
                         true,
                         std::mem::take(output_transcription_buffer),
@@ -247,13 +236,13 @@ impl Client {
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
-                if text_output.text {
+                if text_outputs.text {
                     output.text(true, text, None, None)?;
                 }
             }
             ServerEvent::OutputTranscription(text) => {
                 output_transcription_buffer.push_str(&text);
-                if text_output.interim {
+                if text_outputs.interim {
                     output.text(
                         false,
                         output_transcription_buffer.clone(),

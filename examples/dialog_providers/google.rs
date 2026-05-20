@@ -8,11 +8,9 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{FunctionCall, get_time_parameters_schema};
-use context_switch_core::conversation::Conversation;
-use context_switch_core::{AudioFormat, Service};
-
 use super::{ListModelsRequest, ProviderApi, StartConversationRequest};
+use crate::{FunctionCall, get_time_parameters_schema};
+use context_switch_core::{AudioFormat, Conversation, Service};
 
 pub struct GoogleProvider;
 

@@ -1,11 +1,9 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
-use std::{
-    num::{NonZeroU16, NonZeroU32},
-    str::FromStr,
-    thread,
-    time::Duration,
-};
+use std::num::{NonZeroU16, NonZeroU32};
+use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
@@ -14,16 +12,11 @@ use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
-use tokio::{
-    select,
-    sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel},
-};
+use tokio::select;
+use tokio::sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel};
 use tracing::info;
 
-use context_switch_core::{
-    AudioFormat, AudioFrame, audio,
-    conversation::{Conversation, Input, Output},
-};
+use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, audio};
 
 mod dialog_providers;
 

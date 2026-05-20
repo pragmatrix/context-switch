@@ -6,7 +6,7 @@ use openai_api_rs::realtime::types as openai_types;
 use openai_dialog::{OpenAIDialog, Protocol};
 use strum::VariantNames;
 
-use context_switch_core::{AudioFormat, Service, conversation::Conversation};
+use context_switch_core::{AudioFormat, Conversation, Service};
 
 use super::openai::{self, OpenAIProvider};
 use super::{ListModelsRequest, ProviderApi, StartConversationRequest};

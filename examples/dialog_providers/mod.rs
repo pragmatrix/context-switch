@@ -2,8 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{FunctionCall, Provider};
-use context_switch_core::AudioFormat;
-use context_switch_core::conversation::Conversation;
+use context_switch_core::{AudioFormat, Conversation};
 
 #[derive(Debug, Clone)]
 pub struct ListModelsRequest {

@@ -3,8 +3,7 @@ use derive_more::derive::{Deref, Display, From, Into};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use context_switch_core::{
-    BillingRecord, InputModality, OutputModality, OutputPath, audio,
-    conversation::{BillingId, RequestId},
+    BillingId, BillingRecord, InputModality, OutputModality, OutputPath, RequestId, audio,
 };
 
 /// Conversation identifier.

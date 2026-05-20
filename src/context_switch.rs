@@ -14,8 +14,7 @@ use tracing_futures::Instrument;
 
 use crate::{AudioTracer, ClientEvent, ConversationId, InputModality, ServerEvent};
 use context_switch_core::billing_collector::BillingCollector;
-use context_switch_core::conversation::{Conversation, Input, Output};
-use context_switch_core::{AudioFrame, BillingContext, Registry};
+use context_switch_core::{AudioFrame, BillingContext, Conversation, Input, Output, Registry};
 
 #[derive(Debug)]
 pub struct ContextSwitch {

@@ -9,7 +9,7 @@ use context_switch_core::{AudioFormat, Conversation, OutputModality, Service};
 mod client;
 mod types;
 
-pub use client::Client;
+use client::Client;
 pub use types::{Params, ServiceInputEvent, ServiceOutputEvent};
 
 #[derive(Debug)]
@@ -36,13 +36,7 @@ impl Service for GoogleDialog {
         info!(model = %params.model, "Connecting to Gemini Live");
         let (input, output) = conversation.start()?;
         Client::new(params)
-            .dialog(
-                output_format,
-                text_outputs.text,
-                text_outputs.interim,
-                input,
-                output,
-            )
+            .dialog(output_format, text_outputs, input, output)
             .await
     }
 }
