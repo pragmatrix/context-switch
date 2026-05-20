@@ -225,7 +225,7 @@ async fn process_conversation_protected(
     let service = registry.service(&service_name)?;
 
     // Temporarily use an unbounded channel for output forwarding because we may process rather
-    // large audio files (local playback for example) in one go are are not yet able to block sends.
+    // large audio files (local playback for example) in one go are not yet able to block sends.
     let (output_sender, mut output_receiver) = unbounded_channel();
     // We might receive a large number of audio frames before the service can process them.
     let (input_sender, input_receiver) = channel(256);

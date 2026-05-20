@@ -50,28 +50,34 @@ impl Client {
                     if let Some(input) = input {
                         self.process_input(&session, input).await?;
                     } else {
+                        debug!("Conversation input closed");
                         session.audio_stream_end().await.context("Ending Gemini audio stream")?;
+                        debug!("Audio stream end sent to Gemini");
                         break;
                     }
                 }
                 event = session.next_event() => {
                     match event {
                         Some(event) => {
-                            match self.process_event(event, output_format, text_outputs, &output, &billing_scope, &mut output_transcription_buffer).await? {
+                            match self.process_event(event, output_format, text_outputs, &output, &billing_scope, &mut output_transcription_buffer)? {
                                 FlowControl::Continue => {}
-                                FlowControl::End => break,
+                                FlowControl::End => {
+                                    debug!("Received terminal server event");
+                                    break;
+                                }
                             }
                         }
-                        None => break,
+                        None => {
+                            debug!("Server event stream ended");
+                            break;
+                        }
                     }
                 }
             }
         }
 
-        session
-            .close()
-            .await
-            .context("Closing Gemini Live session")?;
+        debug!("Closing session");
+        session.close().await.context("Closing session")?;
         Ok(())
     }
 
@@ -183,21 +189,18 @@ impl Client {
                     session
                         .send_tool_response(vec![response])
                         .await
-                        .context("Sending Gemini tool response")?;
+                        .context("Sending tool response")?;
                 }
                 ServiceInputEvent::Prompt { text } => {
                     info!("Received prompt");
-                    session
-                        .send_text(&text)
-                        .await
-                        .context("Sending prompt to Gemini Live")?;
+                    session.send_text(&text).await.context("Sending prompt")?;
                 }
             },
         }
         Ok(())
     }
 
-    async fn process_event(
+    fn process_event(
         &self,
         event: ServerEvent,
         output_format: AudioFormat,
@@ -278,7 +281,9 @@ impl Client {
             }
             ServerEvent::Closed { reason } => {
                 if !reason.is_empty() {
-                    debug!(%reason, "Gemini Live connection closed");
+                    debug!(%reason, "Endpoint signaled connection closure");
+                } else {
+                    debug!("Endpoint signaled connection closure without a reason");
                 }
                 return Ok(FlowControl::End);
             }
