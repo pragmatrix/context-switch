@@ -256,6 +256,14 @@ impl Client {
             }
             ServerEvent::ToolCall(calls) => {
                 for call in calls {
+                    // Send the function call via the media path.
+                    //
+                    // This means that audio scheduled before will finish playing before
+                    // the client receives the event to execute the function call.
+                    //
+                    // For example, if we use a prompt to initiate a function call, it
+                    // might overtake currently pending audio output and an answer
+                    // before the participant even heard the audio.
                     output.service_event(
                         OutputPath::Media,
                         ServiceOutputEvent::FunctionCall {
@@ -267,14 +275,18 @@ impl Client {
                 }
             }
             ServerEvent::ToolCallCancellation(ids) => {
-                output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::ToolCallCancellation { call_ids: ids },
-                )?;
+                // Since we are sending function calls through the media path, we need to send
+                // cancellations too, so that they don't overtake.
+                for id in ids {
+                    output.service_event(
+                        OutputPath::Media,
+                        ServiceOutputEvent::ToolCallCancellation { call_id: id },
+                    )?;
+                }
             }
             ServerEvent::SessionResumption { .. } => {}
             ServerEvent::GoAway { time_left } => {
-                debug!(?time_left, "Gemini Live goAway received");
+                debug!(?time_left, "GoAway received");
             }
             ServerEvent::Usage(usage) => {
                 bill_usage(output, billing_scope, usage)?;

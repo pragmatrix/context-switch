@@ -47,7 +47,7 @@ impl ProviderApi for GoogleProvider {
 
     fn parse_service_event(&self, value: serde_json::Value) -> Result<Option<FunctionCall>> {
         match serde_json::from_value(value)? {
-            google_dialog::ServiceOutputEvent::FunctionCall {
+            ServiceOutputEvent::FunctionCall {
                 name,
                 call_id,
                 arguments,
@@ -56,11 +56,11 @@ impl ProviderApi for GoogleProvider {
                 call_id,
                 arguments: Some(arguments),
             })),
-            google_dialog::ServiceOutputEvent::ToolCallCancellation { call_ids } => {
-                tracing::info!("Tool calls cancelled: {call_ids:?}");
+            ServiceOutputEvent::ToolCallCancellation { call_id } => {
+                tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
             }
-            google_dialog::ServiceOutputEvent::SessionUpdated { tools } => {
+            ServiceOutputEvent::SessionUpdated { tools } => {
                 tracing::info!("Session updated: {tools:?}");
                 Ok(None)
             }
