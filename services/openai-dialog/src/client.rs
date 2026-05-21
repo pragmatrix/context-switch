@@ -402,7 +402,7 @@ impl Client {
             event => event.clone(),
         };
 
-        debug!("Server Event: {event_for_log:?}");
+        trace!("Server Event: {event_for_log:?}");
 
         match event {
             ServerEvent::Error(e) => {
