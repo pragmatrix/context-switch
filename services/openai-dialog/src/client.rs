@@ -1,3 +1,4 @@
+#[cfg(feature = "prompt-delay")]
 use std::collections::VecDeque;
 
 use anyhow::{Context, Result, bail};
@@ -15,6 +16,7 @@ use tokio_tungstenite::{
     tungstenite::{Bytes, protocol::Message},
 };
 use tracing::{debug, info, trace, warn};
+#[cfg(feature = "prompt-delay")]
 use uuid::Uuid;
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
@@ -27,16 +29,23 @@ pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 
-    response_state: ResponseState,
-    inflight_prompt: Option<(String, PromptRequest)>,
-    pending_prompts: VecDeque<PromptRequest>,
+    #[cfg(feature = "prompt-delay")]
+    prompt_coordinator: PromptCoordinator,
 }
 
+#[cfg(feature = "prompt-delay")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseState {
     Idle,
     ExpectingFunctionResult,
     Responding,
+}
+
+#[cfg(feature = "prompt-delay")]
+struct PromptCoordinator {
+    response_state: ResponseState,
+    inflight_prompt: Option<(String, PromptRequest)>,
+    pending_prompts: VecDeque<PromptRequest>,
 }
 
 impl Client {
@@ -47,9 +56,8 @@ impl Client {
         Self {
             read,
             write,
-            response_state: ResponseState::Idle,
-            inflight_prompt: None,
-            pending_prompts: Default::default(),
+            #[cfg(feature = "prompt-delay")]
+            prompt_coordinator: PromptCoordinator::new(),
         }
     }
 
@@ -289,7 +297,13 @@ impl Client {
                     }
                     ServiceInputEvent::Prompt { text } => {
                         info!("Received prompt");
-                        self.push_prompt(PromptRequest(text)).await?;
+                        #[cfg(feature = "prompt-delay")]
+                        self.prompt_coordinator
+                            .push_prompt(&mut self.write, PromptRequest(text))
+                            .await?;
+
+                        #[cfg(not(feature = "prompt-delay"))]
+                        self.send_prompt_immediately(PromptRequest(text)).await?;
                     }
                     ServiceInputEvent::SessionUpdate {
                         instructions,
@@ -393,22 +407,11 @@ impl Client {
 
         match event {
             ServerEvent::Error(e) => {
-                let mut ignore_error = false;
-                if let Some((inflight_prompt_event_id, prompt_request)) = &self.inflight_prompt {
-                    let api_error = &e.error;
-                    if api_error.code == Some("conversation_already_has_active_response".into())
-                        && api_error.event_id == Some(inflight_prompt_event_id.into())
-                    {
-                        debug!("Rescheduling inflight prompt");
-                        self.pending_prompts.push_front(prompt_request.clone());
-                        self.inflight_prompt = None;
-                        ignore_error = true;
-                    }
-                }
+                #[cfg(feature = "prompt-delay")]
+                self.prompt_coordinator.handle_server_error(raw, &e)?;
 
-                if !ignore_error {
-                    bail!(format!("{e:?}, raw: {raw}"));
-                }
+                #[cfg(not(feature = "prompt-delay"))]
+                self.handle_server_error(raw, &e)?;
             }
             ServerEvent::ResponseAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
@@ -435,7 +438,9 @@ impl Client {
                 response: types::Response { object, .. },
                 ..
             }) if object == "realtime.response" => {
-                self.update_response_state(ResponseState::Responding)
+                #[cfg(feature = "prompt-delay")]
+                self.prompt_coordinator
+                    .update_response_state(&mut self.write, ResponseState::Responding)
                     .await?;
             }
             ServerEvent::ResponseDone(server_event::ResponseDone {
@@ -449,6 +454,7 @@ impl Client {
                     },
                 ..
             }) if object == "realtime.response" => {
+                #[cfg(feature = "prompt-delay")]
                 let mut any_function_call_request = false;
                 for item in items {
                     match (&status, &item.r#type, &item.status, &item.role) {
@@ -489,7 +495,10 @@ impl Client {
                                     arguments,
                                 },
                             )?;
-                            any_function_call_request = true;
+                            #[cfg(feature = "prompt-delay")]
+                            {
+                                any_function_call_request = true;
+                            }
                         }
                         (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
                             if output_transcription =>
@@ -554,12 +563,19 @@ impl Client {
                     )?;
                 }
 
-                self.update_response_state(if any_function_call_request {
-                    ResponseState::ExpectingFunctionResult
-                } else {
-                    ResponseState::Idle
-                })
-                .await?;
+                #[cfg(feature = "prompt-delay")]
+                {
+                    self.prompt_coordinator
+                        .update_response_state(
+                            &mut self.write,
+                            if any_function_call_request {
+                                ResponseState::ExpectingFunctionResult
+                            } else {
+                                ResponseState::Idle
+                            },
+                        )
+                        .await?;
+                }
             }
             ServerEvent::SessionUpdated(server_event::SessionUpdated { session, .. }) => {
                 let tools = match session {
@@ -583,13 +599,52 @@ impl Client {
 
 /// State management.
 impl Client {
-    /// Either send the prompt immediately if possible, or schedule it until it's safe to do.
-    async fn push_prompt(&mut self, request: PromptRequest) -> Result<()> {
-        self.pending_prompts.push_back(request);
-        self.flush_prompt().await
+    #[cfg(not(feature = "prompt-delay"))]
+    async fn send_prompt_immediately(&mut self, prompt_request: PromptRequest) -> Result<()> {
+        send_prompt_event(&mut self.write, &prompt_request, None).await
     }
 
-    async fn update_response_state(&mut self, state: ResponseState) -> Result<()> {
+    #[cfg(not(feature = "prompt-delay"))]
+    fn handle_server_error(&mut self, raw: &str, error: &server_event::Error) -> Result<()> {
+        let api_error = &error.error;
+        let is_active_response_error =
+            api_error.code.as_deref() == Some("conversation_already_has_active_response");
+        if is_active_response_error {
+            // In non-delay mode we may receive active-response rejections for
+            // overlapping prompt sends. This is expected and should not fail the
+            // conversation loop.
+            return Ok(());
+        }
+
+        bail!(format!("{error:?}, raw: {raw}"));
+    }
+}
+
+#[cfg(feature = "prompt-delay")]
+impl PromptCoordinator {
+    fn new() -> Self {
+        Self {
+            response_state: ResponseState::Idle,
+            inflight_prompt: None,
+            pending_prompts: Default::default(),
+        }
+    }
+
+    /// Either send the prompt immediately if possible, or schedule it until it's safe to do.
+    async fn push_prompt(
+        &mut self,
+        write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        request: PromptRequest,
+    ) -> Result<()> {
+        self.pending_prompts.push_back(request);
+        self.flush_prompt(write).await
+    }
+
+    async fn update_response_state(
+        &mut self,
+        write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        state: ResponseState,
+    ) -> Result<()> {
         info!("{:?} -> {state:?}", self.response_state);
 
         if self.inflight_prompt.is_some() && state == ResponseState::Idle {
@@ -601,13 +656,16 @@ impl Client {
         self.response_state = state;
 
         if previous != ResponseState::Idle && state == ResponseState::Idle {
-            self.flush_prompt().await?;
+            self.flush_prompt(write).await?;
         }
 
         Ok(())
     }
 
-    async fn flush_prompt(&mut self) -> Result<()> {
+    async fn flush_prompt(
+        &mut self,
+        write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    ) -> Result<()> {
         if self.inflight_prompt.is_some() || self.response_state != ResponseState::Idle {
             return Ok(());
         }
@@ -615,21 +673,62 @@ impl Client {
         let Some(prompt_request) = self.pending_prompts.pop_front() else {
             return Ok(());
         };
-        info!("Sending prompt: {prompt_request:?}");
 
+        self.send_prompt_with_tracking(write, prompt_request).await
+    }
+
+    async fn send_prompt_with_tracking(
+        &mut self,
+        write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        prompt_request: PromptRequest,
+    ) -> Result<()> {
         let event_id = Uuid::new_v4().to_string();
-
-        let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
-            event_id: Some(event_id.clone()),
-            response: Some(types::RealtimeSession {
-                instructions: Some(prompt_request.0.clone()),
-                ..Default::default()
-            }),
-        });
-        self.send_client_event(response).await?;
+        send_prompt_event(write, &prompt_request, Some(event_id.clone())).await?;
         self.inflight_prompt = Some((event_id, prompt_request));
         Ok(())
     }
+
+    fn handle_server_error(&mut self, raw: &str, error: &server_event::Error) -> Result<()> {
+        let api_error = &error.error;
+        let is_active_response_error =
+            api_error.code.as_deref() == Some("conversation_already_has_active_response");
+
+        if is_active_response_error
+            && let Some((inflight_prompt_event_id, prompt_request)) = &self.inflight_prompt
+            && api_error.event_id == Some(inflight_prompt_event_id.into())
+        {
+            debug!("Rescheduling inflight prompt");
+            self.pending_prompts.push_front(prompt_request.clone());
+            self.inflight_prompt = None;
+            return Ok(());
+        }
+
+        bail!(format!("{error:?}, raw: {raw}"));
+    }
+}
+
+async fn send_prompt_event(
+    write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    prompt_request: &PromptRequest,
+    event_id: Option<String>,
+) -> Result<()> {
+    info!("Sending prompt: {prompt_request:?}");
+
+    let mut event = serde_json::json!({
+        "type": "response.create",
+        "response": {
+            "input": [],
+            "instructions": prompt_request.0,
+        }
+    });
+
+    if let Some(event_id) = event_id {
+        event["event_id"] = serde_json::Value::String(event_id);
+    }
+
+    let message = Message::Text(serde_json::to_string(&event)?.into());
+    write.send(message).await?;
+    Ok(())
 }
 
 enum FlowControl {
