@@ -1,3 +1,4 @@
+#[cfg(feature = "prompt-delay")]
 use std::collections::VecDeque;
 
 use anyhow::{Context, Result, bail};
@@ -15,6 +16,7 @@ use tokio_tungstenite::{
     tungstenite::{Bytes, protocol::Message},
 };
 use tracing::{debug, info, trace, warn};
+#[cfg(feature = "prompt-delay")]
 use uuid::Uuid;
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
@@ -27,8 +29,11 @@ pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 
+    #[cfg(feature = "prompt-delay")]
     response_state: ResponseState,
+    #[cfg(feature = "prompt-delay")]
     inflight_prompt: Option<(String, PromptRequest)>,
+    #[cfg(feature = "prompt-delay")]
     pending_prompts: VecDeque<PromptRequest>,
 }
 
@@ -47,8 +52,11 @@ impl Client {
         Self {
             read,
             write,
+            #[cfg(feature = "prompt-delay")]
             response_state: ResponseState::Idle,
+            #[cfg(feature = "prompt-delay")]
             inflight_prompt: None,
+            #[cfg(feature = "prompt-delay")]
             pending_prompts: Default::default(),
         }
     }
@@ -393,22 +401,7 @@ impl Client {
 
         match event {
             ServerEvent::Error(e) => {
-                let mut ignore_error = false;
-                if let Some((inflight_prompt_event_id, prompt_request)) = &self.inflight_prompt {
-                    let api_error = &e.error;
-                    if api_error.code == Some("conversation_already_has_active_response".into())
-                        && api_error.event_id == Some(inflight_prompt_event_id.into())
-                    {
-                        debug!("Rescheduling inflight prompt");
-                        self.pending_prompts.push_front(prompt_request.clone());
-                        self.inflight_prompt = None;
-                        ignore_error = true;
-                    }
-                }
-
-                if !ignore_error {
-                    bail!(format!("{e:?}, raw: {raw}"));
-                }
+                self.handle_server_error(raw, &e)?;
             }
             ServerEvent::ResponseAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
@@ -584,11 +577,23 @@ impl Client {
 /// State management.
 impl Client {
     /// Either send the prompt immediately if possible, or schedule it until it's safe to do.
+    #[cfg(not(feature = "prompt-delay"))]
+    async fn push_prompt(&mut self, request: PromptRequest) -> Result<()> {
+        self.send_prompt_immediately(request).await
+    }
+
+    #[cfg(feature = "prompt-delay")]
     async fn push_prompt(&mut self, request: PromptRequest) -> Result<()> {
         self.pending_prompts.push_back(request);
         self.flush_prompt().await
     }
 
+    #[cfg(not(feature = "prompt-delay"))]
+    async fn update_response_state(&mut self, _state: ResponseState) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(feature = "prompt-delay")]
     async fn update_response_state(&mut self, state: ResponseState) -> Result<()> {
         info!("{:?} -> {state:?}", self.response_state);
 
@@ -607,6 +612,7 @@ impl Client {
         Ok(())
     }
 
+    #[cfg(feature = "prompt-delay")]
     async fn flush_prompt(&mut self) -> Result<()> {
         if self.inflight_prompt.is_some() || self.response_state != ResponseState::Idle {
             return Ok(());
@@ -615,20 +621,73 @@ impl Client {
         let Some(prompt_request) = self.pending_prompts.pop_front() else {
             return Ok(());
         };
+
+        self.send_prompt_with_tracking(prompt_request).await
+    }
+
+    #[cfg(not(feature = "prompt-delay"))]
+    async fn send_prompt_immediately(&mut self, prompt_request: PromptRequest) -> Result<()> {
+        self.send_prompt_event(&prompt_request, None).await
+    }
+
+    #[cfg(feature = "prompt-delay")]
+    async fn send_prompt_with_tracking(&mut self, prompt_request: PromptRequest) -> Result<()> {
+        let event_id = Uuid::new_v4().to_string();
+        self.send_prompt_event(&prompt_request, Some(event_id.clone()))
+            .await?;
+        self.inflight_prompt = Some((event_id, prompt_request));
+        Ok(())
+    }
+
+    #[cfg(not(feature = "prompt-delay"))]
+    fn handle_server_error(&mut self, raw: &str, error: &server_event::Error) -> Result<()> {
+        let api_error = &error.error;
+        let is_active_response_error =
+            api_error.code.as_deref() == Some("conversation_already_has_active_response");
+        if is_active_response_error {
+            // In non-delay mode we may receive active-response rejections for
+            // overlapping prompt sends. This is expected and should not fail the
+            // conversation loop.
+            return Ok(());
+        }
+
+        bail!(format!("{error:?}, raw: {raw}"));
+    }
+
+    #[cfg(feature = "prompt-delay")]
+    fn handle_server_error(&mut self, raw: &str, error: &server_event::Error) -> Result<()> {
+        let api_error = &error.error;
+        let is_active_response_error =
+            api_error.code.as_deref() == Some("conversation_already_has_active_response");
+
+        if is_active_response_error
+            && let Some((inflight_prompt_event_id, prompt_request)) = &self.inflight_prompt
+            && api_error.event_id == Some(inflight_prompt_event_id.into())
+        {
+            debug!("Rescheduling inflight prompt");
+            self.pending_prompts.push_front(prompt_request.clone());
+            self.inflight_prompt = None;
+            return Ok(());
+        }
+
+        bail!(format!("{error:?}, raw: {raw}"));
+    }
+
+    async fn send_prompt_event(
+        &mut self,
+        prompt_request: &PromptRequest,
+        event_id: Option<String>,
+    ) -> Result<()> {
         info!("Sending prompt: {prompt_request:?}");
 
-        let event_id = Uuid::new_v4().to_string();
-
         let response = ClientEvent::ResponseCreate(client_event::ResponseCreate {
-            event_id: Some(event_id.clone()),
+            event_id,
             response: Some(types::RealtimeSession {
                 instructions: Some(prompt_request.0.clone()),
                 ..Default::default()
             }),
         });
-        self.send_client_event(response).await?;
-        self.inflight_prompt = Some((event_id, prompt_request));
-        Ok(())
+        self.send_client_event(response).await
     }
 }
 
