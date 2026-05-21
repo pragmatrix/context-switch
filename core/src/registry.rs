@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -50,7 +50,8 @@ where
     T: Service<Params = P>,
 {
     async fn converse(&self, params: Value, conversation: Conversation) -> Result<()> {
-        let params = serde_json::from_value(params)?;
+        let params =
+            serde_json::from_value(params).context("Failed to deserialize service params")?;
         T::conversation(self, params, conversation).await
     }
 }

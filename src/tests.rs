@@ -50,6 +50,36 @@ async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
     assert_eq!(n_recv.recv().await, Some(Notification::Stopped));
 }
 
+#[tokio::test]
+async fn params_deserialization_failure_is_emitted_as_conversation_error() {
+    let (server_sender, mut server_receiver) = unbounded_channel();
+
+    let registry = Registry::empty().add_service("test-service", InvalidParamsService);
+
+    let mut cs = ContextSwitch::new(registry.into(), server_sender, None);
+
+    let conv: ConversationId = "conv-deser-fail".to_string().into();
+
+    cs.process(ClientEvent::Start {
+        id: conv.clone(),
+        service: "test-service".into(),
+        params: Value::Null,
+        input_modality: InputModality::Text,
+        output_modalities: Vec::new(),
+        billing_id: None,
+    })
+    .unwrap();
+
+    let event = server_receiver.recv().await.unwrap();
+    let ServerEvent::Error { id, message } = event else {
+        panic!("Expected ServerEvent::Error");
+    };
+
+    assert_eq!(id, conv);
+    assert!(message.contains("Conversation: `conv-deser-fail`"));
+    assert!(message.contains("Failed to deserialize service params"));
+}
+
 // This is currently a limitation. No output events can be sent while a graceful shutdown has
 // started.
 // #[tokio::test]
@@ -103,6 +133,7 @@ mod helper {
 
     use anyhow::Result;
     use async_trait::async_trait;
+    use serde::Deserialize;
     use tokio::sync::mpsc::Sender;
     use tokio::time;
 
@@ -125,6 +156,27 @@ mod helper {
     pub struct TestService {
         pub notification: Sender<Notification>,
         pub scenario: Scenario,
+    }
+
+    #[derive(Debug)]
+    pub struct InvalidParamsService;
+
+    #[derive(Debug, Deserialize)]
+    pub struct RequiredParams {
+        pub _required: String,
+    }
+
+    #[async_trait]
+    impl Service for InvalidParamsService {
+        type Params = RequiredParams;
+
+        async fn conversation(
+            &self,
+            _params: Self::Params,
+            _conversation: Conversation,
+        ) -> Result<()> {
+            Ok(())
+        }
     }
 
     #[async_trait]
