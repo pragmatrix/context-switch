@@ -10,6 +10,7 @@ use gemini_live::types::{
 use gemini_live::{ReconnectPolicy, Session, SessionConfig};
 use tracing::{debug, info, trace};
 
+use crate::conversation_state::ConversationState;
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
@@ -35,7 +36,7 @@ impl Client {
     ) -> Result<()> {
         let billing_scope = self.params.model.clone();
         let tools = function_declarations(&self.params.tools);
-        let mut output_transcription_buffer = String::new();
+        let mut state = ConversationState::new();
         let mut session = Session::connect(session_config(&self.params, text_outputs)?)
             .await
             .context("Connecting to Gemini Live")?;
@@ -48,7 +49,7 @@ impl Client {
             tokio::select! {
                 input = input.recv() => {
                     if let Some(input) = input {
-                        self.process_input(&session, input).await?;
+                        self.process_input(&session, input, &mut state).await?;
                     } else {
                         debug!("Conversation input closed");
                         session.audio_stream_end().await.context("Ending Gemini audio stream")?;
@@ -59,7 +60,7 @@ impl Client {
                 event = session.next_event() => {
                     match event {
                         Some(event) => {
-                            match self.process_event(event, output_format, text_outputs, &output, &billing_scope, &mut output_transcription_buffer)? {
+                            match self.process_event(event, output_format, text_outputs, &output, &billing_scope, &mut state)? {
                                 FlowControl::Continue => {}
                                 FlowControl::End => {
                                     debug!("Received terminal server event");
@@ -81,7 +82,12 @@ impl Client {
         Ok(())
     }
 
-    async fn process_input(&self, session: &Session, input: Input) -> Result<()> {
+    async fn process_input(
+        &self,
+        session: &Session,
+        input: Input,
+        state: &mut ConversationState,
+    ) -> Result<()> {
         match input {
             Input::Audio { frame } => {
                 let mono = frame.into_mono();
@@ -99,11 +105,11 @@ impl Client {
                     .context("Sending text to Gemini Live")?;
             }
             Input::ServiceEvent { value } => match serde_json::from_value(value)? {
-                ServiceInputEvent::FunctionCallResult {
-                    call_id,
-                    name,
-                    output,
-                } => {
+                ServiceInputEvent::FunctionCallResult { call_id, output } => {
+                    let Some(name) = state.tool_calls.resolve(&call_id)? else {
+                        return Ok(());
+                    };
+
                     let response = FunctionResponse {
                         id: call_id,
                         name,
@@ -130,7 +136,7 @@ impl Client {
         text_outputs: TextOutputs,
         output: &ConversationOutput,
         billing_scope: &str,
-        output_transcription_buffer: &mut String,
+        state: &mut ConversationState,
     ) -> Result<FlowControl> {
         trace!(?event, "Gemini Live event");
         match event {
@@ -145,20 +151,20 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
-                if text_outputs.text && !output_transcription_buffer.is_empty() {
+                if text_outputs.text && !state.output_transcription_buffer.is_empty() {
                     output.text(
                         true,
-                        std::mem::take(output_transcription_buffer),
+                        std::mem::take(&mut state.output_transcription_buffer),
                         None,
                         Some(self.params.model.clone()),
                     )?;
                 } else {
-                    output_transcription_buffer.clear();
+                    state.output_transcription_buffer.clear();
                 }
                 output.request_completed(None)?;
             }
             ServerEvent::Interrupted => {
-                output_transcription_buffer.clear();
+                state.output_transcription_buffer.clear();
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
@@ -167,11 +173,11 @@ impl Client {
                 }
             }
             ServerEvent::OutputTranscription(text) => {
-                output_transcription_buffer.push_str(&text);
+                state.output_transcription_buffer.push_str(&text);
                 if text_outputs.interim {
                     output.text(
                         false,
-                        output_transcription_buffer.clone(),
+                        state.output_transcription_buffer.clone(),
                         None,
                         Some(self.params.model.clone()),
                     )?;
@@ -190,11 +196,13 @@ impl Client {
                     output.service_event(
                         OutputPath::Media,
                         ServiceOutputEvent::FunctionCall {
-                            call_id: call.id,
-                            name: call.name,
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
                             arguments: call.args,
                         },
                     )?;
+
+                    state.tool_calls.register(call.id, call.name)?;
                 }
             }
             ServerEvent::ToolCallCancellation(ids) => {
@@ -203,8 +211,12 @@ impl Client {
                 for id in ids {
                     output.service_event(
                         OutputPath::Media,
-                        ServiceOutputEvent::ToolCallCancellation { call_id: id },
+                        ServiceOutputEvent::ToolCallCancellation {
+                            call_id: id.clone(),
+                        },
                     )?;
+
+                    state.tool_calls.cancel(id)?;
                 }
             }
             ServerEvent::SessionResumption { .. } => {}
