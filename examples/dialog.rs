@@ -12,6 +12,7 @@ use context_switch::{InputModality, OutputModality};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::select;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel};
 use tracing::info;
@@ -85,6 +86,8 @@ async fn main() -> Result<()> {
 
     let (input_sender, input_receiver) = channel(256);
     let input_sender2 = input_sender.clone();
+    let mut stdin_lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut stdin_closed = false;
 
     // Create and run the input stream
     let stream = device
@@ -129,23 +132,58 @@ async fn main() -> Result<()> {
 
     let conversation = start_conversation(&cli, conversation);
     tokio::pin!(conversation);
-    let playback_task =
-        setup_audio_playback(cli.provider, output_format, input_sender, output_receiver).await;
+    let input_sender_for_playback = input_sender.clone();
+    let playback_task = setup_audio_playback(
+        cli.provider,
+        output_format,
+        input_sender_for_playback,
+        output_receiver,
+    )
+    .await;
     // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
 
-    select! {
-        // Drive conversation
-        r = &mut conversation => {
-            // When conversation ends, wait for playback to complete before returning.
-            let _ = playback_handle.await;
-            r?
-        }
-        // Drive playback
-        r = &mut playback_handle => {
-            r??
+    loop {
+        select! {
+            // Drive conversation
+            r = &mut conversation => {
+                // When conversation ends, wait for playback to complete before returning.
+                let _ = playback_handle.await;
+                r?;
+                break;
+            }
+            // Drive playback
+            r = &mut playback_handle => {
+                r??;
+                break;
+            }
+            line = stdin_lines.next_line(), if !stdin_closed => {
+                match line? {
+                    Some(line) => {
+                        send_prompt_line(&input_sender, &line).await?;
+                    }
+                    None => {
+                        stdin_closed = true;
+                    }
+                }
+            }
         }
     }
+
+    Ok(())
+}
+
+async fn send_prompt_line(input: &Sender<Input>, line: &str) -> Result<()> {
+    let prompt = line.trim();
+    if prompt.is_empty() {
+        return Ok(());
+    }
+
+    input
+        .send(Input::ServiceEvent {
+            value: json!({ "type": "prompt", "text": prompt }),
+        })
+        .await?;
 
     Ok(())
 }

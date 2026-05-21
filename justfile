@@ -27,4 +27,19 @@ transcribe-google-diarization:
 
 openai-dialog-realtime-2:
     cargo run --example openai-dialog -- --protocol openai --model gpt-realtime-2
-    
+
+dialog-prompt provider fifo="/tmp/context-switch-dialog.fifo":
+    rm -f {{fifo}}
+    mkfifo {{fifo}}
+    @echo "Dialog FIFO ready at {{fifo}}"
+    @echo "Send prompts with: just dialog-prompt-* fifo={{fifo}}"
+    while true; do cat {{fifo}}; done | cargo run --example dialog -- {{provider}}
+
+dialog-prompt-critic fifo="/tmp/context-switch-dialog.fifo":
+    printf '%s\n' "Switch to devil's advocate mode and challenge my last statement with two concrete counterexamples." > {{fifo}}
+
+dialog-prompt-twist fifo="/tmp/context-switch-dialog.fifo":
+    printf '%s\n' "Give me a surprising analogy for this topic using a restaurant kitchen, then ask me one follow-up question." > {{fifo}}
+
+dialog-prompt-text fifo="/tmp/context-switch-dialog.fifo":
+    printf '%s\n' "Say the following words exactly in German (don't add other words): 'My confidence is at 110 percent, my plan is at 60 percent, and my coffee is doing the remaining 30.'" > {{fifo}}
