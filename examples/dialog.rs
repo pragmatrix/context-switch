@@ -15,7 +15,7 @@ use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::select;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel};
-use tracing::info;
+use tracing::{error, info};
 
 use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, audio};
 
@@ -147,13 +147,18 @@ async fn main() -> Result<()> {
         select! {
             // Drive conversation
             r = &mut conversation => {
+                info!("Conversation future completed; shutting down playback and exiting main loop");
                 // When conversation ends, wait for playback to complete before returning.
                 let _ = playback_handle.await;
+                if let Err(error) = &r {
+                    error!(error = ?error, "Conversation failed");
+                }
                 r?;
                 break;
             }
             // Drive playback
             r = &mut playback_handle => {
+                info!("Playback task completed; exiting main loop");
                 r??;
                 break;
             }
