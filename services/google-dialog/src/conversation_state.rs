@@ -30,35 +30,47 @@ impl ConversationState {
 
 impl ToolCallTracker {
     pub fn register(&mut self, call_id: String, name: String) -> Result<()> {
-        match self.calls.entry(call_id.clone()) {
+        match self.calls.entry(call_id) {
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(ToolCallEntry::Pending { name });
                 Ok(())
             }
             hash_map::Entry::Occupied(entry) => match entry.get() {
                 ToolCallEntry::Pending { .. } => {
-                    bail!("tool call `{call_id}` is already pending before register")
+                    bail!(
+                        "tool call `{}` is already pending before register",
+                        entry.key()
+                    )
                 }
                 ToolCallEntry::Canceled => {
-                    bail!("tool call `{call_id}` was already canceled before register")
+                    bail!(
+                        "tool call `{}` was already canceled before register",
+                        entry.key()
+                    )
                 }
             },
         }
     }
 
     pub fn cancel(&mut self, call_id: String) -> Result<()> {
-        match self.calls.entry(call_id.clone()) {
+        match self.calls.entry(call_id) {
             hash_map::Entry::Occupied(mut entry) => match entry.get() {
                 ToolCallEntry::Pending { .. } => {
                     entry.insert(ToolCallEntry::Canceled);
                     Ok(())
                 }
                 ToolCallEntry::Canceled => {
-                    bail!("tool call `{call_id}` was already canceled before cancellation")
+                    bail!(
+                        "tool call `{}` was already canceled before cancellation",
+                        entry.key()
+                    )
                 }
             },
-            hash_map::Entry::Vacant(_) => {
-                bail!("tool call `{call_id}` is not pending when cancellation arrives")
+            hash_map::Entry::Vacant(entry) => {
+                bail!(
+                    "tool call `{}` is not pending when cancellation arrives",
+                    entry.key()
+                )
             }
         }
     }
