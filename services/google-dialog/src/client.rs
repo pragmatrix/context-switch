@@ -110,10 +110,12 @@ impl Client {
                         return Ok(());
                     };
 
+                    let response = normalize_function_response(output);
+
                     let response = FunctionResponse {
                         id: call_id,
                         name,
-                        response: output,
+                        response,
                     };
                     session
                         .send_tool_response(vec![response])
@@ -239,6 +241,14 @@ impl Client {
             }
         }
         Ok(FlowControl::Continue)
+    }
+}
+
+fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
+    match output {
+        serde_json::Value::Object(_) => output,
+        // Gemini requires functionResponse.response to be a protobuf Struct, i.e. a JSON object.
+        value => serde_json::json!({ "result": value }),
     }
 }
 
