@@ -33,6 +33,7 @@ pub struct Client {
     prompt_coordinator: PromptCoordinator,
 }
 
+#[cfg(feature = "prompt-delay")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseState {
     Idle,
@@ -453,6 +454,7 @@ impl Client {
                     },
                 ..
             }) if object == "realtime.response" => {
+                #[cfg(feature = "prompt-delay")]
                 let mut any_function_call_request = false;
                 for item in items {
                     match (&status, &item.r#type, &item.status, &item.role) {
@@ -493,7 +495,10 @@ impl Client {
                                     arguments,
                                 },
                             )?;
-                            any_function_call_request = true;
+                            #[cfg(feature = "prompt-delay")]
+                            {
+                                any_function_call_request = true;
+                            }
                         }
                         (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
                             if output_transcription =>
