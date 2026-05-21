@@ -10,9 +10,10 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 
+use context_switch_core::{AudioFormat, Conversation, Service};
+
 use super::{ListModelsRequest, ProviderApi, StartConversationRequest};
 use crate::{FunctionCall, get_time_parameters_schema};
-use context_switch_core::{AudioFormat, Conversation, Service};
 
 pub struct GoogleProvider;
 
@@ -69,20 +70,10 @@ impl ProviderApi for GoogleProvider {
         }
     }
 
-    fn function_result_event(
-        &self,
-        call_id: String,
-        name: Option<String>,
-        result: String,
-    ) -> Result<serde_json::Value> {
-        let name = name.context("Function name is required for Google function result")?;
+    fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
         let output = json!({ "time": serde_json::Value::String(result) });
-        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
-            call_id,
-            name,
-            output,
-        })
-        .map_err(Into::into)
+        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult { call_id, output })
+            .map_err(Into::into)
     }
 
     fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {

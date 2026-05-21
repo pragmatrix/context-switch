@@ -119,7 +119,6 @@ pub enum ServiceInputEvent {
     #[serde(rename_all = "camelCase")]
     FunctionCallResult {
         call_id: String,
-        name: String,
         output: serde_json::Value,
     },
     Prompt {

@@ -311,7 +311,7 @@ fn handle_service_event(
         );
         let result = call_function(&call.name, call.arguments)?;
         info!("Function result: `{result}`");
-        send_function_result(provider, input, call.call_id, call.name, result)?;
+        send_function_result(provider, input, call.call_id, result)?;
     }
 
     Ok(())
@@ -321,12 +321,9 @@ fn send_function_result(
     provider: Provider,
     input: &Sender<Input>,
     call_id: String,
-    name: String,
     result: String,
 ) -> Result<()> {
-    let value = provider
-        .api()
-        .function_result_event(call_id, Some(name), result)?;
+    let value = provider.api().function_result_event(call_id, result)?;
     input.try_send(Input::ServiceEvent { value })?;
     Ok(())
 }

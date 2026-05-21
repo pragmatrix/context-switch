@@ -7,6 +7,7 @@ use tracing::info;
 use context_switch_core::{AudioFormat, Conversation, OutputModality, Service};
 
 mod client;
+mod conversation_state;
 mod types;
 
 use client::Client;

@@ -8,8 +8,10 @@
 - Avoid `maybe_` prefixes for optional variables; use neutral names and rely on type/context for optionality.
 - Avoid `_ref` suffixes for local variable names; use descriptive neutral names instead.
 - Prefer explicit imports over repeated relative module qualification.
+- When multiple items come from the same module, prefer a single module import and reference items through that module path when it keeps code clear.
 - Prefer private-by-default visibility; only widen visibility when required by a module boundary.
 - For trait-based APIs, prefer focused request/context types over passing broad configuration structs.
+- Prefer `bail!` for early error returns in `Result`-returning functions instead of `return Err(anyhow!(...))`.
 
 ## Change Communication
 - Include a short rationale for each non-trivial code change.

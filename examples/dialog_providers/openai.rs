@@ -66,12 +66,7 @@ impl ProviderApi for OpenAIProvider {
         }
     }
 
-    fn function_result_event(
-        &self,
-        call_id: String,
-        _name: Option<String>,
-        result: String,
-    ) -> Result<serde_json::Value> {
+    fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
         let output = json!({ "time": serde_json::Value::String(result) });
         serde_json::to_value(&OpenAIServiceInputEvent::FunctionCallResult { call_id, output })
             .map_err(Into::into)
