@@ -33,7 +33,7 @@ dialog-prompt provider fifo="/tmp/context-switch-dialog.fifo":
     mkfifo {{fifo}}
     @echo "Dialog FIFO ready at {{fifo}}"
     @echo "Send prompts with: just dialog-prompt-* fifo={{fifo}}"
-    while true; do cat {{fifo}}; done | cargo run --example dialog -- {{provider}}
+    while cat {{fifo}}; do :; done | cargo run --example dialog -- {{provider}}
 
 dialog-prompt-critic fifo="/tmp/context-switch-dialog.fifo":
     printf '%s\n' "Switch to devil's advocate mode and challenge my last statement with two concrete counterexamples." > {{fifo}}
