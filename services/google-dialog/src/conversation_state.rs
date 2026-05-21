@@ -69,7 +69,7 @@ impl ToolCallTracker {
             Some(ToolCallEntry::Canceled) => {
                 warn!(
                     %call_id,
-                    "Ignoring functionCallResult for cancelled tool call"
+                    "Ignoring functionCallResult for canceled tool call"
                 );
                 Ok(None)
             }
