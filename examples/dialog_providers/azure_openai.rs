@@ -47,13 +47,8 @@ impl ProviderApi for AzureOpenAIProvider {
         OpenAIProvider.parse_service_event(value)
     }
 
-    fn function_result_event(
-        &self,
-        call_id: String,
-        _name: Option<String>,
-        result: String,
-    ) -> Result<serde_json::Value> {
-        OpenAIProvider.function_result_event(call_id, None, result)
+    fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
+        OpenAIProvider.function_result_event(call_id, result)
     }
 
     fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
