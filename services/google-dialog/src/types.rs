@@ -184,10 +184,6 @@ pub enum ServiceOutputEvent {
     },
     #[serde(rename_all = "camelCase")]
     ToolCallCancellation { call_id: String },
-    SessionUpdated {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tools: Option<Vec<FunctionDeclaration>>,
-    },
 }
 
 #[cfg(test)]
