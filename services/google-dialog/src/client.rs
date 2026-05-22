@@ -352,9 +352,7 @@ fn connect_error_with_voice_context(params: &Params, error: SessionError) -> any
     };
 
     if crate::parse_voice_value(voice).is_ok() {
-        base.context(format!(
-            "Configured voice `{voice}` matches the known Gemini prebuilt voices. The setup failure likely has a different cause."
-        ))
+        base
     } else {
         base.context(format!(
             "Configured voice `{voice}` is not a known Gemini prebuilt voice. Available voices: {}",
