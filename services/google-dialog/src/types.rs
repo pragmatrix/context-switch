@@ -1,6 +1,8 @@
 use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
 use serde::{Deserialize, Deserializer, Serialize};
 
+use anyhow::{Result, bail};
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
@@ -48,6 +50,54 @@ impl Params {
             input_audio_transcription: false,
             output_audio_transcription: false,
         }
+    }
+}
+
+pub const VOICES: &[&str] = &[
+    "Zephyr",
+    "Puck",
+    "Charon",
+    "Kore",
+    "Fenrir",
+    "Leda",
+    "Orus",
+    "Aoede",
+    "Callirrhoe",
+    "Autonoe",
+    "Enceladus",
+    "Iapetus",
+    "Umbriel",
+    "Algieba",
+    "Despina",
+    "Erinome",
+    "Algenib",
+    "Rasalgethi",
+    "Laomedeia",
+    "Achernar",
+    "Alnilam",
+    "Schedar",
+    "Gacrux",
+    "Pulcherrima",
+    "Achird",
+    "Zubenelgenubi",
+    "Vindemiatrix",
+    "Sadachbia",
+    "Sadaltager",
+    "Sulafat",
+];
+
+pub fn parse_voice_value(value: &str) -> Result<String> {
+    if VOICES.iter().any(|voice| voice.eq_ignore_ascii_case(value)) {
+        let voice = VOICES
+            .iter()
+            .find(|voice| voice.eq_ignore_ascii_case(value))
+            .copied()
+            .unwrap_or(value)
+            .to_owned();
+        Ok(voice)
+    } else {
+        let available = VOICES.join(", ");
+        bail!("Invalid Gemini voice `{value}`. Available voices: {available}")
     }
 }
 

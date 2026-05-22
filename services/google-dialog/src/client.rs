@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
 use gemini_live::types::{
@@ -7,7 +7,7 @@ use gemini_live::types::{
     ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow, SpeechConfig, ThinkingConfig,
     Tool, UsageMetadata, VoiceConfig,
 };
-use gemini_live::{ReconnectPolicy, Session, SessionConfig};
+use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
 use tracing::{debug, info, trace};
 
 use crate::conversation_state::ConversationState;
@@ -37,9 +37,11 @@ impl Client {
         let billing_scope = self.params.model.clone();
         let tools = function_declarations(&self.params.tools);
         let mut state = ConversationState::new();
-        let mut session = Session::connect(session_config(&self.params, text_outputs)?)
-            .await
-            .context("Connecting to Gemini Live")?;
+        let mut session = match Session::connect(session_config(&self.params, text_outputs)?).await
+        {
+            Ok(session) => session,
+            Err(error) => return Err(connect_error_with_voice_context(&self.params, error)),
+        };
         output.service_event(
             OutputPath::Control,
             ServiceOutputEvent::SessionUpdated { tools },
@@ -335,6 +337,30 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
         output_audio_transcription,
         ..Default::default()
     })
+}
+
+fn connect_error_with_voice_context(params: &Params, error: SessionError) -> anyhow::Error {
+    let is_setup_failed = matches!(&error, SessionError::SetupFailed(_));
+    let base = anyhow!(error).context("Connecting to Gemini Live");
+
+    if !is_setup_failed {
+        return base;
+    }
+
+    let Some(voice) = params.voice.as_deref() else {
+        return base;
+    };
+
+    if crate::parse_voice_value(voice).is_ok() {
+        base.context(format!(
+            "Configured voice `{voice}` matches the known Gemini prebuilt voices. The setup failure likely has a different cause."
+        ))
+    } else {
+        base.context(format!(
+            "Configured voice `{voice}` is not a known Gemini prebuilt voice. Available voices: {}",
+            crate::VOICES.join(", ")
+        ))
+    }
 }
 
 fn model_resource_name(model: &str) -> String {

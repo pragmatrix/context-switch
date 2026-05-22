@@ -1,6 +1,6 @@
 use std::env;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use gemini_live::types as gemini_types;
 use google_dialog::{
@@ -39,7 +39,7 @@ impl ProviderApi for GoogleProvider {
         params.voice = request
             .voice
             .as_deref()
-            .map(parse_voice_value)
+            .map(google_dialog::parse_voice_value)
             .transpose()?;
         params.input_audio_transcription = true;
         params.output_audio_transcription = true;
@@ -81,7 +81,7 @@ impl ProviderApi for GoogleProvider {
     }
 
     fn voices(&self) -> &'static [&'static str] {
-        VOICES
+        google_dialog::VOICES
     }
 
     async fn list_models(&self, request: ListModelsRequest) -> Result<()> {
@@ -160,54 +160,6 @@ fn is_live_model(model_name: &str, methods: &[String]) -> bool {
         method.eq_ignore_ascii_case("bidiGenerateContent")
             || method.eq_ignore_ascii_case("streamGenerateContent")
     })
-}
-
-const VOICES: &[&str] = &[
-    "Zephyr",
-    "Puck",
-    "Charon",
-    "Kore",
-    "Fenrir",
-    "Leda",
-    "Orus",
-    "Aoede",
-    "Callirrhoe",
-    "Autonoe",
-    "Enceladus",
-    "Iapetus",
-    "Umbriel",
-    "Algieba",
-    "Despina",
-    "Erinome",
-    "Algenib",
-    "Rasalgethi",
-    "Laomedeia",
-    "Achernar",
-    "Alnilam",
-    "Schedar",
-    "Gacrux",
-    "Pulcherrima",
-    "Achird",
-    "Zubenelgenubi",
-    "Vindemiatrix",
-    "Sadachbia",
-    "Sadaltager",
-    "Sulafat",
-];
-
-fn parse_voice_value(value: &str) -> Result<String> {
-    if VOICES.iter().any(|voice| voice.eq_ignore_ascii_case(value)) {
-        let voice = VOICES
-            .iter()
-            .find(|voice| voice.eq_ignore_ascii_case(value))
-            .copied()
-            .unwrap_or(value)
-            .to_owned();
-        Ok(voice)
-    } else {
-        let available = VOICES.join(", ");
-        bail!("Invalid Gemini voice `{value}`. Available voices: {available}")
-    }
 }
 
 fn get_time_tool() -> gemini_types::Tool {
