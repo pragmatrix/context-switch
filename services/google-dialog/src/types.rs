@@ -87,14 +87,11 @@ pub const VOICES: &[&str] = &[
 ];
 
 pub fn parse_voice_value(value: &str) -> Result<String> {
-    if VOICES.iter().any(|voice| voice.eq_ignore_ascii_case(value)) {
-        let voice = VOICES
-            .iter()
-            .find(|voice| voice.eq_ignore_ascii_case(value))
-            .copied()
-            .unwrap_or(value)
-            .to_owned();
-        Ok(voice)
+    if let Some(voice) = VOICES
+        .iter()
+        .find(|voice| voice.eq_ignore_ascii_case(value))
+    {
+        Ok((*voice).to_owned())
     } else {
         let available = VOICES.join(", ");
         bail!("Invalid Gemini voice `{value}`. Available voices: {available}")
