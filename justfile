@@ -7,6 +7,9 @@ knife-release:
 transcribe-azure-de-en:
     cargo run --example transcribe -- azure --language de-DE,en-US
 
+transcribe-azure-es-de-en:
+    cargo run --example transcribe -- azure --language es-ES,de-DE,en-US
+
 transcribe-azure-diarization:
     cargo run --example transcribe -- azure --diarization
 
