@@ -4,7 +4,7 @@ on:
   push:
     branches: [ master ]  # Run on default branch only
   pull_request:
-    branches: [ master ]  # Run on pull requests targeting default branch
+    branches: [ '**' ]  # Run on pull requests targeting any branch
 
 jobs:
   code-quality:
