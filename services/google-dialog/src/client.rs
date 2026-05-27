@@ -2,10 +2,10 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
 use gemini_live::types::{
-    AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionDeclaration,
-    FunctionResponse, GenerationConfig, Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig,
-    ServerEvent, SessionResumptionConfig, SetupConfig, SlidingWindow, SpeechConfig, ThinkingConfig,
-    Tool, UsageMetadata, VoiceConfig,
+    AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionResponse,
+    GenerationConfig, Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig, ServerEvent,
+    SessionResumptionConfig, SetupConfig, SlidingWindow, SpeechConfig, ThinkingConfig,
+    UsageMetadata, VoiceConfig,
 };
 use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
 use tracing::{debug, info, trace};
@@ -35,17 +35,12 @@ impl Client {
         output: ConversationOutput,
     ) -> Result<()> {
         let billing_scope = self.params.model.clone();
-        let tools = function_declarations(&self.params.tools);
         let mut state = ConversationState::new();
         let mut session = match Session::connect(session_config(&self.params, text_outputs)?).await
         {
             Ok(session) => session,
             Err(error) => return Err(connect_error_with_voice_context(&self.params, error)),
         };
-        output.service_event(
-            OutputPath::Control,
-            ServiceOutputEvent::SessionUpdated { tools },
-        )?;
 
         loop {
             tokio::select! {
@@ -252,20 +247,6 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
         // Gemini requires functionResponse.response to be a protobuf Struct, i.e. a JSON object.
         value => serde_json::json!({ "result": value }),
     }
-}
-
-fn function_declarations(tools: &[Tool]) -> Option<Vec<FunctionDeclaration>> {
-    let declarations: Vec<_> = tools
-        .iter()
-        .filter_map(|tool| match tool {
-            Tool::FunctionDeclarations(declarations) => Some(declarations.as_slice()),
-            Tool::GoogleSearch(_) => None,
-        })
-        .flatten()
-        .cloned()
-        .collect();
-
-    (!declarations.is_empty()).then_some(declarations)
 }
 
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {

@@ -63,10 +63,6 @@ impl ProviderApi for GoogleProvider {
                 tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
             }
-            ServiceOutputEvent::SessionUpdated { tools } => {
-                tracing::info!("Session updated: {tools:?}");
-                Ok(None)
-            }
         }
     }
 
