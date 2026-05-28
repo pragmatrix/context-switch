@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(feature = "prompt-delay")]
 use std::collections::VecDeque;
 
@@ -11,10 +12,8 @@ use openai_api_rs::realtime::types::{
     self, ItemContentType, ItemRole, ItemStatus, ItemType, OutputModality, ResponseStatus,
 };
 use tokio::{net::TcpStream, select};
-use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream,
-    tungstenite::{Bytes, protocol::Message},
-};
+use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, info, trace, warn};
 #[cfg(feature = "prompt-delay")]
 use uuid::Uuid;
@@ -28,9 +27,21 @@ use context_switch_core::{
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    transcription_state: TranscriptionState,
 
     #[cfg(feature = "prompt-delay")]
     prompt_coordinator: PromptCoordinator,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TranscriptionSettings {
+    pub input: bool,
+    pub output: bool,
+}
+
+#[derive(Debug, Default)]
+struct TranscriptionState {
+    input_transcription_buffers: HashMap<(String, u32), String>,
 }
 
 #[cfg(feature = "prompt-delay")]
@@ -56,6 +67,7 @@ impl Client {
         Self {
             read,
             write,
+            transcription_state: TranscriptionState::default(),
             #[cfg(feature = "prompt-delay")]
             prompt_coordinator: PromptCoordinator::new(),
         }
@@ -67,7 +79,7 @@ impl Client {
         input_format: AudioFormat,
         output_format: AudioFormat,
         params: Params,
-        output_transcription: bool,
+        transcription: TranscriptionSettings,
         mut input: ConversationInput,
         output: ConversationOutput,
     ) -> Result<()> {
@@ -98,6 +110,8 @@ impl Client {
         {
             let mut send_update = false;
             let mut session = types::RealtimeSession::default();
+            let mut audio_input = None;
+            let mut audio_output = None;
 
             if let Some(instructions) = params.instructions {
                 session.instructions = Some(instructions);
@@ -105,15 +119,33 @@ impl Client {
             };
 
             if let Some(voice) = params.voice {
-                session.audio = Some(types::AudioConfig {
-                    input: None,
-                    output: Some(types::AudioOutput {
-                        format: None,
-                        speed: 1.0,
-                        voice: Some(voice),
-                    }),
+                audio_output = Some(types::AudioOutput {
+                    format: None,
+                    speed: 1.0,
+                    voice: Some(voice),
                 });
                 send_update = true;
+            }
+
+            if transcription.input {
+                audio_input = Some(types::AudioInput {
+                    format: None,
+                    noise_reduction: None,
+                    transcription: Some(types::TranscriptionConfig {
+                        language: None,
+                        model: "gpt-realtime-whisper".to_string(),
+                        prompt: None,
+                    }),
+                    turn_detection: None,
+                });
+                send_update = true;
+            }
+
+            if audio_input.is_some() || audio_output.is_some() {
+                session.audio = Some(types::AudioConfig {
+                    input: audio_input,
+                    output: audio_output,
+                });
             }
 
             if !params.tools.is_empty() {
@@ -152,7 +184,7 @@ impl Client {
                 message = self.read.next() => {
                     match message {
                         Some(Ok(message)) => {
-                            match self.process_message(message, output_format, &output, &params.model, output_transcription).await? {
+                            match self.process_message(message, output_format, &output, &params.model, transcription).await? {
                                 FlowControl::End => { break; }
                                 FlowControl::PongAndContinue(payload) => {
                                     self.write.send(Message::Pong(payload)).await?;
@@ -348,7 +380,7 @@ impl Client {
         output_format: AudioFormat,
         output: &ConversationOutput,
         billing_scope: &str,
-        output_transcription: bool,
+        transcription: TranscriptionSettings,
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => {
@@ -361,7 +393,7 @@ impl Client {
                     output,
                     output_format,
                     billing_scope,
-                    output_transcription,
+                    transcription,
                 )
                 .await?;
             }
@@ -385,7 +417,7 @@ impl Client {
         output: &ConversationOutput,
         output_format: AudioFormat,
         billing_scope: &str,
-        output_transcription: bool,
+        transcription: TranscriptionSettings,
     ) -> Result<()> {
         let event_for_log = match &event {
             ServerEvent::ResponseAudioDelta(delta) => {
@@ -434,6 +466,53 @@ impl Client {
                 output.audio_frame(frame)?;
             }
             ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+            ServerEvent::ConversationItemInputAudioTranscriptionDelta(
+                server_event::ConversationItemInputAudioTranscriptionDelta {
+                    item_id,
+                    content_index,
+                    delta,
+                    ..
+                },
+            ) => {
+                if transcription.input {
+                    let text =
+                        self.transcription_state
+                            .apply_input_delta(item_id, content_index, delta);
+                    output.text(false, text, None, None)?;
+                }
+            }
+            ServerEvent::ConversationItemInputAudioTranscriptionCompleted(
+                server_event::ConversationItemInputAudioTranscriptionCompleted {
+                    item_id,
+                    content_index,
+                    transcript,
+                    ..
+                },
+            ) => {
+                if transcription.input
+                    && let Some(text) = self.transcription_state.complete_input_transcription(
+                        item_id,
+                        content_index,
+                        transcript,
+                    )
+                {
+                    output.text(true, text, None, None)?;
+                }
+            }
+            ServerEvent::ConversationItemDeleted(server_event::ConversationItemDeleted {
+                item_id,
+                ..
+            }) => {
+                self.transcription_state.clear_item(&item_id);
+            }
+            ServerEvent::ConversationItemTruncated(server_event::ConversationItemTruncated {
+                item_id,
+                content_index,
+                ..
+            }) => {
+                self.transcription_state
+                    .clear_content_index(item_id, content_index);
+            }
             ServerEvent::ResponseCreated(server_event::ResponseCreated {
                 response: types::Response { object, .. },
                 ..
@@ -501,7 +580,7 @@ impl Client {
                             }
                         }
                         (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
-                            if output_transcription =>
+                            if transcription.output =>
                         {
                             for transcript in item
                                 .content
@@ -594,6 +673,46 @@ impl Client {
         }
 
         Ok(())
+    }
+}
+
+impl TranscriptionState {
+    fn apply_input_delta(&mut self, item_id: String, content_index: u32, delta: String) -> String {
+        let entry = self
+            .input_transcription_buffers
+            .entry((item_id, content_index))
+            .or_default();
+        entry.push_str(&delta);
+        entry.clone()
+    }
+
+    fn complete_input_transcription(
+        &mut self,
+        item_id: String,
+        content_index: u32,
+        transcript: String,
+    ) -> Option<String> {
+        let key = (item_id, content_index);
+        let text = if transcript.is_empty() {
+            self.input_transcription_buffers
+                .remove(&key)
+                .unwrap_or_default()
+        } else {
+            self.input_transcription_buffers.remove(&key);
+            transcript
+        };
+
+        (!text.is_empty()).then_some(text)
+    }
+
+    fn clear_item(&mut self, item_id: &str) {
+        self.input_transcription_buffers
+            .retain(|(buffer_item_id, _), _| buffer_item_id != item_id);
+    }
+
+    fn clear_content_index(&mut self, item_id: String, content_index: u32) {
+        self.input_transcription_buffers
+            .remove(&(item_id, content_index));
     }
 }
 

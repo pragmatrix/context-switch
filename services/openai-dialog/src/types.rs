@@ -11,6 +11,8 @@ pub struct Params {
     pub instructions: Option<String>,
     pub voice: Option<RealtimeVoice>,
     #[serde(default)]
+    pub input_audio_transcription: bool,
+    #[serde(default)]
     pub tools: Vec<types::ToolDefinition>,
     pub(crate) tool_choice: Option<ToolChoice>,
 }
@@ -24,6 +26,7 @@ impl Params {
             host: None,
             instructions: None,
             voice: None,
+            input_audio_transcription: false,
             tools: vec![],
             tool_choice: None,
         }

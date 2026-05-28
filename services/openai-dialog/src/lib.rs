@@ -4,7 +4,7 @@
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use tracing::info;
+use tracing::{info, warn};
 
 use context_switch_core::{Conversation, Service};
 
@@ -13,6 +13,7 @@ mod host;
 mod types;
 
 pub use client::Client;
+use client::TranscriptionSettings;
 pub use host::{Host, Protocol};
 pub use types::{Params, ServiceInputEvent, ServiceOutputEvent};
 
@@ -30,7 +31,16 @@ impl Service for OpenAIDialog {
         let input_format = conversation.require_audio_input()?;
         let output_format = conversation.require_one_audio_output()?;
         // Architecture: this can be derived further down.
-        let output_transcription = conversation.has_one_text_output()?;
+        let has_text_output = conversation.has_one_text_output()?;
+        let output_transcription = has_text_output;
+        let input_transcription = params.input_audio_transcription && has_text_output;
+        if !has_text_output && (params.input_audio_transcription || output_transcription) {
+            warn!(
+                input_audio_transcription = params.input_audio_transcription,
+                output_transcription,
+                "Transcription requested without text output modality; transcription output will be suppressed"
+            );
+        }
         if input_format != output_format {
             bail!("Input and output audio formats must match for OpenAI dialog service");
         }
@@ -54,7 +64,10 @@ impl Service for OpenAIDialog {
                 input_format,
                 output_format,
                 params,
-                output_transcription,
+                TranscriptionSettings {
+                    input: input_transcription,
+                    output: output_transcription,
+                },
                 input,
                 output,
             )
