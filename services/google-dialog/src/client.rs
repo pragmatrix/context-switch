@@ -8,7 +8,7 @@ use gemini_live::types::{
     UsageMetadata, VoiceConfig,
 };
 use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 
 use crate::conversation_state::ConversationState;
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
@@ -137,7 +137,14 @@ impl Client {
         billing_scope: &str,
         state: &mut ConversationState,
     ) -> Result<FlowControl> {
-        trace!(?event, "Gemini Live event");
+        match &event {
+            ServerEvent::ModelAudio(audio) => {
+                let audio_ms = output_format.duration(audio.len() / 2).as_millis();
+                trace!(event = "ModelAudio", audio_ms, "Gemini Live event");
+            }
+            _ => trace!(?event, "Gemini Live event"),
+        }
+
         match event {
             ServerEvent::SetupComplete => {}
             ServerEvent::ModelText(text) => {
