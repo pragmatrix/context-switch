@@ -1,3 +1,5 @@
+use std::mem;
+
 use anyhow::{Context, Result, anyhow, bail};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
@@ -157,23 +159,15 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
-                if self.params.output_audio_transcription
-                    && text_outputs.text
-                    && !state.output_transcription_buffer.is_empty()
-                {
-                    output.text(
-                        true,
-                        std::mem::take(&mut state.output_transcription_buffer),
-                        None,
-                        Some(self.params.model.clone()),
-                    )?;
-                } else {
-                    state.output_transcription_buffer.clear();
-                }
+                self.finalize_output_transcription(text_outputs, output, state)?;
                 output.request_completed(None)?;
             }
             ServerEvent::Interrupted => {
-                state.output_transcription_buffer.clear();
+                // We expect a TurnComplete afterwards, so don't finalize the output transcription
+                // when interrupted.
+                //
+                // spellcheck: ignore
+                // self.finalize_output_transcription(text_outputs, output, state)?;
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
@@ -266,6 +260,20 @@ impl Client {
             }
         }
         Ok(FlowControl::Continue)
+    }
+
+    fn finalize_output_transcription(
+        &self,
+        text_outputs: TextOutputs,
+        output: &ConversationOutput,
+        state: &mut ConversationState,
+    ) -> Result<()> {
+        let buffer = mem::take(&mut state.output_transcription_buffer);
+
+        if self.params.output_audio_transcription && text_outputs.text && !buffer.is_empty() {
+            output.text(true, buffer, None, Some(self.params.model.clone()))?;
+        }
+        Ok(())
     }
 }
 
