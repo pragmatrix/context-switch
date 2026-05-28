@@ -157,7 +157,10 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
-                if text_outputs.text && !state.output_transcription_buffer.is_empty() {
+                if self.params.output_audio_transcription
+                    && text_outputs.text
+                    && !state.output_transcription_buffer.is_empty()
+                {
                     output.text(
                         true,
                         std::mem::take(&mut state.output_transcription_buffer),
@@ -174,19 +177,37 @@ impl Client {
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
-                if text_outputs.text {
-                    output.text(true, text, None, None)?;
+                if self.params.input_audio_transcription {
+                    if text_outputs.text {
+                        output.text(true, text, None, None)?;
+                    }
+                } else {
+                    // Observed with preview Gemini models: transcription events can still arrive
+                    // even when transcription is not enabled in setup.
+                    warn!(
+                        transcript = %text,
+                        "Received input transcription event while input_audio_transcription is disabled (observed with preview model)"
+                    );
                 }
             }
             ServerEvent::OutputTranscription(text) => {
-                state.output_transcription_buffer.push_str(&text);
-                if text_outputs.interim {
-                    output.text(
-                        false,
-                        state.output_transcription_buffer.clone(),
-                        None,
-                        Some(self.params.model.clone()),
-                    )?;
+                if self.params.output_audio_transcription {
+                    state.output_transcription_buffer.push_str(&text);
+                    if text_outputs.interim {
+                        output.text(
+                            false,
+                            state.output_transcription_buffer.clone(),
+                            None,
+                            Some(self.params.model.clone()),
+                        )?;
+                    }
+                } else {
+                    // Observed with preview Gemini models: transcription events can still arrive
+                    // even when transcription is not enabled in setup.
+                    warn!(
+                        transcript = %text,
+                        "Received output transcription event while output_audio_transcription is disabled (observed with preview model)"
+                    );
                 }
             }
             ServerEvent::ToolCall(calls) => {
