@@ -15,8 +15,8 @@ use tracing::{debug, info, trace, warn};
 use crate::conversation_state::ConversationState;
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
-    Input, OutputPath,
+    AI_AGENT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput,
+    ConversationOutput, Input, OutputPath,
 };
 
 #[derive(Debug)]
@@ -192,7 +192,7 @@ impl Client {
                             false,
                             state.output_transcription_buffer.clone(),
                             None,
-                            Some(self.params.model.clone()),
+                            Some(AI_AGENT_SPEAKER.into()),
                         )?;
                     }
                 } else {
@@ -271,7 +271,7 @@ impl Client {
         let buffer = mem::take(&mut state.output_transcription_buffer);
 
         if self.params.output_audio_transcription && text_outputs.text && !buffer.is_empty() {
-            output.text(true, buffer, None, Some(self.params.model.clone()))?;
+            output.text(true, buffer, None, Some(AI_AGENT_SPEAKER.into()))?;
         }
         Ok(())
     }

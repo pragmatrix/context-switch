@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
 use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
-    Input, OutputPath, audio,
+    AI_AGENT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
+    ConversationInput, ConversationOutput, Input, OutputPath, audio,
 };
 
 pub struct Client {
@@ -528,7 +528,7 @@ impl Client {
                     let text = self
                         .transcription_state
                         .apply_output_delta(response_id, key, delta);
-                    output.text(false, text, None, None)?;
+                    output.text(false, text, None, Some(AI_AGENT_SPEAKER.into()))?;
                 }
             }
             ServerEvent::ResponseOutputAudioTranscriptDone(
@@ -548,7 +548,7 @@ impl Client {
                         transcript,
                     )
                 {
-                    output.text(true, text, None, None)?;
+                    output.text(true, text, None, Some(AI_AGENT_SPEAKER.into()))?;
                 }
             }
             ServerEvent::ConversationItemDeleted(server_event::ConversationItemDeleted {
