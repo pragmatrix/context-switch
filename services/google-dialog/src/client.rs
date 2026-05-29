@@ -280,7 +280,7 @@ impl Client {
 fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
     match output {
         serde_json::Value::Object(_) => output,
-        // Gemini requires functionResponse.response to be a protobuf Struct, i.e. a JSON object.
+        // Gemini requires `functionResponse.response` to be a protobuf struct, i.e. a JSON object.
         value => serde_json::json!({ "result": value }),
     }
 }
