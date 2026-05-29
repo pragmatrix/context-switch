@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use tracing::warn;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TranscriptionSettings {
@@ -77,6 +78,7 @@ impl TranscriptionState {
         (!text.is_empty()).then_some(text)
     }
 
+    #[cfg(feature = "interim-output-text-events")]
     pub fn apply_output_delta(
         &mut self,
         response_id: String,
@@ -101,17 +103,20 @@ impl TranscriptionState {
         transcript: String,
     ) -> Option<String> {
         self.output_transcription_responses.insert(response_id);
-        let key = OutputTranscriptionKey::new(item_id, output_index, content_index);
-        let text = if transcript.is_empty() {
-            self.output_transcription_buffers
-                .remove(&key)
-                .unwrap_or_default()
-        } else {
+        let key = OutputTranscriptionKey::new(item_id.clone(), output_index, content_index);
+        if transcript.is_empty() {
             self.output_transcription_buffers.remove(&key);
-            transcript
-        };
+            warn!(
+                item_id,
+                output_index,
+                content_index,
+                "Received empty output transcript completion; ignoring"
+            );
+            return None;
+        }
 
-        (!text.is_empty()).then_some(text)
+        self.output_transcription_buffers.remove(&key);
+        Some(transcript)
     }
 
     pub fn clear_output_response_tracking(&mut self, response_id: &str) {

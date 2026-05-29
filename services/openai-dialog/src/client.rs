@@ -18,8 +18,8 @@ use uuid::Uuid;
 use crate::transcription::{TranscriptionSettings, TranscriptionState};
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
 use context_switch_core::{
-    AI_AGENT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
-    ConversationInput, ConversationOutput, Input, OutputPath, audio,
+    AI_AGENT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput,
+    ConversationOutput, Input, OutputPath, audio,
 };
 
 pub struct Client {
@@ -446,9 +446,9 @@ impl Client {
                 },
             ) => {
                 if transcription.input {
-                    let text = self
-                        .transcription_state
-                        .apply_input_delta(item_id, content_index, delta);
+                    let text =
+                        self.transcription_state
+                            .apply_input_delta(item_id, content_index, delta);
                     output.text(false, text, None, None)?;
                 }
             }
@@ -470,6 +470,7 @@ impl Client {
                     output.text(true, text, None, None)?;
                 }
             }
+            #[cfg(feature = "interim-output-text-events")]
             ServerEvent::ResponseOutputAudioTranscriptDelta(
                 server_event::ResponseOutputAudioTranscriptDelta {
                     response_id,
@@ -481,12 +482,18 @@ impl Client {
                 },
             ) => {
                 if transcription.output {
-                    let text = self
-                        .transcription_state
-                        .apply_output_delta(response_id, item_id, output_index, content_index, delta);
+                    let text = self.transcription_state.apply_output_delta(
+                        response_id,
+                        item_id,
+                        output_index,
+                        content_index,
+                        delta,
+                    );
                     output.text(false, text, None, Some(AI_AGENT_SPEAKER.into()))?;
                 }
             }
+            #[cfg(not(feature = "interim-output-text-events"))]
+            ServerEvent::ResponseOutputAudioTranscriptDelta(..) => {}
             ServerEvent::ResponseOutputAudioTranscriptDone(
                 server_event::ResponseOutputAudioTranscriptDone {
                     response_id,
