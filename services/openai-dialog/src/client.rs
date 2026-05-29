@@ -472,7 +472,7 @@ impl Client {
             }
             ServerEvent::ResponseOutputAudioTranscriptDelta(
                 server_event::ResponseOutputAudioTranscriptDelta {
-                    response_id,
+                    response_id: _,
                     item_id,
                     output_index,
                     content_index,
@@ -482,7 +482,6 @@ impl Client {
             ) => {
                 if transcription.output {
                     let text = self.transcription_state.apply_output_delta(
-                        response_id,
                         item_id,
                         output_index,
                         content_index,
@@ -493,7 +492,7 @@ impl Client {
             }
             ServerEvent::ResponseOutputAudioTranscriptDone(
                 server_event::ResponseOutputAudioTranscriptDone {
-                    response_id,
+                    response_id: _,
                     item_id,
                     output_index,
                     content_index,
@@ -503,7 +502,6 @@ impl Client {
             ) => {
                 if transcription.output
                     && let Some(text) = self.transcription_state.complete_output_transcription(
-                        response_id,
                         item_id,
                         output_index,
                         content_index,
@@ -539,7 +537,7 @@ impl Client {
             ServerEvent::ResponseDone(server_event::ResponseDone {
                 response:
                     types::Response {
-                        id: response_id,
+                        id: _,
                         object,
                         status,
                         output: items,
@@ -628,9 +626,6 @@ impl Client {
                         self.transcription_state.clear_item(item_id);
                     }
                 }
-
-                self.transcription_state
-                    .clear_output_response_tracking(&response_id);
 
                 if let Some(usage) = usage {
                     let input_details = &usage.input_token_details;

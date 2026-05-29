@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tracing::warn;
 
 #[derive(Debug, Clone, Copy)]
@@ -11,7 +11,6 @@ pub struct TranscriptionSettings {
 pub struct TranscriptionState {
     input_transcription_buffers: HashMap<InputTranscriptionKey, String>,
     output_transcription_buffers: HashMap<OutputTranscriptionKey, String>,
-    output_transcription_responses: HashSet<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -80,13 +79,11 @@ impl TranscriptionState {
 
     pub fn apply_output_delta(
         &mut self,
-        response_id: String,
         item_id: String,
         output_index: u32,
         content_index: u32,
         delta: String,
     ) -> String {
-        self.output_transcription_responses.insert(response_id);
         let key = OutputTranscriptionKey::new(item_id, output_index, content_index);
         let entry = self.output_transcription_buffers.entry(key).or_default();
         entry.push_str(&delta);
@@ -95,13 +92,11 @@ impl TranscriptionState {
 
     pub fn complete_output_transcription(
         &mut self,
-        response_id: String,
         item_id: String,
         output_index: u32,
         content_index: u32,
         transcript: String,
     ) -> Option<String> {
-        self.output_transcription_responses.insert(response_id);
         let key = OutputTranscriptionKey::new(item_id.clone(), output_index, content_index);
         if transcript.is_empty() {
             self.output_transcription_buffers.remove(&key);
@@ -116,10 +111,6 @@ impl TranscriptionState {
 
         self.output_transcription_buffers.remove(&key);
         Some(transcript)
-    }
-
-    pub fn clear_output_response_tracking(&mut self, response_id: &str) {
-        self.output_transcription_responses.remove(response_id);
     }
 
     pub fn clear_item(&mut self, item_id: &str) {
