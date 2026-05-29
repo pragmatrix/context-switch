@@ -470,7 +470,6 @@ impl Client {
                     output.text(true, text, None, None)?;
                 }
             }
-            #[cfg(feature = "interim-output-text-events")]
             ServerEvent::ResponseOutputAudioTranscriptDelta(
                 server_event::ResponseOutputAudioTranscriptDelta {
                     response_id,
@@ -492,8 +491,6 @@ impl Client {
                     output.text(false, text, None, Some(AI_AGENT_SPEAKER.into()))?;
                 }
             }
-            #[cfg(not(feature = "interim-output-text-events"))]
-            ServerEvent::ResponseOutputAudioTranscriptDelta(..) => {}
             ServerEvent::ResponseOutputAudioTranscriptDone(
                 server_event::ResponseOutputAudioTranscriptDone {
                     response_id,

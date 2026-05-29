@@ -6,7 +6,6 @@ edition.workspace = true
 [features]
 default = ["prompt-delay"]
 prompt-delay = []
-interim-output-text-events = []
 
 [dependencies]
 context-switch-core = { workspace = true }

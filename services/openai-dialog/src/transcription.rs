@@ -78,7 +78,6 @@ impl TranscriptionState {
         (!text.is_empty()).then_some(text)
     }
 
-    #[cfg(feature = "interim-output-text-events")]
     pub fn apply_output_delta(
         &mut self,
         response_id: String,
