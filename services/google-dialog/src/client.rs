@@ -196,7 +196,7 @@ impl Client {
                     // Observed with preview Gemini models: transcription events can still arrive
                     // even when transcription is not enabled in setup.
                     warn!(
-                        transcript = %text,
+                        transcript_len = text.len(),
                         "Received output transcription event while output_audio_transcription is disabled (observed with preview model)"
                     );
                 }
