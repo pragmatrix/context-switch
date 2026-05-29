@@ -18,8 +18,8 @@ use uuid::Uuid;
 use crate::transcription::{TranscriptionSettings, TranscriptionState};
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
 use context_switch_core::{
-    AI_AGENT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput,
-    ConversationOutput, Input, OutputPath, audio,
+    AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
+    ConversationInput, ConversationOutput, Input, OutputPath, audio,
 };
 
 pub struct Client {
@@ -487,7 +487,7 @@ impl Client {
                         content_index,
                         delta,
                     );
-                    output.text(false, text, None, Some(AI_AGENT_SPEAKER.into()))?;
+                    output.text(false, text, None, Some(AI_ASSISTANT_SPEAKER.into()))?;
                 }
             }
             ServerEvent::ResponseOutputAudioTranscriptDone(
@@ -508,7 +508,7 @@ impl Client {
                         transcript,
                     )
                 {
-                    output.text(true, text, None, Some(AI_AGENT_SPEAKER.into()))?;
+                    output.text(true, text, None, Some(AI_ASSISTANT_SPEAKER.into()))?;
                 }
             }
             ServerEvent::ConversationItemDeleted(server_event::ConversationItemDeleted {

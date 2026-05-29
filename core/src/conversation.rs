@@ -10,7 +10,7 @@ use crate::{
     billing_context::BillingContext,
 };
 
-pub const AI_AGENT_SPEAKER: &str = "~:ai-agent";
+pub const AI_ASSISTANT_SPEAKER: &str = "~:ai-assistant";
 
 #[derive(Debug)]
 pub struct Conversation {
