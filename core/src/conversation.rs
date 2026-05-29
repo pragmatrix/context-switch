@@ -10,6 +10,8 @@ use crate::{
     billing_context::BillingContext,
 };
 
+pub const AI_ASSISTANT_SPEAKER: &str = "~:ai-assistant";
+
 #[derive(Debug)]
 pub struct Conversation {
     registry: Arc<Registry>,

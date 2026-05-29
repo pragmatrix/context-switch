@@ -1,3 +1,5 @@
+use std::mem;
+
 use anyhow::{Context, Result, anyhow, bail};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
@@ -13,8 +15,8 @@ use tracing::{debug, info, trace, warn};
 use crate::conversation_state::ConversationState;
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
-    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
-    Input, OutputPath,
+    AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
+    ConversationInput, ConversationOutput, Input, OutputPath,
 };
 
 #[derive(Debug)]
@@ -157,36 +159,46 @@ impl Client {
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
-                if text_outputs.text && !state.output_transcription_buffer.is_empty() {
-                    output.text(
-                        true,
-                        std::mem::take(&mut state.output_transcription_buffer),
-                        None,
-                        Some(self.params.model.clone()),
-                    )?;
-                } else {
-                    state.output_transcription_buffer.clear();
-                }
+                self.finalize_output_transcription(text_outputs, output, state)?;
                 output.request_completed(None)?;
             }
             ServerEvent::Interrupted => {
-                state.output_transcription_buffer.clear();
+                // We expect a TurnComplete afterwards, so don't finalize the output transcription
+                // when interrupted.
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
-                if text_outputs.text {
-                    output.text(true, text, None, None)?;
+                if self.params.input_audio_transcription {
+                    if text_outputs.text {
+                        output.text(true, text, None, None)?;
+                    }
+                } else {
+                    // Observed with preview Gemini models: transcription events can still arrive
+                    // even when transcription is not enabled in setup.
+                    warn!(
+                        transcript_len = text.len(),
+                        "Received input transcription event while input_audio_transcription is disabled (observed with preview model)"
+                    );
                 }
             }
             ServerEvent::OutputTranscription(text) => {
-                state.output_transcription_buffer.push_str(&text);
-                if text_outputs.interim {
-                    output.text(
-                        false,
-                        state.output_transcription_buffer.clone(),
-                        None,
-                        Some(self.params.model.clone()),
-                    )?;
+                if self.params.output_audio_transcription {
+                    state.output_transcription_buffer.push_str(&text);
+                    if text_outputs.interim {
+                        output.text(
+                            false,
+                            state.output_transcription_buffer.clone(),
+                            None,
+                            Some(AI_ASSISTANT_SPEAKER.into()),
+                        )?;
+                    }
+                } else {
+                    // Observed with preview Gemini models: transcription events can still arrive
+                    // even when transcription is not enabled in setup.
+                    warn!(
+                        transcript_len = text.len(),
+                        "Received output transcription event while output_audio_transcription is disabled (observed with preview model)"
+                    );
                 }
             }
             ServerEvent::ToolCall(calls) => {
@@ -246,12 +258,26 @@ impl Client {
         }
         Ok(FlowControl::Continue)
     }
+
+    fn finalize_output_transcription(
+        &self,
+        text_outputs: TextOutputs,
+        output: &ConversationOutput,
+        state: &mut ConversationState,
+    ) -> Result<()> {
+        let buffer = mem::take(&mut state.output_transcription_buffer);
+
+        if self.params.output_audio_transcription && text_outputs.text && !buffer.is_empty() {
+            output.text(true, buffer, None, Some(AI_ASSISTANT_SPEAKER.into()))?;
+        }
+        Ok(())
+    }
 }
 
 fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
     match output {
         serde_json::Value::Object(_) => output,
-        // Gemini requires functionResponse.response to be a protobuf Struct, i.e. a JSON object.
+        // Gemini requires `functionResponse.response` to be a protobuf struct, i.e. a JSON object.
         value => serde_json::json!({ "result": value }),
     }
 }

@@ -44,6 +44,8 @@ impl ProviderApi for OpenAIProvider {
             .map(parse_realtime_voice_value)
             .transpose()?;
         params.tools.push(get_time_function_definition());
+        params.input_audio_transcription = true;
+        params.output_audio_transcription = true;
 
         OpenAIDialog.conversation(params, conversation).await
     }
