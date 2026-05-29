@@ -10,11 +10,12 @@ use context_switch_core::{Conversation, Service};
 
 mod client;
 mod host;
+mod transcription;
 mod types;
 
 pub use client::Client;
-use client::TranscriptionSettings;
 pub use host::{Host, Protocol};
+use transcription::TranscriptionSettings;
 pub use types::{Params, ServiceInputEvent, ServiceOutputEvent};
 
 use host::resolve_protocol;
