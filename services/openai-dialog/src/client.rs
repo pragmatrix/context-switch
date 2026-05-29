@@ -559,7 +559,7 @@ impl Client {
                 #[cfg(feature = "prompt-delay")]
                 let mut any_function_call_request = false;
                 for item in items {
-                    debug!("Response Item: {item:?}");
+                    trace!("Response Item: {item:?}");
                     match (&status, &item.r#type, &item.status) {
                         (
                             // For now we process function calls only in the completed response.
