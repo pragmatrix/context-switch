@@ -32,12 +32,14 @@ impl Service for OpenAIDialog {
         let output_format = conversation.require_one_audio_output()?;
         // Architecture: this can be derived further down.
         let has_text_output = conversation.has_one_text_output()?;
-        let output_transcription = has_text_output;
+        let output_transcription = params.output_audio_transcription && has_text_output;
         let input_transcription = params.input_audio_transcription && has_text_output;
-        if !has_text_output && (params.input_audio_transcription || output_transcription) {
+        if !has_text_output
+            && (params.input_audio_transcription || params.output_audio_transcription)
+        {
             warn!(
                 input_audio_transcription = params.input_audio_transcription,
-                output_transcription,
+                output_audio_transcription = params.output_audio_transcription,
                 "Transcription requested without text output modality; transcription output will be suppressed"
             );
         }

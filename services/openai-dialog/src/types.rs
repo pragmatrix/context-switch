@@ -13,6 +13,8 @@ pub struct Params {
     #[serde(default)]
     pub input_audio_transcription: bool,
     #[serde(default)]
+    pub output_audio_transcription: bool,
+    #[serde(default)]
     pub tools: Vec<types::ToolDefinition>,
     pub(crate) tool_choice: Option<ToolChoice>,
 }
@@ -27,6 +29,7 @@ impl Params {
             instructions: None,
             voice: None,
             input_audio_transcription: false,
+            output_audio_transcription: false,
             tools: vec![],
             tool_choice: None,
         }

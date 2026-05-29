@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 #[cfg(feature = "prompt-delay")]
 use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 use base64::prelude::*;
@@ -8,9 +8,7 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use openai_api_rs::realtime::client_event::{self, ClientEvent};
 use openai_api_rs::realtime::server_event::{self, ServerEvent};
-use openai_api_rs::realtime::types::{
-    self, ItemContentType, ItemRole, ItemStatus, ItemType, OutputModality, ResponseStatus,
-};
+use openai_api_rs::realtime::types::{self, ItemStatus, ItemType, OutputModality, ResponseStatus};
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -41,7 +39,41 @@ pub struct TranscriptionSettings {
 
 #[derive(Debug, Default)]
 struct TranscriptionState {
-    input_transcription_buffers: HashMap<(String, u32), String>,
+    input_transcription_buffers: HashMap<InputTranscriptionKey, String>,
+    output_transcription_buffers: HashMap<OutputTranscriptionKey, String>,
+    output_transcription_responses: HashSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct InputTranscriptionKey {
+    item_id: String,
+    content_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct OutputTranscriptionKey {
+    item_id: String,
+    output_index: u32,
+    content_index: u32,
+}
+
+impl InputTranscriptionKey {
+    fn new(item_id: String, content_index: u32) -> Self {
+        Self {
+            item_id,
+            content_index,
+        }
+    }
+}
+
+impl OutputTranscriptionKey {
+    fn new(item_id: String, output_index: u32, content_index: u32) -> Self {
+        Self {
+            item_id,
+            output_index,
+            content_index,
+        }
+    }
 }
 
 #[cfg(feature = "prompt-delay")]
@@ -420,12 +452,6 @@ impl Client {
         transcription: TranscriptionSettings,
     ) -> Result<()> {
         let event_for_log = match &event {
-            ServerEvent::ResponseAudioDelta(delta) => {
-                ServerEvent::ResponseAudioDelta(server_event::ResponseAudioDelta {
-                    delta: "[REMOVED]".to_string(),
-                    ..delta.clone()
-                })
-            }
             ServerEvent::ResponseOutputAudioDelta(delta) => {
                 ServerEvent::ResponseOutputAudioDelta(server_event::ResponseOutputAudioDelta {
                     delta: "[REMOVED]".to_string(),
@@ -444,16 +470,6 @@ impl Client {
 
                 #[cfg(not(feature = "prompt-delay"))]
                 self.handle_server_error(raw, &e)?;
-            }
-            ServerEvent::ResponseAudioDelta(audio_delta) => {
-                let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
-                let samples = audio::from_le_bytes(&decoded);
-                trace!("Sending {} samples", samples.len());
-                let frame = AudioFrame {
-                    format: output_format,
-                    samples,
-                };
-                output.audio_frame(frame)?;
             }
             ServerEvent::ResponseOutputAudioDelta(audio_delta) => {
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
@@ -475,9 +491,8 @@ impl Client {
                 },
             ) => {
                 if transcription.input {
-                    let text =
-                        self.transcription_state
-                            .apply_input_delta(item_id, content_index, delta);
+                    let key = InputTranscriptionKey::new(item_id, content_index);
+                    let text = self.transcription_state.apply_input_delta(key, delta);
                     output.text(false, text, None, None)?;
                 }
             }
@@ -491,8 +506,45 @@ impl Client {
             ) => {
                 if transcription.input
                     && let Some(text) = self.transcription_state.complete_input_transcription(
-                        item_id,
-                        content_index,
+                        InputTranscriptionKey::new(item_id, content_index),
+                        transcript,
+                    )
+                {
+                    output.text(true, text, None, None)?;
+                }
+            }
+            ServerEvent::ResponseOutputAudioTranscriptDelta(
+                server_event::ResponseOutputAudioTranscriptDelta {
+                    response_id,
+                    item_id,
+                    output_index,
+                    content_index,
+                    delta,
+                    ..
+                },
+            ) => {
+                if transcription.output {
+                    let key = OutputTranscriptionKey::new(item_id, output_index, content_index);
+                    let text = self
+                        .transcription_state
+                        .apply_output_delta(response_id, key, delta);
+                    output.text(false, text, None, None)?;
+                }
+            }
+            ServerEvent::ResponseOutputAudioTranscriptDone(
+                server_event::ResponseOutputAudioTranscriptDone {
+                    response_id,
+                    item_id,
+                    output_index,
+                    content_index,
+                    transcript,
+                    ..
+                },
+            ) => {
+                if transcription.output
+                    && let Some(text) = self.transcription_state.complete_output_transcription(
+                        response_id,
+                        OutputTranscriptionKey::new(item_id, output_index, content_index),
                         transcript,
                     )
                 {
@@ -525,6 +577,7 @@ impl Client {
             ServerEvent::ResponseDone(server_event::ResponseDone {
                 response:
                     types::Response {
+                        id: response_id,
                         object,
                         status,
                         output: items,
@@ -533,16 +586,21 @@ impl Client {
                     },
                 ..
             }) if object == "realtime.response" => {
+                // Kept for potential rollback/debugging, but intentionally disabled.
+                // let output_transcript_events_seen = self
+                //     .transcription_state
+                //     .has_output_transcript_events_for_response(&response_id);
+
                 #[cfg(feature = "prompt-delay")]
                 let mut any_function_call_request = false;
                 for item in items {
-                    match (&status, &item.r#type, &item.status, &item.role) {
+                    debug!("Response Item: {item:?}");
+                    match (&status, &item.r#type, &item.status) {
                         (
                             // For now we process function calls only in the completed response.
                             ResponseStatus::Completed,
                             Some(ItemType::FunctionCall),
                             Some(ItemStatus::Completed),
-                            ..,
                         ) => {
                             let (Some(name), Some(call_id)) = (&item.name, &item.call_id) else {
                                 continue;
@@ -579,28 +637,38 @@ impl Client {
                                 any_function_call_request = true;
                             }
                         }
-                        (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
-                            if transcription.output =>
-                        {
-                            for transcript in item
-                                .content
-                                .into_iter()
-                                .flatten()
-                                .filter(|c| c.r#type == ItemContentType::Audio)
-                                .filter_map(|c| c.transcript)
-                            {
-                                // Even though we receive partial text (because of a turn, this is not a
-                                // classic non-final, because non-final text is always overwritten with
-                                // a more refined text later, this isn't)
-                                info!("output text: {transcript}");
-                                output.text(true, transcript, None, None)?;
-                            }
-                        }
+                        // Disabled fallback path: ignore transcript fields in `realtime.response`
+                        // and only finalize via `response.output_audio_transcript.done`.
+                        //
+                        // (_, Some(types::ItemType::Message), _, Some(ItemRole::Assistant))
+                        //     if transcription.output && !output_transcript_events_seen =>
+                        // {
+                        //     for transcript in item
+                        //         .content
+                        //         .into_iter()
+                        //         .flatten()
+                        //         .filter(|c| c.r#type == ItemContentType::OutputAudio)
+                        //         .filter_map(|c| c.transcript)
+                        //     {
+                        //         // Even though we receive partial text (because of a turn, this is not a
+                        //         // classic non-final, because non-final text is always overwritten with
+                        //         // a more refined text later, this isn't)
+                        //         info!("Output text: {transcript}");
+                        //         output.text(true, transcript, None, None)?;
+                        //     }
+                        // }
                         _ => {
-                            debug!("Unprocessed item: {item:?}")
+                            trace!("Unprocessed response item: {item:?}")
                         }
                     }
+
+                    if let Some(item_id) = item.id.as_deref() {
+                        self.transcription_state.clear_item(item_id);
+                    }
                 }
+
+                self.transcription_state
+                    .clear_output_response_tracking(&response_id);
 
                 if let Some(usage) = usage {
                     let input_details = &usage.input_token_details;
@@ -677,22 +745,17 @@ impl Client {
 }
 
 impl TranscriptionState {
-    fn apply_input_delta(&mut self, item_id: String, content_index: u32, delta: String) -> String {
-        let entry = self
-            .input_transcription_buffers
-            .entry((item_id, content_index))
-            .or_default();
+    fn apply_input_delta(&mut self, key: InputTranscriptionKey, delta: String) -> String {
+        let entry = self.input_transcription_buffers.entry(key).or_default();
         entry.push_str(&delta);
         entry.clone()
     }
 
     fn complete_input_transcription(
         &mut self,
-        item_id: String,
-        content_index: u32,
+        key: InputTranscriptionKey,
         transcript: String,
     ) -> Option<String> {
-        let key = (item_id, content_index);
         let text = if transcript.is_empty() {
             self.input_transcription_buffers
                 .remove(&key)
@@ -705,14 +768,54 @@ impl TranscriptionState {
         (!text.is_empty()).then_some(text)
     }
 
+    fn apply_output_delta(
+        &mut self,
+        response_id: String,
+        key: OutputTranscriptionKey,
+        delta: String,
+    ) -> String {
+        self.output_transcription_responses.insert(response_id);
+        let entry = self.output_transcription_buffers.entry(key).or_default();
+        entry.push_str(&delta);
+        entry.clone()
+    }
+
+    fn complete_output_transcription(
+        &mut self,
+        response_id: String,
+        key: OutputTranscriptionKey,
+        transcript: String,
+    ) -> Option<String> {
+        self.output_transcription_responses.insert(response_id);
+        let text = if transcript.is_empty() {
+            self.output_transcription_buffers
+                .remove(&key)
+                .unwrap_or_default()
+        } else {
+            self.output_transcription_buffers.remove(&key);
+            transcript
+        };
+
+        (!text.is_empty()).then_some(text)
+    }
+
+    fn clear_output_response_tracking(&mut self, response_id: &str) {
+        self.output_transcription_responses.remove(response_id);
+    }
+
     fn clear_item(&mut self, item_id: &str) {
         self.input_transcription_buffers
-            .retain(|(buffer_item_id, _), _| buffer_item_id != item_id);
+            .retain(|buffer_key, _| buffer_key.item_id != item_id);
+        self.output_transcription_buffers
+            .retain(|buffer_key, _| buffer_key.item_id != item_id);
     }
 
     fn clear_content_index(&mut self, item_id: String, content_index: u32) {
-        self.input_transcription_buffers
-            .remove(&(item_id, content_index));
+        let key = InputTranscriptionKey::new(item_id.clone(), content_index);
+        self.input_transcription_buffers.remove(&key);
+        self.output_transcription_buffers.retain(|buffer_key, _| {
+            buffer_key.item_id != item_id || buffer_key.content_index != content_index
+        });
     }
 }
 
