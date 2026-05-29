@@ -165,9 +165,6 @@ impl Client {
             ServerEvent::Interrupted => {
                 // We expect a TurnComplete afterwards, so don't finalize the output transcription
                 // when interrupted.
-                //
-                // spellcheck: ignore
-                // self.finalize_output_transcription(text_outputs, output, state)?;
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
