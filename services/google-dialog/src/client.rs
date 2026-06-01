@@ -19,6 +19,8 @@ use context_switch_core::{
     ConversationInput, ConversationOutput, Input, OutputPath,
 };
 
+const INPUT_VAD_PEAK_THRESHOLD: u16 = 900;
+
 #[derive(Debug)]
 pub struct Client {
     params: Params,
@@ -37,7 +39,7 @@ impl Client {
         output: ConversationOutput,
     ) -> Result<()> {
         let billing_scope = self.params.model.clone();
-        let mut state = ConversationState::new();
+        let mut state = ConversationState::new(output.clone());
         let mut session = match Session::connect(session_config(&self.params, text_outputs)?).await
         {
             Ok(session) => session,
@@ -90,6 +92,11 @@ impl Client {
         match input {
             Input::Audio { frame } => {
                 let mono = frame.into_mono();
+                if state.segment_controller.is_idle()
+                    && has_voice_activity(&mono.samples)
+                {
+                    state.segment_controller.begin_user_speech()?;
+                }
                 let sample_rate = mono.format.sample_rate;
                 let audio = mono.to_le_bytes();
                 session
@@ -104,12 +111,17 @@ impl Client {
                     .context("Sending text to Gemini Live")?;
             }
             Input::ServiceEvent { value } => match serde_json::from_value(value)? {
-                ServiceInputEvent::FunctionCallResult { call_id, output } => {
+                ServiceInputEvent::FunctionCallResult {
+                    call_id,
+                    output: function_output,
+                } => {
                     let Some(name) = state.tool_calls.resolve(&call_id)? else {
                         return Ok(());
                     };
 
-                    let response = normalize_function_response(output);
+                    state.segment_controller.end_function_wait(&call_id)?;
+
+                    let response = normalize_function_response(function_output);
 
                     let response = FunctionResponse {
                         id: call_id,
@@ -154,20 +166,32 @@ impl Client {
                 debug!(%text, "Gemini model text");
             }
             ServerEvent::ModelAudio(audio) => {
+                if !state.suppress_assistant_until_turn_complete {
+                    state.segment_controller.begin_assistant_speech()?;
+                }
+
                 let frame = AudioFrame::from_le_bytes(output_format, &audio);
                 output.audio_frame(frame)?;
             }
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
                 self.finalize_output_transcription(text_outputs, output, state)?;
+                state.segment_controller.become_idle()?;
+                state.suppress_assistant_until_turn_complete = false;
                 output.request_completed(None)?;
             }
             ServerEvent::Interrupted => {
                 // We expect a TurnComplete afterwards, so don't finalize the output transcription
                 // when interrupted.
+                state.segment_controller.begin_user_speech()?;
+                state.suppress_assistant_until_turn_complete = true;
                 output.clear_audio()?;
             }
             ServerEvent::InputTranscription(text) => {
+                if state.segment_controller.is_idle() {
+                    state.segment_controller.begin_user_speech()?;
+                }
+
                 if self.params.input_audio_transcription {
                     if text_outputs.text {
                         output.text(true, text, None, None)?;
@@ -183,6 +207,9 @@ impl Client {
             }
             ServerEvent::OutputTranscription(text) => {
                 if self.params.output_audio_transcription {
+                    if !state.suppress_assistant_until_turn_complete {
+                        state.segment_controller.begin_assistant_speech()?;
+                    }
                     state.output_transcription_buffer.push_str(&text);
                     if text_outputs.interim {
                         output.text(
@@ -202,6 +229,9 @@ impl Client {
                 }
             }
             ServerEvent::ToolCall(calls) => {
+                self.finalize_output_transcription(text_outputs, output, state)?;
+
+                let mut call_ids = Vec::new();
                 for call in calls {
                     // Send the function call via the media path.
                     //
@@ -220,8 +250,11 @@ impl Client {
                         },
                     )?;
 
+                    call_ids.push(call.id.clone());
                     state.tool_calls.register(call.id, call.name)?;
                 }
+
+                state.segment_controller.begin_function_wait(call_ids)?;
             }
             ServerEvent::ToolCallCancellation(ids) => {
                 // Since we are sending function calls through the media path, we need to send
@@ -234,7 +267,9 @@ impl Client {
                         },
                     )?;
 
-                    state.tool_calls.cancel(id)?;
+                    state.tool_calls.cancel(id.clone())?;
+
+                    state.segment_controller.end_function_wait(&id)?;
                 }
             }
             ServerEvent::SessionResumption { .. } => {}
@@ -268,6 +303,9 @@ impl Client {
         let buffer = mem::take(&mut state.output_transcription_buffer);
 
         if self.params.output_audio_transcription && text_outputs.text && !buffer.is_empty() {
+            if !state.suppress_assistant_until_turn_complete {
+                state.segment_controller.begin_assistant_speech()?;
+            }
             output.text(true, buffer, None, Some(AI_ASSISTANT_SPEAKER.into()))?;
         }
         Ok(())
@@ -280,6 +318,12 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
         // Gemini requires `functionResponse.response` to be a protobuf struct, i.e. a JSON object.
         value => serde_json::json!({ "result": value }),
     }
+}
+
+fn has_voice_activity(samples: &[i16]) -> bool {
+    samples
+        .iter()
+        .any(|sample| sample.unsigned_abs() >= INPUT_VAD_PEAK_THRESHOLD)
 }
 
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {

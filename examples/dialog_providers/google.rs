@@ -50,6 +50,10 @@ impl ProviderApi for GoogleProvider {
 
     fn parse_service_event(&self, value: serde_json::Value) -> Result<Option<FunctionCall>> {
         match serde_json::from_value(value)? {
+            ServiceOutputEvent::SegmentStarted { segment } => {
+                tracing::info!(?segment, "Gemini segment started");
+                Ok(None)
+            }
             ServiceOutputEvent::FunctionCall {
                 name,
                 call_id,

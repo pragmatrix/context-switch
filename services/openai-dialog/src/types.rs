@@ -1,4 +1,5 @@
 use openai_api_rs::realtime::types::{self, RealtimeVoice, ToolChoice};
+use context_switch_core::Segment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,6 +65,8 @@ pub enum ServiceInputEvent {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ServiceOutputEvent {
     #[serde(rename_all = "camelCase")]
+    SegmentStarted { segment: Segment },
+    #[serde(rename_all = "camelCase")]
     FunctionCall {
         call_id: String,
         name: String,
@@ -76,4 +79,11 @@ pub enum ServiceOutputEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<types::ToolDefinition>>,
     },
+}
+
+impl ServiceOutputEvent {
+    pub fn segment_started_json(segment: Segment) -> serde_json::Value {
+        serde_json::to_value(Self::SegmentStarted { segment })
+            .expect("SegmentStarted serialization must succeed")
+    }
 }

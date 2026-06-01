@@ -1,5 +1,6 @@
 #[cfg(feature = "prompt-delay")]
 use std::collections::VecDeque;
+use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
 use base64::prelude::*;
@@ -19,13 +20,15 @@ use crate::transcription::{TranscriptionSettings, TranscriptionState};
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
-    ConversationInput, ConversationOutput, Input, OutputPath, audio,
+    ConversationInput, ConversationOutput, Input, OutputPath, SegmentController, audio,
 };
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    segment_controller: Option<SegmentController>,
     transcription_state: TranscriptionState,
+    pending_input_processing_item_ids: HashSet<String>,
 
     #[cfg(feature = "prompt-delay")]
     prompt_coordinator: PromptCoordinator,
@@ -54,7 +57,9 @@ impl Client {
         Self {
             read,
             write,
+            segment_controller: None,
             transcription_state: TranscriptionState::default(),
+            pending_input_processing_item_ids: HashSet::new(),
             #[cfg(feature = "prompt-delay")]
             prompt_coordinator: PromptCoordinator::new(),
         }
@@ -93,6 +98,11 @@ impl Client {
         Self::verify_session_created_event(message)?;
 
         debug!("Session created");
+
+        self.segment_controller = Some(SegmentController::new(
+            output.clone(),
+            ServiceOutputEvent::segment_started_json,
+        ));
 
         {
             let mut send_update = false;
@@ -283,6 +293,12 @@ impl Client {
         Ok(())
     }
 
+    fn segment_controller(&mut self) -> &mut SegmentController {
+        self.segment_controller
+            .as_mut()
+            .expect("segment controller must be initialized in dialog()")
+    }
+
     async fn process_input(&mut self, input: Input) -> Result<()> {
         match input {
             Input::Text { .. } => {
@@ -427,6 +443,7 @@ impl Client {
                 self.handle_server_error(raw, &e)?;
             }
             ServerEvent::ResponseOutputAudioDelta(audio_delta) => {
+                self.segment_controller().begin_assistant_speech()?;
                 let decoded = BASE64_STANDARD.decode(audio_delta.delta)?;
                 let samples = audio::from_le_bytes(&decoded);
                 trace!("Sending {} samples", samples.len());
@@ -436,7 +453,19 @@ impl Client {
                 };
                 output.audio_frame(frame)?;
             }
-            ServerEvent::InputAudioBufferSpeechStarted(_) => output.clear_audio()?,
+            ServerEvent::InputAudioBufferSpeechStarted(_) => {
+                self.segment_controller().begin_user_speech()?;
+                output.clear_audio()?;
+            }
+            ServerEvent::InputAudioBufferSpeechStopped(
+                server_event::InputAudioBufferSpeechStopped { item_id, .. },
+            ) => {
+                if transcription.input {
+                    self.pending_input_processing_item_ids.insert(item_id);
+                } else {
+                    self.segment_controller().begin_processing()?;
+                }
+            }
             ServerEvent::ConversationItemInputAudioTranscriptionDelta(
                 server_event::ConversationItemInputAudioTranscriptionDelta {
                     item_id,
@@ -460,6 +489,7 @@ impl Client {
                     ..
                 },
             ) => {
+                let processing_item_id = item_id.clone();
                 if transcription.input
                     && let Some(text) = self.transcription_state.complete_input_transcription(
                         item_id,
@@ -468,6 +498,12 @@ impl Client {
                     )
                 {
                     output.text(true, text, None, None)?;
+                }
+                if self
+                    .pending_input_processing_item_ids
+                    .remove(&processing_item_id)
+                {
+                    self.segment_controller().begin_processing()?;
                 }
             }
             ServerEvent::ResponseOutputAudioTranscriptDelta(
@@ -516,6 +552,7 @@ impl Client {
                 ..
             }) => {
                 self.transcription_state.clear_item(&item_id);
+                self.pending_input_processing_item_ids.remove(&item_id);
             }
             ServerEvent::ConversationItemTruncated(server_event::ConversationItemTruncated {
                 item_id,
@@ -529,6 +566,9 @@ impl Client {
                 response: types::Response { object, .. },
                 ..
             }) if object == "realtime.response" => {
+                self.pending_input_processing_item_ids.clear();
+                self.segment_controller().begin_processing()?;
+
                 #[cfg(feature = "prompt-delay")]
                 self.prompt_coordinator
                     .update_response_state(&mut self.write, ResponseState::Responding)
@@ -551,8 +591,7 @@ impl Client {
                 //     .transcription_state
                 //     .has_output_transcript_events_for_response(&response_id);
 
-                #[cfg(feature = "prompt-delay")]
-                let mut any_function_call_request = false;
+                let mut function_call_ids = Vec::new();
                 for item in items {
                     trace!("Response Item: {item:?}");
                     match (&status, &item.r#type, &item.status) {
@@ -592,10 +631,7 @@ impl Client {
                                     arguments,
                                 },
                             )?;
-                            #[cfg(feature = "prompt-delay")]
-                            {
-                                any_function_call_request = true;
-                            }
+                            function_call_ids.push(call_id.clone());
                         }
                         // Disabled fallback path: ignore transcript fields in `realtime.response`
                         // and only finalize via `response.output_audio_transcript.done`.
@@ -625,6 +661,11 @@ impl Client {
                     if let Some(item_id) = item.id.as_deref() {
                         self.transcription_state.clear_item(item_id);
                     }
+                }
+
+                if !function_call_ids.is_empty() {
+                    self.segment_controller()
+                        .begin_function_wait(function_call_ids.clone())?;
                 }
 
                 if let Some(usage) = usage {
@@ -667,12 +708,16 @@ impl Client {
                     )?;
                 }
 
+                if function_call_ids.is_empty() {
+                    self.segment_controller().become_idle()?;
+                }
+
                 #[cfg(feature = "prompt-delay")]
                 {
                     self.prompt_coordinator
                         .update_response_state(
                             &mut self.write,
-                            if any_function_call_request {
+                            if !function_call_ids.is_empty() {
                                 ResponseState::ExpectingFunctionResult
                             } else {
                                 ResponseState::Idle

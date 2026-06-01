@@ -1,11 +1,16 @@
 use std::collections::hash_map;
 
 use anyhow::{Result, bail};
+use context_switch_core::{ConversationOutput, SegmentController};
 use tracing::warn;
+
+use crate::ServiceOutputEvent;
 
 #[derive(Debug)]
 pub struct ConversationState {
     pub output_transcription_buffer: String,
+    pub segment_controller: SegmentController,
+    pub suppress_assistant_until_turn_complete: bool,
     pub tool_calls: ToolCallTracker,
 }
 
@@ -21,9 +26,14 @@ enum ToolCallEntry {
 }
 
 impl ConversationState {
-    pub fn new() -> Self {
+    pub fn new(output: ConversationOutput) -> Self {
         Self {
             output_transcription_buffer: String::new(),
+            segment_controller: SegmentController::new(
+                output,
+                ServiceOutputEvent::segment_started_json,
+            ),
+            suppress_assistant_until_turn_complete: false,
             tool_calls: ToolCallTracker::default(),
         }
     }

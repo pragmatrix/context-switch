@@ -52,6 +52,10 @@ impl ProviderApi for OpenAIProvider {
 
     fn parse_service_event(&self, value: serde_json::Value) -> Result<Option<FunctionCall>> {
         match serde_json::from_value(value)? {
+            OpenAIServiceOutputEvent::SegmentStarted { segment } => {
+                tracing::info!(?segment, "OpenAI segment started");
+                Ok(None)
+            }
             OpenAIServiceOutputEvent::FunctionCall {
                 name,
                 call_id,
