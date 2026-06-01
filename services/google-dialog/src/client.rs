@@ -160,6 +160,7 @@ impl Client {
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
                 self.finalize_output_transcription(text_outputs, output, state)?;
+                output.service_event(OutputPath::Media, ServiceOutputEvent::TurnComplete)?;
             }
             ServerEvent::Interrupted => {
                 // We expect a TurnComplete afterward, so don't finalize the output transcription

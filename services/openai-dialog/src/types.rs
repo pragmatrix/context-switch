@@ -76,4 +76,5 @@ pub enum ServiceOutputEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<types::ToolDefinition>>,
     },
+    TurnComplete,
 }

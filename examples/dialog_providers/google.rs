@@ -59,6 +59,10 @@ impl ProviderApi for GoogleProvider {
                 call_id,
                 arguments: Some(arguments),
             })),
+            ServiceOutputEvent::TurnComplete => {
+                tracing::info!("Turn complete");
+                Ok(None)
+            }
             ServiceOutputEvent::ToolCallCancellation { call_id } => {
                 tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
