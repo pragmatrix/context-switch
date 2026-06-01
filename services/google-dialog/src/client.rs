@@ -160,10 +160,10 @@ impl Client {
             ServerEvent::GenerationComplete => {}
             ServerEvent::TurnComplete => {
                 self.finalize_output_transcription(text_outputs, output, state)?;
-                output.request_completed(None)?;
+                output.service_event(OutputPath::Media, ServiceOutputEvent::TurnComplete)?;
             }
             ServerEvent::Interrupted => {
-                // We expect a TurnComplete afterwards, so don't finalize the output transcription
+                // We expect a TurnComplete afterward, so don't finalize the output transcription
                 // when interrupted.
                 output.clear_audio()?;
             }
@@ -277,7 +277,7 @@ impl Client {
 fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
     match output {
         serde_json::Value::Object(_) => output,
-        // Gemini requires `functionResponse.response` to be a protobuf struct, i.e. a JSON object.
+        // Gemini requires `functionResponse.response` to be a JSON object.
         value => serde_json::json!({ "result": value }),
     }
 }

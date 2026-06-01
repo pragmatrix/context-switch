@@ -61,6 +61,10 @@ impl ProviderApi for OpenAIProvider {
                 call_id,
                 arguments,
             })),
+            OpenAIServiceOutputEvent::TurnComplete => {
+                tracing::info!("Turn complete");
+                Ok(None)
+            }
             OpenAIServiceOutputEvent::SessionUpdated { tools } => {
                 tracing::info!("Session updated: {tools:?}");
                 Ok(None)

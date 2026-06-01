@@ -183,7 +183,10 @@ pub enum ServiceOutputEvent {
         arguments: serde_json::Value,
     },
     #[serde(rename_all = "camelCase")]
-    ToolCallCancellation { call_id: String },
+    ToolCallCancellation {
+        call_id: String,
+    },
+    TurnComplete,
 }
 
 #[cfg(test)]

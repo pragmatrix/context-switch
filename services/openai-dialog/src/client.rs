@@ -667,6 +667,8 @@ impl Client {
                     )?;
                 }
 
+                output.service_event(OutputPath::Media, ServiceOutputEvent::TurnComplete)?;
+
                 #[cfg(feature = "prompt-delay")]
                 {
                     self.prompt_coordinator
