@@ -6,6 +6,7 @@ mod duration;
 pub mod language;
 mod protocol;
 mod registry;
+mod segment;
 pub mod service;
 pub mod speech_gate;
 
@@ -19,6 +20,7 @@ pub use conversation::*;
 pub use duration::Duration;
 pub use protocol::*;
 pub use registry::*;
+pub use segment::*;
 pub use service::Service;
 
 /// A unidirectional audio message. Useful for implementing an audio transfer channel.

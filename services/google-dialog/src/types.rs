@@ -1,4 +1,5 @@
 use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
+use context_switch_core::Segment;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use anyhow::{Result, bail};
@@ -177,6 +178,8 @@ pub enum ServiceInputEvent {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ServiceOutputEvent {
     #[serde(rename_all = "camelCase")]
+    SegmentStarted { segment: Segment },
+    #[serde(rename_all = "camelCase")]
     FunctionCall {
         call_id: String,
         name: String,
@@ -184,6 +187,13 @@ pub enum ServiceOutputEvent {
     },
     #[serde(rename_all = "camelCase")]
     ToolCallCancellation { call_id: String },
+}
+
+impl ServiceOutputEvent {
+    pub fn segment_started_json(segment: Segment) -> serde_json::Value {
+        serde_json::to_value(Self::SegmentStarted { segment })
+            .expect("SegmentStarted serialization must succeed")
+    }
 }
 
 #[cfg(test)]
