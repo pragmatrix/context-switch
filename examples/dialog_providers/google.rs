@@ -119,7 +119,6 @@ impl ProviderApi for GoogleProvider {
             );
             println!("- Try explicitly using a known Live model, for example:");
             println!("  - models/gemini-3.1-flash-live-preview");
-            println!("  - models/gemini-2.5-flash-live-preview");
         } else {
             for model in live_models {
                 println!("- {model}");

@@ -360,10 +360,13 @@ pub fn check_supported_audio_type(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
+    use context_switch_core::AudioFormat;
     use rstest::rstest;
     use url::Url;
 
-    use crate::{AudioType, check_supported_audio_type};
+    use crate::{AudioType, check_supported_audio_type, read_to_frames};
 
     #[rstest]
     #[case("http://test.wav", false)]
@@ -394,5 +397,48 @@ mod tests {
         let result = check_supported_audio_type(url.path(), Some(mime));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn pcm_wav_decodes_to_audio_frames() {
+        let sample_rate = 24_000;
+        let format = AudioFormat::new(1, sample_rate);
+        let samples = vec![0; sample_rate as usize / 10];
+        let wav = pcm_wav(sample_rate, &samples);
+
+        let frames = read_to_frames(Cursor::new(wav), format).expect("valid PCM WAV should decode");
+
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].format, format);
+        assert_eq!(frames[0].samples.len(), samples.len());
+    }
+
+    fn pcm_wav(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
+        let channel_count = 1u16;
+        let bits_per_sample = 16u16;
+        let bytes_per_sample = bits_per_sample / 8;
+        let data_len = samples.len() as u32 * bytes_per_sample as u32;
+        let chunk_len = 36 + data_len;
+        let byte_rate = sample_rate * channel_count as u32 * bytes_per_sample as u32;
+        let block_align = channel_count * bytes_per_sample;
+
+        let mut wav = Vec::with_capacity(44 + data_len as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&chunk_len.to_le_bytes());
+        wav.extend_from_slice(b"WAVE");
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&channel_count.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&byte_rate.to_le_bytes());
+        wav.extend_from_slice(&block_align.to_le_bytes());
+        wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        for sample in samples {
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+        wav
     }
 }
