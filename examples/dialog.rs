@@ -22,11 +22,6 @@ use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, 
 mod dialog_providers;
 
 #[derive(Debug, Parser)]
-// Provider-specific arguments:
-// - openai: --endpoint, --model, --voice
-// - azure-openai: --endpoint, --model, --voice
-// - google: --endpoint, --model, --voice
-// - google-agent-platform: --endpoint, --model, --voice, --project, --location
 struct Cli {
     #[arg(value_enum)]
     provider: Provider,

@@ -19,6 +19,8 @@ use context_switch_core::{
     ConversationInput, ConversationOutput, Input, OutputPath,
 };
 
+const LEGACY_TOOL_CALL_ID: &str = "legacy-tool-call";
+
 #[derive(Debug)]
 pub struct Client {
     params: Params,
@@ -110,9 +112,14 @@ impl Client {
                     };
 
                     let response = normalize_function_response(output);
+                    let response_call_id = if call_id == LEGACY_TOOL_CALL_ID {
+                        None
+                    } else {
+                        Some(call_id)
+                    };
 
                     let response = FunctionResponse {
-                        id: call_id,
+                        id: response_call_id,
                         name,
                         response,
                     };
@@ -203,6 +210,12 @@ impl Client {
             }
             ServerEvent::ToolCall(calls) => {
                 for call in calls {
+                    let call_id = if let Some(response_call_id) = call.id.filter(|id| !id.trim().is_empty()) {
+                        response_call_id
+                    } else {
+                        LEGACY_TOOL_CALL_ID.to_owned()
+                    };
+
                     // Send the function call via the media path.
                     //
                     // This means that audio scheduled before will finish playing before
@@ -214,13 +227,15 @@ impl Client {
                     output.service_event(
                         OutputPath::Media,
                         ServiceOutputEvent::FunctionCall {
-                            call_id: call.id.clone(),
+                            call_id: call_id.clone(),
                             name: call.name.clone(),
                             arguments: call.args,
                         },
                     )?;
 
-                    state.tool_calls.register(call.id, call.name)?;
+                    state
+                        .tool_calls
+                        .register(call_id, call.name)?;
                 }
             }
             ServerEvent::ToolCallCancellation(ids) => {

@@ -3,7 +3,9 @@ use std::env;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use gemini_live::types as gemini_types;
-use google_dialog::{GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent, ServiceOutputEvent};
+use google_dialog::{
+    GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent, ServiceOutputEvent,
+};
 use serde_json::json;
 
 use context_switch_core::{AudioFormat, Conversation, Service};
@@ -12,6 +14,8 @@ use super::{ListModelsRequest, ProviderApi, StartConversationRequest};
 use crate::{FunctionCall, get_time_parameters_schema};
 
 pub struct GoogleAgentPlatformProvider;
+
+pub const DEFAULT_MODEL: &str = "gemini-live-2.5-flash-native-audio";
 
 #[async_trait(?Send)]
 impl ProviderApi for GoogleAgentPlatformProvider {
@@ -40,7 +44,7 @@ impl ProviderApi for GoogleAgentPlatformProvider {
             .model
             .or_else(|| env::var("GEMINI_LIVE_API_MODEL").ok())
             .filter(|model| !model.trim().is_empty())
-            .unwrap_or_else(|| "gemini-3.1-flash-live-preview".to_owned());
+            .unwrap_or_else(|| DEFAULT_MODEL.to_owned());
 
         let endpoint = request.endpoint.filter(|endpoint| !endpoint.trim().is_empty()).unwrap_or_else(|| {
             format!(
