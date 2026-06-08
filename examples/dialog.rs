@@ -22,6 +22,11 @@ use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, 
 mod dialog_providers;
 
 #[derive(Debug, Parser)]
+// Provider-specific arguments:
+// - openai: --endpoint, --model, --voice
+// - azure-openai: --endpoint, --model, --voice
+// - google: --endpoint, --model, --voice
+// - google-agent-platform: --endpoint, --model, --voice, --project, --location
 struct Cli {
     #[arg(value_enum)]
     provider: Provider,
@@ -35,6 +40,12 @@ struct Cli {
     model: Option<String>,
     #[arg(long)]
     voice: Option<String>,
+    /// Used only with provider `google-agent-platform`.
+    #[arg(long)]
+    project: Option<String>,
+    /// Used only with provider `google-agent-platform`.
+    #[arg(long)]
+    location: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -44,6 +55,8 @@ enum Provider {
     #[value(name = "azure-openai")]
     AzureOpenAI,
     Google,
+    #[value(name = "google-agent-platform")]
+    GoogleAgentPlatform,
 }
 
 impl Provider {
@@ -214,6 +227,8 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
         endpoint: cli.endpoint.clone(),
         model: cli.model.clone(),
         voice: cli.voice.clone(),
+        project: cli.project.clone(),
+        location: cli.location.clone(),
     };
     cli.provider
         .api()

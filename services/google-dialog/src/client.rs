@@ -13,7 +13,7 @@ use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
 use tracing::{debug, info, trace, warn};
 
 use crate::conversation_state::ConversationState;
-use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
+use crate::{Auth as ParamsAuth, Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
     ConversationInput, ConversationOutput, Input, OutputPath,
@@ -283,13 +283,18 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
 }
 
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
+    let auth = match params.auth {
+        ParamsAuth::ApiKey => Auth::ApiKey(params.api_key.clone()),
+        ParamsAuth::GoogleApplicationDefaultCredentials => Auth::vertex_ai_application_default()?,
+    };
+
     let transport = TransportConfig {
         endpoint: params
-            .host
+            .endpoint
             .clone()
             .map(Endpoint::Custom)
             .unwrap_or_default(),
-        auth: Auth::ApiKey(params.api_key.clone()),
+        auth,
         ..Default::default()
     };
 
@@ -376,7 +381,7 @@ fn connect_error_with_voice_context(params: &Params, error: SessionError) -> any
 }
 
 fn model_resource_name(model: &str) -> String {
-    if model.starts_with("models/") {
+    if model.starts_with("projects/") || model.starts_with("models/") {
         model.to_owned()
     } else {
         format!("models/{model}")

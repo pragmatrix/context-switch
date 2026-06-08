@@ -16,7 +16,8 @@ use context_switch_core::{
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
-    pub host: Option<String>,
+    #[serde(alias = "host")]
+    pub endpoint: Option<String>,
     pub region: Option<String>,
     pub subscription_key: String,
     pub language: String,
@@ -39,12 +40,12 @@ impl Service for AzureTranscribe {
 
         // Host / Auth is lightweight, so we can create this every time.
         let host = {
-            if let Some(host) = params.host {
-                Host::from_host(host, params.subscription_key)?
+            if let Some(endpoint) = params.endpoint {
+                Host::from_host(endpoint, params.subscription_key)?
             } else if let Some(region) = params.region {
                 Host::from_subscription(region, params.subscription_key)?
             } else {
-                bail!("Neither host nor region defined in params");
+                bail!("Neither endpoint nor region defined in params");
             }
         };
 

@@ -48,10 +48,10 @@ impl Service for OpenAIDialog {
             bail!("Input and output audio formats must match for OpenAI dialog service");
         }
 
-        let protocol = resolve_protocol(params.protocol, params.host.as_deref())?;
+        let protocol = resolve_protocol(params.protocol, params.endpoint.as_deref())?;
 
-        let host = if let Some(host) = &params.host {
-            Host::new_with_host(host, &params.api_key, &params.model, protocol)
+        let host = if let Some(endpoint) = &params.endpoint {
+            Host::new_with_host(endpoint, &params.api_key, &params.model, protocol)
         } else {
             Host::new(&params.api_key, &params.model, protocol)
         };

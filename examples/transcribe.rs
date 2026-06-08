@@ -239,7 +239,9 @@ async fn start_conversation(
                 bail!("--region is only supported for the google provider");
             }
             let params = azure::transcribe::Params {
-                host: env::var("AZURE_HOST").ok(),
+                endpoint: env::var("AZURE_ENDPOINT")
+                    .ok()
+                    .or_else(|| env::var("AZURE_HOST").ok()),
                 region: env::var("AZURE_REGION").ok(),
                 subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
                     .expect("AZURE_SUBSCRIPTION_KEY undefined"),
@@ -265,7 +267,7 @@ async fn start_conversation(
             let params = elevenlabs::transcribe::Params {
                 api_key: env::var("ELEVENLABS_API_KEY").expect("ELEVENLABS_API_KEY undefined"),
                 model: None,
-                host: None,
+                endpoint: None,
                 language,
                 include_language_detection: Some(false),
                 vad_silence_threshold_secs: None,

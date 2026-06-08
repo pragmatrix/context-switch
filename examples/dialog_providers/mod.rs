@@ -15,6 +15,8 @@ pub struct StartConversationRequest {
     pub endpoint: Option<String>,
     pub model: Option<String>,
     pub voice: Option<String>,
+    pub project: Option<String>,
+    pub location: Option<String>,
 }
 
 #[async_trait(?Send)]
@@ -36,9 +38,11 @@ pub fn provider_api(provider: Provider) -> &'static dyn ProviderApi {
         Provider::OpenAI => &openai::OpenAIProvider,
         Provider::AzureOpenAI => &azure_openai::AzureOpenAIProvider,
         Provider::Google => &google::GoogleProvider,
+        Provider::GoogleAgentPlatform => &google_agent_platform::GoogleAgentPlatformProvider,
     }
 }
 
 mod azure_openai;
 mod google;
+mod google_agent_platform;
 mod openai;

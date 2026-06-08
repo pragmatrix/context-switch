@@ -71,7 +71,9 @@ async fn main() -> Result<()> {
     let service = AzureTranslate;
     // TODO: clarify how to access configurations.
     let params = azure::translate::Params {
-        host: None,
+        endpoint: env::var("AZURE_ENDPOINT")
+            .ok()
+            .or_else(|| env::var("AZURE_HOST").ok()),
         region: Some(env::var("AZURE_REGION").expect("AZURE_REGION undefined")),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
             .expect("AZURE_SUBSCRIPTION_KEY undefined"),

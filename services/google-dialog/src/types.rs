@@ -3,13 +3,24 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use anyhow::{Result, bail};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Auth {
+    #[default]
+    ApiKey,
+    GoogleApplicationDefaultCredentials,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub api_key: String,
     /// Gemini Live model name, with or without the `models/` prefix.
     pub model: String,
-    pub host: Option<String>,
+    #[serde(default)]
+    pub auth: Auth,
+    #[serde(alias = "host")]
+    pub endpoint: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<String>,
 
@@ -39,7 +50,8 @@ impl Params {
         Self {
             api_key: api_key.into(),
             model: model.into(),
-            host: None,
+            auth: Auth::ApiKey,
+            endpoint: None,
             instructions: None,
             voice: None,
             temperature: None,

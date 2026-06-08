@@ -33,7 +33,7 @@ impl ProviderApi for OpenAIProvider {
             .context("Provide --model or set OPENAI_REALTIME_API_MODEL")?;
 
         let mut params = openai_dialog::Params::new(key, model);
-        params.host = request
+        params.endpoint = request
             .endpoint
             .or_else(|| env::var("OPENAI_REALTIME_ENDPOINT").ok())
             .filter(|endpoint| !endpoint.trim().is_empty());
