@@ -35,6 +35,12 @@ struct Cli {
     model: Option<String>,
     #[arg(long)]
     voice: Option<String>,
+    /// Used only with provider `google-agent-platform`.
+    #[arg(long)]
+    project: Option<String>,
+    /// Used only with provider `google-agent-platform`.
+    #[arg(long)]
+    location: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -44,6 +50,8 @@ enum Provider {
     #[value(name = "azure-openai")]
     AzureOpenAI,
     Google,
+    #[value(name = "google-agent-platform")]
+    GoogleAgentPlatform,
 }
 
 impl Provider {
@@ -214,6 +222,8 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
         endpoint: cli.endpoint.clone(),
         model: cli.model.clone(),
         voice: cli.voice.clone(),
+        project: cli.project.clone(),
+        location: cli.location.clone(),
     };
     cli.provider
         .api()

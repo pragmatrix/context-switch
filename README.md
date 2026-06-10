@@ -71,6 +71,9 @@ cargo run --example transcribe -- aristech
 
 # Run Azure synthesize example
 cargo run --example azure-synthesize
+
+# Run dialog example with Google Agent Platform endpoint construction
+cargo run --example dialog -- google-agent-platform --project your-project --location us-central1
 ```
 
 ### Using Audio Knife
@@ -104,7 +107,19 @@ ELEVENLABS_API_KEY=your_elevenlabs_key
 
 # Audio Knife Configuration
 AUDIO_KNIFE_ADDRESS=127.0.0.1:8123
+
+# Google Agent Platform dialog example configuration
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+GOOGLE_AGENT_PLATFORM_PROJECT=your-gcp-project
+GOOGLE_AGENT_PLATFORM_LOCATION=us-central1
 ```
+
+The `google-agent-platform` dialog provider constructs the default Agent Platform WebSocket endpoint from
+`GOOGLE_AGENT_PLATFORM_LOCATION` as:
+
+`wss://{location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`
+
+Use `--endpoint` to override the computed endpoint.
 
 For Azure OpenAI realtime endpoints (`*.openai.azure.com`), the realtime client automatically appends
 `api-key` as a query parameter to the websocket URL. For other hosts, it uses the standard

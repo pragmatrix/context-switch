@@ -39,7 +39,9 @@ async fn main() -> Result<()> {
     // start
 
     let params = azure::synthesize::Params {
-        host: None,
+        endpoint: env::var("AZURE_ENDPOINT")
+            .ok()
+            .or_else(|| env::var("AZURE_HOST").ok()),
         region: Some(env::var("AZURE_REGION").unwrap()),
         subscription_key: env::var("AZURE_SUBSCRIPTION_KEY").unwrap(),
         language: language.to_string(),

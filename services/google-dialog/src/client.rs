@@ -19,6 +19,8 @@ use context_switch_core::{
     ConversationInput, ConversationOutput, Input, OutputPath,
 };
 
+const LEGACY_TOOL_CALL_ID: &str = "legacy-tool-call";
+
 #[derive(Debug)]
 pub struct Client {
     params: Params,
@@ -110,9 +112,14 @@ impl Client {
                     };
 
                     let response = normalize_function_response(output);
+                    let response_call_id = if call_id == LEGACY_TOOL_CALL_ID {
+                        None
+                    } else {
+                        Some(call_id)
+                    };
 
                     let response = FunctionResponse {
-                        id: call_id,
+                        id: response_call_id,
                         name,
                         response,
                     };
@@ -203,6 +210,14 @@ impl Client {
             }
             ServerEvent::ToolCall(calls) => {
                 for call in calls {
+                    let call_id = if let Some(response_call_id) =
+                        call.id.filter(|id| !id.trim().is_empty())
+                    {
+                        response_call_id
+                    } else {
+                        LEGACY_TOOL_CALL_ID.to_owned()
+                    };
+
                     // Send the function call via the media path.
                     //
                     // This means that audio scheduled before will finish playing before
@@ -214,13 +229,13 @@ impl Client {
                     output.service_event(
                         OutputPath::Media,
                         ServiceOutputEvent::FunctionCall {
-                            call_id: call.id.clone(),
+                            call_id: call_id.clone(),
                             name: call.name.clone(),
                             arguments: call.args,
                         },
                     )?;
 
-                    state.tool_calls.register(call.id, call.name)?;
+                    state.tool_calls.register(call_id, call.name)?;
                 }
             }
             ServerEvent::ToolCallCancellation(ids) => {
@@ -283,13 +298,34 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
 }
 
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
+    let agent_platform = agent_platform_config(params)?;
+
+    let auth = match agent_platform {
+        Some(_) => Auth::vertex_ai_application_default()?,
+        None => {
+            let api_key = params
+                .api_key
+                .as_deref()
+                .and_then(trimmed_non_empty)
+                .context("`apiKey` is required when `project` and `location` are not set")?;
+            Auth::ApiKey(api_key.to_owned())
+        }
+    };
+
+    let endpoint = match params.endpoint.as_deref().and_then(trimmed_non_empty) {
+        Some(endpoint) => Endpoint::Custom(endpoint.to_owned()),
+        None => match agent_platform {
+            Some(config) => Endpoint::Custom(format!(
+                "wss://{}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
+                config.location
+            )),
+            None => Endpoint::default(),
+        },
+    };
+
     let transport = TransportConfig {
-        endpoint: params
-            .host
-            .clone()
-            .map(Endpoint::Custom)
-            .unwrap_or_default(),
-        auth: Auth::ApiKey(params.api_key.clone()),
+        endpoint,
+        auth,
         ..Default::default()
     };
 
@@ -317,7 +353,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
     }
 
     Ok(SetupConfig {
-        model: model_resource_name(&params.model),
+        model: model_resource_name(params)?,
         generation_config: Some(GenerationConfig {
             // NOTE: Enabling Modality::Text here currently causes a Gemini setup-time
             // "Internal error encountered." in this service flow.
@@ -375,12 +411,52 @@ fn connect_error_with_voice_context(params: &Params, error: SessionError) -> any
     }
 }
 
-fn model_resource_name(model: &str) -> String {
-    if model.starts_with("models/") {
-        model.to_owned()
-    } else {
-        format!("models/{model}")
+fn model_resource_name(params: &Params) -> Result<String> {
+    let Some(model) = trimmed_non_empty(&params.model) else {
+        bail!("Model must not be empty")
+    };
+    if model.contains('/') {
+        bail!("Model `{model}` must be a bare model name without `/`")
     }
+
+    if let Some(config) = agent_platform_config(params)? {
+        return Ok(format!(
+            "projects/{}/locations/{}/publishers/google/models/{model}",
+            config.project, config.location
+        ));
+    }
+
+    Ok(format!("models/{model}"))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AgentPlatformConfig<'a> {
+    project: &'a str,
+    location: &'a str,
+}
+
+fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'_>>> {
+    let project = match params.project.as_deref() {
+        Some(project) => match trimmed_non_empty(project) {
+            Some(project) => Some(project),
+            None => bail!("`project` must not be empty when provided"),
+        },
+        None => None,
+    };
+
+    let location = params.location.as_deref().and_then(trimmed_non_empty);
+
+    match (project, location) {
+        (Some(project), Some(location)) => Ok(Some(AgentPlatformConfig { project, location })),
+        (Some(_), None) => bail!("`location` is required when `project` is provided"),
+        (None, Some(_)) => bail!("`project` is required when `location` is provided"),
+        (None, None) => Ok(None),
+    }
+}
+
+fn trimmed_non_empty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
 }
 
 fn system_instruction(text: String) -> Content {

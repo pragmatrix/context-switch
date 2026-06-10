@@ -6,10 +6,23 @@ use anyhow::{Result, bail};
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
-    pub api_key: String,
-    /// Gemini Live model name, with or without the `models/` prefix.
+    /// API key for Gemini Live API access when not using Agent Platform routing.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Gemini Live model name without a resource prefix (for example, `gemini-3.1-flash-live-preview`).
     pub model: String,
-    pub host: Option<String>,
+    /// Optional GCP project for Agent Platform model addressing.
+    ///
+    /// When both `project` and `location` are set, `google-dialog` builds the full
+    /// Agent Platform model resource name internally.
+    pub project: Option<String>,
+    /// Optional GCP location for Agent Platform routing.
+    ///
+    /// When both `project` and `location` are set and no explicit endpoint is provided,
+    /// `google-dialog` uses the Agent Platform endpoint for this location.
+    pub location: Option<String>,
+    #[serde(alias = "host")]
+    pub endpoint: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<String>,
 
@@ -35,11 +48,13 @@ pub struct Params {
 }
 
 impl Params {
-    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(model: impl Into<String>) -> Self {
         Self {
-            api_key: api_key.into(),
+            api_key: None,
             model: model.into(),
-            host: None,
+            project: None,
+            location: None,
+            endpoint: None,
             instructions: None,
             voice: None,
             temperature: None,

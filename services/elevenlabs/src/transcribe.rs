@@ -48,7 +48,8 @@ pub struct Params {
     /// Optional realtime model. Defaults to `scribe_v2_realtime` when omitted.
     pub model: Option<String>,
     /// Optional WebSocket endpoint override.
-    pub host: Option<String>,
+    #[serde(alias = "host")]
+    pub endpoint: Option<String>,
     /// Optional language hint in BCP 47 format (for example `en-US`).
     pub language: Option<String>,
     /// Include detected language in timestamped output.
@@ -293,7 +294,7 @@ fn build_endpoint(
     audio_encoding: AudioEncoding,
     include_language_detection: bool,
 ) -> Result<Url> {
-    let host = params.host.as_deref().unwrap_or(DEFAULT_REALTIME_HOST);
+    let host = params.endpoint.as_deref().unwrap_or(DEFAULT_REALTIME_HOST);
     let mut url = Url::parse(host).context("Invalid ElevenLabs realtime host URL")?;
 
     {

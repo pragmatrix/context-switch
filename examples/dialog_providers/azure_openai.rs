@@ -28,7 +28,7 @@ impl ProviderApi for AzureOpenAIProvider {
             .context("Provide --model or set AZURE_OPENAI_REALTIME_API_MODEL")?;
 
         let mut params = openai_dialog::Params::new(key, model);
-        params.host = request
+        params.endpoint = request
             .endpoint
             .or_else(|| env::var("AZURE_OPENAI_REALTIME_ENDPOINT").ok())
             .filter(|endpoint| !endpoint.trim().is_empty());

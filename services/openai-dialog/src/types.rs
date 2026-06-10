@@ -7,7 +7,8 @@ pub struct Params {
     pub api_key: String,
     pub model: String,
     pub protocol: Option<crate::Protocol>,
-    pub host: Option<String>,
+    #[serde(alias = "host")]
+    pub endpoint: Option<String>,
     pub instructions: Option<String>,
     pub voice: Option<RealtimeVoice>,
     #[serde(default)]
@@ -25,7 +26,7 @@ impl Params {
             api_key: api_key.into(),
             model: model.into(),
             protocol: None,
-            host: None,
+            endpoint: None,
             instructions: None,
             voice: None,
             input_audio_transcription: false,
