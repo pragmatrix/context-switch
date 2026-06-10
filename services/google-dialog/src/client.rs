@@ -312,8 +312,8 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
         }
     };
 
-    let endpoint = match &params.endpoint {
-        Some(endpoint) => Endpoint::Custom(endpoint.clone()),
+    let endpoint = match params.endpoint.as_deref().and_then(trimmed_non_empty) {
+        Some(endpoint) => Endpoint::Custom(endpoint.to_owned()),
         None => match agent_platform {
             Some(config) => Endpoint::Custom(format!(
                 "wss://{}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
