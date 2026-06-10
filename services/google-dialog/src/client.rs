@@ -437,21 +437,14 @@ struct AgentPlatformConfig<'a> {
 
 fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'_>>> {
     let project = match params.project.as_deref() {
-        Some(project) => {
-            let project = project.trim();
-            if project.is_empty() {
-                bail!("`project` must not be empty when provided")
-            }
-            Some(project)
-        }
+        Some(project) => match trimmed_non_empty(Some(project)) {
+            Some(project) => Some(project),
+            None => bail!("`project` must not be empty when provided"),
+        },
         None => None,
     };
 
-    let location = params
-        .location
-        .as_deref()
-        .map(str::trim)
-        .filter(|location| !location.is_empty());
+    let location = trimmed_non_empty(params.location.as_deref());
 
     match (project, location) {
         (Some(project), Some(location)) => Ok(Some(AgentPlatformConfig { project, location })),
@@ -459,6 +452,10 @@ fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'
         (None, Some(_)) => bail!("`project` is required when `location` is provided"),
         (None, None) => Ok(None),
     }
+}
+
+fn trimmed_non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn system_instruction(text: String) -> Content {
