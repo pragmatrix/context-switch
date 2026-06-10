@@ -13,7 +13,7 @@ use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
 use tracing::{debug, info, trace, warn};
 
 use crate::conversation_state::ConversationState;
-use crate::{Auth as ParamsAuth, Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
+use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
     ConversationInput, ConversationOutput, Input, OutputPath,
@@ -300,15 +300,16 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
     let agent_platform = agent_platform_config(params)?;
 
-    if agent_platform.is_some()
-        && !matches!(params.auth, ParamsAuth::GoogleApplicationDefaultCredentials)
-    {
-        bail!("Agent Platform configuration requires auth=googleApplicationDefaultCredentials")
-    }
-
-    let auth = match params.auth {
-        ParamsAuth::ApiKey => Auth::ApiKey(params.api_key.clone()),
-        ParamsAuth::GoogleApplicationDefaultCredentials => Auth::vertex_ai_application_default()?,
+    let auth = match agent_platform {
+        Some(_) => Auth::vertex_ai_application_default()?,
+        None => {
+            let api_key = params
+                .api_key
+                .as_deref()
+                .and_then(trimmed_non_empty)
+                .context("`apiKey` is required when `project` and `location` are not set")?;
+            Auth::ApiKey(api_key.to_owned())
+        }
     };
 
     let endpoint = match &params.endpoint {

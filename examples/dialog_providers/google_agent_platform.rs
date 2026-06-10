@@ -46,9 +46,7 @@ impl ProviderApi for GoogleAgentPlatformProvider {
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_MODEL.to_owned());
 
-        let mut params =
-            google_dialog::Params::new(env::var("GEMINI_API_KEY").unwrap_or_default(), model);
-        params.auth = google_dialog::Auth::GoogleApplicationDefaultCredentials;
+        let mut params = google_dialog::Params::new(model);
         params.project = Some(project);
         params.location = Some(location);
         params.endpoint = request

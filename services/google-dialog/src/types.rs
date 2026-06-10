@@ -3,18 +3,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use anyhow::{Result, bail};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum Auth {
-    #[default]
-    ApiKey,
-    GoogleApplicationDefaultCredentials,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
-    pub api_key: String,
+    /// API key for Gemini Live API access when not using Agent Platform routing.
+    #[serde(default)]
+    pub api_key: Option<String>,
     /// Gemini Live model name without a resource prefix (for example, `gemini-3.1-flash-live-preview`).
     pub model: String,
     /// Optional GCP project for Agent Platform model addressing.
@@ -27,8 +21,6 @@ pub struct Params {
     /// When both `project` and `location` are set and no explicit endpoint is provided,
     /// `google-dialog` uses the Agent Platform endpoint for this location.
     pub location: Option<String>,
-    #[serde(default)]
-    pub auth: Auth,
     #[serde(alias = "host")]
     pub endpoint: Option<String>,
     pub instructions: Option<String>,
@@ -56,13 +48,12 @@ pub struct Params {
 }
 
 impl Params {
-    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(model: impl Into<String>) -> Self {
         Self {
-            api_key: api_key.into(),
+            api_key: None,
             model: model.into(),
             project: None,
             location: None,
-            auth: Auth::ApiKey,
             endpoint: None,
             instructions: None,
             voice: None,

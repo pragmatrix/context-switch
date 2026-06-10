@@ -31,7 +31,8 @@ impl ProviderApi for GoogleProvider {
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| "gemini-3.1-flash-live-preview".to_owned());
 
-        let mut params = google_dialog::Params::new(key, model);
+        let mut params = google_dialog::Params::new(model);
+        params.api_key = Some(key);
         params.endpoint = request
             .endpoint
             .or_else(|| env::var("GEMINI_LIVE_ENDPOINT").ok())
