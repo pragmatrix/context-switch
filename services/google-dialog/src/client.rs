@@ -411,10 +411,9 @@ fn connect_error_with_voice_context(params: &Params, error: SessionError) -> any
 }
 
 fn model_resource_name(params: &Params) -> Result<String> {
-    let model = params.model.trim();
-    if model.is_empty() {
+    let Some(model) = trimmed_non_empty(&params.model) else {
         bail!("Model must not be empty")
-    }
+    };
     if model.contains('/') {
         bail!("Model `{model}` must be a bare model name without `/`")
     }
@@ -437,14 +436,14 @@ struct AgentPlatformConfig<'a> {
 
 fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'_>>> {
     let project = match params.project.as_deref() {
-        Some(project) => match trimmed_non_empty(Some(project)) {
+        Some(project) => match trimmed_non_empty(project) {
             Some(project) => Some(project),
             None => bail!("`project` must not be empty when provided"),
         },
         None => None,
     };
 
-    let location = trimmed_non_empty(params.location.as_deref());
+    let location = params.location.as_deref().and_then(trimmed_non_empty);
 
     match (project, location) {
         (Some(project), Some(location)) => Ok(Some(AgentPlatformConfig { project, location })),
@@ -454,8 +453,9 @@ fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'
     }
 }
 
-fn trimmed_non_empty(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
+fn trimmed_non_empty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
 }
 
 fn system_instruction(text: String) -> Content {
