@@ -210,7 +210,9 @@ impl Client {
             }
             ServerEvent::ToolCall(calls) => {
                 for call in calls {
-                    let call_id = if let Some(response_call_id) = call.id.filter(|id| !id.trim().is_empty()) {
+                    let call_id = if let Some(response_call_id) =
+                        call.id.filter(|id| !id.trim().is_empty())
+                    {
                         response_call_id
                     } else {
                         LEGACY_TOOL_CALL_ID.to_owned()
@@ -233,9 +235,7 @@ impl Client {
                         },
                     )?;
 
-                    state
-                        .tool_calls
-                        .register(call_id, call.name)?;
+                    state.tool_calls.register(call_id, call.name)?;
                 }
             }
             ServerEvent::ToolCallCancellation(ids) => {
@@ -298,17 +298,32 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
 }
 
 fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
+    let agent_platform = agent_platform_config(params)?;
+
+    if agent_platform.is_some()
+        && !matches!(params.auth, ParamsAuth::GoogleApplicationDefaultCredentials)
+    {
+        bail!("Agent Platform configuration requires auth=googleApplicationDefaultCredentials")
+    }
+
     let auth = match params.auth {
         ParamsAuth::ApiKey => Auth::ApiKey(params.api_key.clone()),
         ParamsAuth::GoogleApplicationDefaultCredentials => Auth::vertex_ai_application_default()?,
     };
 
+    let endpoint = match &params.endpoint {
+        Some(endpoint) => Endpoint::Custom(endpoint.clone()),
+        None => match agent_platform {
+            Some(config) => Endpoint::Custom(format!(
+                "wss://{}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
+                config.location
+            )),
+            None => Endpoint::default(),
+        },
+    };
+
     let transport = TransportConfig {
-        endpoint: params
-            .endpoint
-            .clone()
-            .map(Endpoint::Custom)
-            .unwrap_or_default(),
+        endpoint,
         auth,
         ..Default::default()
     };
@@ -337,7 +352,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
     }
 
     Ok(SetupConfig {
-        model: model_resource_name(&params.model),
+        model: model_resource_name(params)?,
         generation_config: Some(GenerationConfig {
             // NOTE: Enabling Modality::Text here currently causes a Gemini setup-time
             // "Internal error encountered." in this service flow.
@@ -395,11 +410,54 @@ fn connect_error_with_voice_context(params: &Params, error: SessionError) -> any
     }
 }
 
-fn model_resource_name(model: &str) -> String {
-    if model.starts_with("projects/") || model.starts_with("models/") {
-        model.to_owned()
-    } else {
-        format!("models/{model}")
+fn model_resource_name(params: &Params) -> Result<String> {
+    let model = params.model.trim();
+    if model.is_empty() {
+        bail!("Model must not be empty")
+    }
+    if model.contains('/') {
+        bail!("Model `{model}` must be a bare model name without `/`")
+    }
+
+    if let Some(config) = agent_platform_config(params)? {
+        return Ok(format!(
+            "projects/{}/locations/{}/publishers/google/models/{model}",
+            config.project, config.location
+        ));
+    }
+
+    Ok(format!("models/{model}"))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AgentPlatformConfig<'a> {
+    project: &'a str,
+    location: &'a str,
+}
+
+fn agent_platform_config(params: &Params) -> Result<Option<AgentPlatformConfig<'_>>> {
+    let project = match params.project.as_deref() {
+        Some(project) => {
+            let project = project.trim();
+            if project.is_empty() {
+                bail!("`project` must not be empty when provided")
+            }
+            Some(project)
+        }
+        None => None,
+    };
+
+    let location = params
+        .location
+        .as_deref()
+        .map(str::trim)
+        .filter(|location| !location.is_empty());
+
+    match (project, location) {
+        (Some(project), Some(location)) => Ok(Some(AgentPlatformConfig { project, location })),
+        (Some(_), None) => bail!("`location` is required when `project` is provided"),
+        (None, Some(_)) => bail!("`project` is required when `location` is provided"),
+        (None, None) => Ok(None),
     }
 }
 

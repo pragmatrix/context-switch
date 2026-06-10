@@ -15,8 +15,18 @@ pub enum Auth {
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub api_key: String,
-    /// Gemini Live model name, with or without the `models/` prefix.
+    /// Gemini Live model name without a resource prefix (for example, `gemini-3.1-flash-live-preview`).
     pub model: String,
+    /// Optional GCP project for Agent Platform model addressing.
+    ///
+    /// When both `project` and `location` are set, `google-dialog` builds the full
+    /// Agent Platform model resource name internally.
+    pub project: Option<String>,
+    /// Optional GCP location for Agent Platform routing.
+    ///
+    /// When both `project` and `location` are set and no explicit endpoint is provided,
+    /// `google-dialog` uses the Agent Platform endpoint for this location.
+    pub location: Option<String>,
     #[serde(default)]
     pub auth: Auth,
     #[serde(alias = "host")]
@@ -50,6 +60,8 @@ impl Params {
         Self {
             api_key: api_key.into(),
             model: model.into(),
+            project: None,
+            location: None,
             auth: Auth::ApiKey,
             endpoint: None,
             instructions: None,

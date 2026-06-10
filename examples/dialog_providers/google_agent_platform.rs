@@ -46,18 +46,14 @@ impl ProviderApi for GoogleAgentPlatformProvider {
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_MODEL.to_owned());
 
-        let endpoint = request.endpoint.filter(|endpoint| !endpoint.trim().is_empty()).unwrap_or_else(|| {
-            format!(
-                "wss://{location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
-            )
-        });
-
-        let mut params = google_dialog::Params::new(
-            env::var("GEMINI_API_KEY").unwrap_or_default(),
-            agent_platform_model_resource_name(&project, &location, &model),
-        );
+        let mut params =
+            google_dialog::Params::new(env::var("GEMINI_API_KEY").unwrap_or_default(), model);
         params.auth = google_dialog::Auth::GoogleApplicationDefaultCredentials;
-        params.endpoint = Some(endpoint);
+        params.project = Some(project);
+        params.location = Some(location);
+        params.endpoint = request
+            .endpoint
+            .filter(|endpoint| !endpoint.trim().is_empty());
         params.voice = request
             .voice
             .as_deref()
@@ -111,15 +107,6 @@ impl ProviderApi for GoogleAgentPlatformProvider {
             "Model listing is not implemented for provider `google-agent-platform`; pass --model with a known Agent Platform-compatible Live model"
         );
     }
-}
-
-fn agent_platform_model_resource_name(project: &str, location: &str, model: &str) -> String {
-    if model.starts_with("projects/") {
-        return model.to_owned();
-    }
-
-    let model = model.strip_prefix("models/").unwrap_or(model);
-    format!("projects/{project}/locations/{location}/publishers/google/models/{model}")
 }
 
 fn get_time_tool() -> gemini_types::Tool {
