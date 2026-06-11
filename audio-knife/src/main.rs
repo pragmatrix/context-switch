@@ -5,43 +5,39 @@ mod event_scheduler;
 mod mod_audio_fork;
 mod server_event_router;
 
-use std::{
-    env,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::env;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
-use axum::{
-    body::Bytes,
-    extract::{
-        self, Path, WebSocketUpgrade,
-        ws::{Message, WebSocket},
-    },
-    response::{IntoResponse, Json},
-    routing::get,
-    serve::ListenerExt,
-};
-use base64::{Engine as _, engine::general_purpose};
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use axum::body::Bytes;
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{self, Path, WebSocketUpgrade};
+use axum::response::{IntoResponse, Json};
+use axum::routing::get;
+use axum::serve::ListenerExt;
+use base64::Engine as _;
+use base64::engine::general_purpose;
+use futures_util::stream::SplitSink;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::Value;
 use server_event_router::ServerEventRouter;
-use tokio::{
-    net::TcpListener,
-    pin, select,
-    sync::mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel},
-};
-use tracing::{Instrument, Span, debug, error, info, info_span};
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel};
+use tokio::{pin, select};
+use tracing::{Instrument, Span, debug, error, info, info_span, warn};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
+use uuid::Uuid;
 
+use context_switch::billing_collector::BillingCollector;
 use context_switch::{
     AudioFormat, AudioFrame, BillingId, ClientEvent, ContextSwitch, ConversationId, InputModality,
-    ServerEvent, audio, billing_collector::BillingCollector,
+    ServerEvent, audio,
 };
-use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
-use uuid::Uuid;
 
 const DEFAULT_PORT: u16 = 8123;
 
@@ -257,30 +253,40 @@ async fn ws_session(
     );
     pin!(dispatcher);
 
+    let mut peer_close_received = false;
+
     loop {
         select! {
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(msg)) => {
+                        if let Message::Close(_) = &msg {
+                            peer_close_received = true;
+                        }
+
                         session_state.process_request(&pong_sender, msg)?;
                     }
                     Some(Err(r)) => {
                         bail!(r);
                     }
                     None => {
-                        info!("Received no message, assuming close");
+                        if peer_close_received {
+                            info!("WebSocket stream ended after peer-initiated close handshake");
+                        } else {
+                            warn!("WebSocket stream ended without a close frame (peer disconnected abruptly)");
+                        }
                         return Ok(())
                     }
                 }
             }
             r = &mut dispatcher => {
                 r.context("Dispatcher")?;
-                info!("Dispatcher ended");
+                info!("Dispatcher ended; closing websocket session from server side");
                 return Ok(())
             }
             r = &mut scheduler => {
                 r.context("Event scheduler")?;
-                info!("Scheduler ended");
+                info!("Event scheduler ended; closing websocket session from server side");
                 return Ok(())
             }
         }
@@ -481,12 +487,13 @@ impl SessionState {
             }
             Message::Close(msg) => {
                 if let Some(msg) = &msg {
-                    debug!(
-                        "Received close message with code {} and message: `{}`",
-                        msg.code, msg.reason
+                    info!(
+                        code = msg.code,
+                        reason = %msg.reason,
+                        "WebSocket close initiated by peer"
                     );
                 } else {
-                    debug!("Received close message");
+                    info!("WebSocket close initiated by peer (no close details)");
                 }
                 Ok(())
             }
