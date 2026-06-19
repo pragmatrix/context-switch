@@ -5,7 +5,10 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use openai_api_rs::realtime::types::{AzureSemanticVadConfig, TurnDetection};
+use openai_api_rs::realtime::types::{
+    AzureSemanticVadConfig, EndOfUtteranceDetectionConfig, EndOfUtteranceDetectionModel,
+    EndOfUtteranceThresholdLevel, TurnDetection,
+};
 use rodio::DeviceSinkBuilder;
 use tokio::select;
 use tokio::sync::mpsc::{channel, unbounded_channel};
@@ -377,11 +380,12 @@ async fn start_conversation(
                 noise_reduction: None,
                 turn_detection: Some(TurnDetection::AzureSemanticVadMultilingual(
                     AzureSemanticVadConfig {
-                        threshold: Some(0.5),
-                        prefix_padding_ms: Some(420),
-                        speech_duration_ms: Some(100),
-                        silence_duration_ms: Some(600),
-                        remove_filler_words: Some(true),
+                        end_of_utterance_detection: Some(EndOfUtteranceDetectionConfig {
+                            model: EndOfUtteranceDetectionModel::SmartEndOfTurnDetection,
+                            threshold_level: Some(EndOfUtteranceThresholdLevel::Low),
+                            timeout_ms: Some(5000),
+                        }),
+                        // remove_filler_words: Some(true),
                         languages: Some(vec!["de-DE".to_owned()]),
                         ..Default::default()
                     },
