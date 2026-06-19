@@ -15,6 +15,7 @@ members = [
     "services/elevenlabs",
     "services/google-dialog",
     "services/google-transcribe", 
+    "services/microsoft-voice-live",
     "services/openai-dialog", 
     "services/playback",
 ]
@@ -38,6 +39,7 @@ azure-speech = { workspace = true }
 aristech = { workspace = true }
 elevenlabs = { workspace = true }
 google-transcribe = { workspace = true }
+microsoft-voice-live = { workspace = true }
 
 # basic
 
@@ -104,6 +106,7 @@ aristech = { path = "services/aristech" }
 elevenlabs = { path = "services/elevenlabs" }
 google-transcribe = { path = "services/google-transcribe" }
 google-dialog = { path = "services/google-dialog" }
+microsoft-voice-live = { path = "services/microsoft-voice-live" }
 gemini-live = { path = "external/gemini-live-rs/crates/gemini-live" }
 
 # Dependencies required by `external/gemini-live-rs/crates/gemini-live`.

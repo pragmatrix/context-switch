@@ -5,12 +5,14 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use openai_api_rs::realtime::types::{AzureSemanticVadConfig, TurnDetection};
 use rodio::DeviceSinkBuilder;
 use tokio::select;
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
 use context_switch::services::{
     AristechTranscribe, AzureTranscribe, ElevenLabsTranscribe, GoogleTranscribe,
+    MicrosoftVoiceLiveTranscribe,
 };
 use context_switch::{AudioConsumer, InputModality, OutputModality};
 use context_switch_core::language::Languages;
@@ -44,6 +46,8 @@ enum Provider {
     Google,
     #[value(name = "aristech")]
     Aristech,
+    #[value(name = "voice-live")]
+    VoiceLive,
 }
 
 #[tokio::main]
@@ -342,6 +346,50 @@ async fn start_conversation(
                 prompt: None,
             };
             AristechTranscribe.conversation(params, conversation).await
+        }
+        Provider::VoiceLive => {
+            if diarization {
+                bail!("--diarization is only supported for the azure provider");
+            }
+            if region.is_some() {
+                bail!("--region is only supported for the google provider");
+            }
+
+            let language = Some(
+                languages
+                    .single()
+                    .context("Voice Live provider supports exactly one --language value")?
+                    .clone(),
+            );
+
+            let params = microsoft_voice_live::Params {
+                api_key: env::var("MICROSOFT_VOICE_LIVE_API_KEY")
+                    .expect("MICROSOFT_VOICE_LIVE_API_KEY undefined"),
+                endpoint: env::var("MICROSOFT_VOICE_LIVE_ENDPOINT")
+                    .expect("MICROSOFT_VOICE_LIVE_ENDPOINT undefined (must be wss://...)"),
+                model: model.map(str::to_owned).unwrap_or_else(|| {
+                    env::var("MICROSOFT_VOICE_LIVE_MODEL").unwrap_or_else(|_| "gpt-4.1".to_owned())
+                }),
+                api_version: env::var("MICROSOFT_VOICE_LIVE_API_VERSION").ok(),
+                transcription_model: env::var("MICROSOFT_VOICE_LIVE_TRANSCRIPTION_MODEL")
+                    .unwrap_or_else(|_| "azure-speech".to_owned()),
+                language,
+                noise_reduction: None,
+                turn_detection: Some(TurnDetection::AzureSemanticVadMultilingual(
+                    AzureSemanticVadConfig {
+                        threshold: Some(0.5),
+                        prefix_padding_ms: Some(420),
+                        speech_duration_ms: Some(100),
+                        silence_duration_ms: Some(600),
+                        remove_filler_words: Some(true),
+                        languages: Some(vec!["de-DE".to_owned()]),
+                        ..Default::default()
+                    },
+                )),
+            };
+            MicrosoftVoiceLiveTranscribe
+                .conversation(params, conversation)
+                .await
         }
     }
 }

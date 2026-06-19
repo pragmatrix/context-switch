@@ -69,6 +69,9 @@ cargo run --example transcribe -- elevenlabs
 # Run generic transcribe example with Aristech provider
 cargo run --example transcribe -- aristech
 
+# Run generic transcribe example with Microsoft Voice Live provider
+cargo run --example transcribe -- voice-live
+
 # Run Azure synthesize example
 cargo run --example azure-synthesize
 
@@ -104,6 +107,13 @@ AZURE_REGION=your_azure_region
 
 # ElevenLabs Configuration
 ELEVENLABS_API_KEY=your_elevenlabs_key
+
+# Microsoft Voice Live Configuration
+MICROSOFT_VOICE_LIVE_API_KEY=your_voice_live_key
+MICROSOFT_VOICE_LIVE_ENDPOINT=wss://your-resource.services.ai.azure.com/voice-live/realtime
+MICROSOFT_VOICE_LIVE_MODEL=gpt-4o-mini-realtime-preview
+MICROSOFT_VOICE_LIVE_API_VERSION=2026-06-01-preview
+MICROSOFT_VOICE_LIVE_TRANSCRIPTION_MODEL=azure-speech
 
 # Audio Knife Configuration
 AUDIO_KNIFE_ADDRESS=127.0.0.1:8123

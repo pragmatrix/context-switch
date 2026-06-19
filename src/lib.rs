@@ -17,4 +17,5 @@ pub mod services {
     pub use elevenlabs::ElevenLabsTranscribe;
     pub use google_dialog::GoogleDialog;
     pub use google_transcribe::GoogleTranscribe;
+    pub use microsoft_voice_live::MicrosoftVoiceLiveTranscribe;
 }
