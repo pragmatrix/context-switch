@@ -40,6 +40,7 @@ pub fn registry() -> Registry {
         .add_service("azure-transcribe", azure::AzureTranscribe)
         .add_service("azure-synthesize", azure::AzureSynthesize)
         .add_service("azure-translate", azure::AzureTranslate)
+        .add_service("deepgram-transcribe", deepgram_service::DeepgramTranscribe)
         .add_service("elevenlabs-transcribe", elevenlabs::ElevenLabsTranscribe)
         .add_service("google-transcribe", google_transcribe::GoogleTranscribe)
         .add_service(

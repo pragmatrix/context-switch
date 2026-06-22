@@ -1,0 +1,244 @@
+use std::io;
+
+use anyhow::{Context, Result, bail};
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use tokio::task;
+use tracing::{debug, warn};
+
+use deepgram::Deepgram;
+use deepgram::common::flux_response::{FluxResponse, TurnEvent};
+use deepgram::common::options::{Encoding, Model, Options};
+
+use context_switch_core::language::{Languages, bcp47_to_iso639_3};
+use context_switch_core::{
+    BillingRecord, BillingSchedule, Conversation, Input, OutputPath, Service,
+};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Params {
+    pub api_key: String,
+    #[serde(alias = "host")]
+    pub endpoint: String,
+    pub language: String,
+    #[serde(default)]
+    pub profanity_filter: bool,
+    #[serde(default)]
+    pub keyterm: Vec<String>,
+    #[serde(flatten)]
+    pub turn_detection: TurnDetection,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnDetection {
+    pub threshold: Option<f64>,
+    pub timeout_ms: Option<u32>,
+    pub eager_threshold: Option<f64>,
+}
+
+#[derive(Debug)]
+pub struct DeepgramTranscribe;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ServiceOutputEvent {
+    StartOfTurn,
+    EagerEndOfTurn,
+    TurnResumed,
+}
+
+#[async_trait]
+impl Service for DeepgramTranscribe {
+    type Params = Params;
+
+    async fn conversation(&self, params: Params, conversation: Conversation) -> Result<()> {
+        let input_format = conversation.require_audio_input()?;
+        conversation.require_text_output(true)?;
+
+        let languages = Languages::from_csv(&params.language)
+            .context("language must contain at least one locale code")?;
+
+        let (model, language_hints) = select_model_and_language_hints(&languages)?;
+        let mut options_builder = Options::builder().model(model);
+
+        if let Some(eot_threshold) = params.turn_detection.threshold {
+            options_builder = options_builder.eot_threshold(eot_threshold);
+        }
+        if let Some(eot_timeout_ms) = params.turn_detection.timeout_ms {
+            options_builder = options_builder.eot_timeout_ms(eot_timeout_ms);
+        }
+        if let Some(eager_eot_threshold) = params.turn_detection.eager_threshold {
+            options_builder = options_builder.eager_eot_threshold(eager_eot_threshold);
+        }
+        if params.profanity_filter {
+            options_builder = options_builder.profanity_filter(true);
+        }
+
+        let options_builder = if let Some(language_hints) = language_hints {
+            options_builder.language_hint(language_hints)
+        } else {
+            options_builder
+        };
+
+        let options_builder = if params.keyterm.is_empty() {
+            options_builder
+        } else {
+            options_builder.keyterms(params.keyterm.iter().map(String::as_str))
+        };
+
+        let options = options_builder.build();
+
+        // ADR: endpoint is required for GDPR-safe explicit routing.
+        let deepgram =
+            Deepgram::with_base_url_and_api_key(params.endpoint.as_str(), params.api_key)?;
+
+        let (mut input, output) = conversation.start()?;
+        let (mut audio_tx, audio_rx) = mpsc::channel::<std::result::Result<Bytes, io::Error>>(8);
+
+        let billing_output = output.clone();
+        let forward_audio_task = task::spawn(async move {
+            while let Some(Input::Audio { frame }) = input.recv().await {
+                let duration = frame.duration();
+                if let Err(error) = billing_output.billing_records(
+                    None,
+                    None,
+                    [BillingRecord::duration("input:audio", duration)],
+                    BillingSchedule::Now,
+                ) {
+                    return Err(io::Error::other(format!(
+                        "Failed to output billing records: {error}"
+                    )));
+                }
+
+                if let Err(error) = audio_tx.send(Ok(Bytes::from(frame.to_le_bytes()))).await {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        format!("Deepgram audio stream channel closed: {error}"),
+                    ));
+                }
+            }
+
+            Ok::<(), io::Error>(())
+        });
+
+        let mut stream = deepgram
+            .transcription()
+            .flux_request_with_options(options)
+            .encoding(Encoding::Linear16)
+            .sample_rate(input_format.sample_rate)
+            .stream(audio_rx)
+            .await?;
+
+        while let Some(message) = stream.next().await {
+            let response = message?;
+            match response {
+                FluxResponse::Connected { .. } => {}
+                FluxResponse::ConfigureSuccess { .. } => {}
+                FluxResponse::ConfigureFailure { .. } => {
+                    bail!("Deepgram rejected a Flux reconfiguration update");
+                }
+                FluxResponse::FatalError {
+                    code, description, ..
+                } => {
+                    bail!("Deepgram stream error ({code}): {description}");
+                }
+                FluxResponse::TurnInfo {
+                    event,
+                    transcript,
+                    languages,
+                    ..
+                } => {
+                    let language = languages.first().cloned();
+
+                    match event {
+                        TurnEvent::Update => {
+                            if !transcript.is_empty() {
+                                output.text(false, transcript, language, None)?;
+                            }
+                        }
+                        TurnEvent::EndOfTurn => {
+                            if !transcript.is_empty() {
+                                output.text(true, transcript, language, None)?;
+                            }
+                        }
+                        TurnEvent::StartOfTurn => {
+                            output.service_event(
+                                OutputPath::Media,
+                                ServiceOutputEvent::StartOfTurn,
+                            )?;
+                        }
+                        TurnEvent::EagerEndOfTurn => {
+                            output.service_event(
+                                OutputPath::Media,
+                                ServiceOutputEvent::EagerEndOfTurn,
+                            )?;
+                        }
+                        TurnEvent::TurnResumed => {
+                            output.service_event(
+                                OutputPath::Media,
+                                ServiceOutputEvent::TurnResumed,
+                            )?;
+                        }
+                        TurnEvent::Unknown => {
+                            warn!(
+                                transcript = %transcript,
+                                languages = ?languages,
+                                "Deepgram returned unknown turn event"
+                            );
+                        }
+                        _ => {
+                            warn!(
+                                event = ?event,
+                                transcript = %transcript,
+                                languages = ?languages,
+                                "Deepgram returned unhandled turn event variant"
+                            );
+                        }
+                    }
+                }
+                FluxResponse::Unknown(value) => {
+                    warn!(
+                        payload = %value,
+                        "Deepgram returned unknown Flux response payload"
+                    );
+                }
+                other => {
+                    debug!(?other, "Deepgram returned unhandled Flux response variant");
+                }
+            }
+        }
+
+        let audio_forward_result = forward_audio_task
+            .await
+            .context("Joining Deepgram audio forward task")?;
+        audio_forward_result.context("Deepgram audio forward task failed")?;
+
+        Ok(())
+    }
+}
+
+fn select_model_and_language_hints(languages: &Languages) -> Result<(Model, Option<Vec<String>>)> {
+    if languages.len() > 1 {
+        return Ok((
+            Model::FluxGeneralMulti,
+            Some(languages.iter().cloned().collect()),
+        ));
+    }
+
+    let is_english = bcp47_to_iso639_3(languages.first())
+        .context("language must be a valid BCP 47 tag")?
+        == "eng";
+    if is_english {
+        Ok((Model::FluxGeneralEn, None))
+    } else {
+        Ok((
+            Model::FluxGeneralMulti,
+            Some(vec![languages.first().to_owned()]),
+        ))
+    }
+}
