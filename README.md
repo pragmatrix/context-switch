@@ -113,7 +113,7 @@ ELEVENLABS_API_KEY=your_elevenlabs_key
 
 # Deepgram Configuration
 DEEPGRAM_API_KEY=your_deepgram_key
-DEEPGRAM_ENDPOINT=wss://api.deepgram.com
+DEEPGRAM_ENDPOINT=wss://api.deepgram.com/v2/listen
 
 # Microsoft Voice Live Configuration
 MICROSOFT_VOICE_LIVE_API_KEY=your_voice_live_key

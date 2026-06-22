@@ -7,7 +7,7 @@ use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::task;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use deepgram::Deepgram;
 use deepgram::common::flux_response::{FluxResponse, TurnEvent};
@@ -92,10 +92,14 @@ impl Service for DeepgramTranscribe {
         };
 
         let options = options_builder.build();
+        info!(endpoint = %params.endpoint, "Using Deepgram endpoint");
+        let endpoint = normalize_endpoint(&params.endpoint)?;
+        if endpoint != params.endpoint {
+            info!(endpoint = %endpoint, "Normalized Deepgram endpoint to base URL");
+        }
 
         // ADR: endpoint is required for GDPR-safe explicit routing.
-        let deepgram =
-            Deepgram::with_base_url_and_api_key(params.endpoint.as_str(), params.api_key)?;
+        let deepgram = Deepgram::with_base_url_and_api_key(endpoint.as_str(), params.api_key)?;
 
         let (mut input, output) = conversation.start()?;
         let (mut audio_tx, audio_rx) = mpsc::channel::<std::result::Result<Bytes, io::Error>>(8);
@@ -241,4 +245,24 @@ fn select_model_and_language_hints(languages: &Languages) -> Result<(Model, Opti
             Some(vec![languages.first().to_owned()]),
         ))
     }
+}
+
+fn normalize_endpoint(endpoint: &str) -> Result<String> {
+    let trimmed = endpoint.trim_end_matches('/');
+
+    for listen_path in ["/v1/listen", "/v2/listen"] {
+        if let Some(prefix) = trimmed.strip_suffix(listen_path) {
+            return Ok(format!("{prefix}/"));
+        }
+    }
+
+    if trimmed.contains("/listen") {
+        bail!(
+            "Invalid DEEPGRAM_ENDPOINT: expected terminal /v1/listen or /v2/listen path ({endpoint})"
+        );
+    }
+
+    bail!(
+        "Invalid DEEPGRAM_ENDPOINT: expected full listen path (for example wss://api.deepgram.com/v2/listen), got base URL ({endpoint})"
+    )
 }
