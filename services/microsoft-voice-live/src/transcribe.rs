@@ -59,8 +59,7 @@ impl Service for MicrosoftVoiceLiveTranscribe {
     }
 }
 
-/// Turn-detection and segmentation signals surfaced on the control output path. These give the
-/// caller full visibility into what the turn detector reports, beyond the final transcript text.
+/// Control signals surfaced on the control output path.
 #[derive(Debug, Serialize)]
 #[serde(
     tag = "type",
@@ -68,17 +67,19 @@ impl Service for MicrosoftVoiceLiveTranscribe {
     rename_all_fields = "camelCase"
 )]
 pub enum ServiceOutputEvent {
+    SessionUpdated {
+        /// Full `session.updated` server message as received from Voice Live.
+        ///
+        /// This is emitted only for observability, so callers can confirm that requested
+        /// parameters were acknowledged by the server. Do not rely on this payload for
+        /// behavior-critical logic.
+        message: serde_json::Value,
+    },
     SpeechStarted {
         audio_start_ms: u32,
     },
     SpeechStopped {
         audio_end_ms: u32,
-    },
-    Segment {
-        start: f64,
-        end: f64,
-        text: String,
-        speaker: Option<String>,
     },
 }
 
@@ -94,6 +95,30 @@ mod tests {
 
     #[test]
     fn service_output_event_serializes_variant_fields_as_camel_case() {
+        let session_updated = serde_json::to_value(ServiceOutputEvent::SessionUpdated {
+            message: json!({
+                "type": "session.updated",
+                "event_id": "evt_123",
+                "session": {
+                    "language": "en"
+                }
+            }),
+        })
+        .expect("SessionUpdated should serialize");
+        assert_eq!(
+            session_updated,
+            json!({
+                "type": "sessionUpdated",
+                "message": {
+                    "type": "session.updated",
+                    "event_id": "evt_123",
+                    "session": {
+                        "language": "en"
+                    }
+                }
+            })
+        );
+
         let speech_started = serde_json::to_value(ServiceOutputEvent::SpeechStarted {
             audio_start_ms: 123,
         })

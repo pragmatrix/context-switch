@@ -138,10 +138,9 @@ impl Client {
     ) -> Result<FlowControl> {
         match message {
             Message::Text(str) => {
-                let event = serde_json::from_str(&str)
+                let value: serde_json::Value = serde_json::from_str(&str)
                     .with_context(|| format!("Deserialization failed: `{str}`"))?;
-                self.handle_server_event(event, output, language, Some(&str))
-                    .await?;
+                self.handle_server_event(value, output, language).await?;
                 Ok(FlowControl::Continue)
             }
             Message::Ping(data) => Ok(FlowControl::PongAndContinue(data)),
@@ -152,18 +151,22 @@ impl Client {
 
     async fn handle_server_event(
         &mut self,
-        event: ServerEvent,
+        message: serde_json::Value,
         output: &ConversationOutput,
         language: Option<&str>,
-        raw_message: Option<&str>,
     ) -> Result<()> {
+        let event: ServerEvent = serde_json::from_value(message.clone())
+            .with_context(|| format!("Server event decoding failed: `{message}`"))?;
+
         match event {
             ServerEvent::SessionUpdated(e) => {
-                if let Some(message) = raw_message {
-                    info!(session_updated_raw = %message, "Raw session.updated from server");
-                }
+                debug!(session_updated_raw = %message, "Raw session.updated from server");
                 log_confirmed_session_from_server(&e.session);
                 debug!("Session update acknowledged");
+                output.service_event(
+                    OutputPath::Control,
+                    ServiceOutputEvent::SessionUpdated { message },
+                )?;
             }
 
             ServerEvent::InputAudioBufferSpeechStarted(e) => {
@@ -215,17 +218,20 @@ impl Client {
             }
             ServerEvent::ConversationItemInputAudioTranscriptionSegment(e) => {
                 if let Some(speaker) = &e.speaker {
-                    self.segment_speakers.insert(e.item_id, speaker.clone());
+                    self.segment_speakers
+                        .insert(e.item_id.clone(), speaker.clone());
                 }
-                output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::Segment {
-                        start: e.start,
-                        end: e.end,
-                        text: e.text,
-                        speaker: e.speaker,
-                    },
-                )?;
+                // Keep this logged for visibility; we may need to surface this as a control
+                // service event in the future.
+                debug!(
+                    item_id = %e.item_id,
+                    content_index = e.content_index,
+                    start = e.start,
+                    end = e.end,
+                    text = %e.text,
+                    speaker = ?e.speaker,
+                    "ConversationItemInputAudioTranscriptionSegment received"
+                );
             }
             ServerEvent::ConversationItemInputAudioTranscriptionFailed(e) => {
                 bail!("Input audio transcription failed: {}", e.error.message);
@@ -305,7 +311,7 @@ enum FlowControl {
 fn log_confirmed_session_from_server(session: &types::UntaggedSession) {
     match serde_json::to_string_pretty(session) {
         Ok(session_json) => {
-            info!(session_confirmed = %session_json, "Confirmed session from server")
+            debug!(session_confirmed = %session_json, "Confirmed session from server")
         }
         Err(error) => warn!(?error, "Failed to serialize confirmed session from server"),
     }
