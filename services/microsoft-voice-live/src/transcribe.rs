@@ -62,19 +62,16 @@ impl Service for MicrosoftVoiceLiveTranscribe {
 /// Turn-detection and segmentation signals surfaced on the control output path. These give the
 /// caller full visibility into what the turn detector reports, beyond the final transcript text.
 #[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ServiceOutputEvent {
     SpeechStarted {
         audio_start_ms: u32,
     },
     SpeechStopped {
-        audio_end_ms: u32,
-    },
-    SpeechCommitted {
-        item_id: String,
-    },
-    SpeechTimeout {
-        audio_start_ms: u32,
         audio_end_ms: u32,
     },
     Segment {
@@ -87,4 +84,37 @@ pub enum ServiceOutputEvent {
 
 fn default_transcription_model() -> String {
     DEFAULT_TRANSCRIPTION_MODEL.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::ServiceOutputEvent;
+
+    #[test]
+    fn service_output_event_serializes_variant_fields_as_camel_case() {
+        let speech_started = serde_json::to_value(ServiceOutputEvent::SpeechStarted {
+            audio_start_ms: 123,
+        })
+        .expect("SpeechStarted should serialize");
+        assert_eq!(
+            speech_started,
+            json!({
+                "type": "speechStarted",
+                "audioStartMs": 123,
+            })
+        );
+
+        let speech_stopped =
+            serde_json::to_value(ServiceOutputEvent::SpeechStopped { audio_end_ms: 456 })
+                .expect("SpeechStopped should serialize");
+        assert_eq!(
+            speech_stopped,
+            json!({
+                "type": "speechStopped",
+                "audioEndMs": 456,
+            })
+        );
+    }
 }

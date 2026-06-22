@@ -18,7 +18,7 @@ use context_switch_core::{
 };
 
 use crate::transcribe::{Params, ServiceOutputEvent};
-use crate::transcription::TranscriptionState;
+use crate::transcription_state::TranscriptionState;
 
 pub struct Client {
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -183,19 +183,18 @@ impl Client {
                 )?;
             }
             ServerEvent::InputAudioBufferCommited(e) => {
-                output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::SpeechCommitted { item_id: e.item_id },
-                )?;
+                // Keep this logged for visibility; we may need to surface this as a control
+                // service event in the future.
+                info!(item_id = %e.item_id, "InputAudioBufferCommited received");
             }
             ServerEvent::InputAudioBufferTimeoutTriggered(e) => {
-                output.service_event(
-                    OutputPath::Control,
-                    ServiceOutputEvent::SpeechTimeout {
-                        audio_start_ms: e.audio_start_ms,
-                        audio_end_ms: e.audio_end_ms,
-                    },
-                )?;
+                // Keep this logged for visibility; we may need to surface this as a control
+                // service event in the future.
+                info!(
+                    audio_start_ms = e.audio_start_ms,
+                    audio_end_ms = e.audio_end_ms,
+                    "InputAudioBufferTimeoutTriggered received"
+                );
             }
 
             ServerEvent::ConversationItemInputAudioTranscriptionDelta(e) => {

@@ -176,9 +176,12 @@ enum OpenAiToolType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ServiceInputEvent {
-    #[serde(rename_all = "camelCase")]
     FunctionCallResult {
         call_id: String,
         output: serde_json::Value,
@@ -189,15 +192,17 @@ pub enum ServiceInputEvent {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ServiceOutputEvent {
-    #[serde(rename_all = "camelCase")]
     FunctionCall {
         call_id: String,
         name: String,
         arguments: serde_json::Value,
     },
-    #[serde(rename_all = "camelCase")]
     ToolCallCancellation {
         call_id: String,
     },
