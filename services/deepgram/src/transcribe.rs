@@ -106,24 +106,33 @@ impl Service for DeepgramTranscribe {
 
         let billing_output = output.clone();
         let forward_audio_task = task::spawn(async move {
-            while let Some(Input::Audio { frame }) = input.recv().await {
-                let duration = frame.duration();
-                if let Err(error) = billing_output.billing_records(
-                    None,
-                    None,
-                    [BillingRecord::duration("input:audio", duration)],
-                    BillingSchedule::Now,
-                ) {
-                    return Err(io::Error::other(format!(
-                        "Failed to output billing records: {error}"
-                    )));
-                }
+            while let Some(input_event) = input.recv().await {
+                match input_event {
+                    Input::Audio { frame } => {
+                        let duration = frame.duration();
+                        if let Err(error) = billing_output.billing_records(
+                            None,
+                            None,
+                            [BillingRecord::duration("input:audio", duration)],
+                            BillingSchedule::Now,
+                        ) {
+                            return Err(io::Error::other(format!(
+                                "Failed to output billing records: {error}"
+                            )));
+                        }
 
-                if let Err(error) = audio_tx.send(Ok(Bytes::from(frame.to_le_bytes()))).await {
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        format!("Deepgram audio stream channel closed: {error}"),
-                    ));
+                        if let Err(error) =
+                            audio_tx.send(Ok(Bytes::from(frame.to_le_bytes()))).await
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::BrokenPipe,
+                                format!("Deepgram audio stream channel closed: {error}"),
+                            ));
+                        }
+                    }
+                    _ => {
+                        warn!("Ignoring non-audio input in Deepgram transcribe audio forwarder");
+                    }
                 }
             }
 
