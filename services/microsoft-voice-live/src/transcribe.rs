@@ -26,7 +26,7 @@ pub struct Params {
     /// Transcription model set in `audio.input.transcription.model`.
     #[serde(default = "default_transcription_model")]
     pub transcription_model: String,
-    /// Input audio language hint in ISO-639-1 form (e.g. `en`).
+    /// Input audio language hint in `ISO-639-1` form (e.g. `en`).
     pub language: Option<String>,
     /// Input-audio noise reduction (Azure deep noise suppression, near/far field).
     pub noise_reduction: Option<NoiseReduction>,

@@ -24,6 +24,9 @@
 ## Control Flow Style
 - Prefer exhaustive `match` statements for enum-based control flow instead of `if matches!(...)` shortcuts.
 
+## Streaming Services
+- Streaming transcribe/translate services drive the provider response stream and audio forwarding (plus billing) in a single `select!` loop — never a detached forwarder task — so termination and billing stay deterministic.
+
 ## Memory Promotion
 - When a durable repository-specific preference is learned during a session, write it into this file as a concise bullet if it can help future sessions.
 - Keep additions short, actionable, and scoped to coding behavior in this repository.

@@ -63,6 +63,9 @@ cargo run --example openai-dialog
 # Run generic transcribe example with Azure provider
 cargo run --example transcribe -- azure
 
+# Run generic transcribe example with Deepgram provider
+cargo run --example transcribe -- deepgram
+
 # Run generic transcribe example with ElevenLabs provider
 cargo run --example transcribe -- elevenlabs
 
@@ -107,6 +110,10 @@ AZURE_REGION=your_azure_region
 
 # ElevenLabs Configuration
 ELEVENLABS_API_KEY=your_elevenlabs_key
+
+# Deepgram Configuration
+DEEPGRAM_API_KEY=your_deepgram_key
+DEEPGRAM_ENDPOINT=wss://api.deepgram.com/v2/listen
 
 # Microsoft Voice Live Configuration
 MICROSOFT_VOICE_LIVE_API_KEY=your_voice_live_key

@@ -4,18 +4,19 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
+use tokio::select;
+use tokio::sync::mpsc::{channel, unbounded_channel};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use openai_api_rs::realtime::types::{
     AzureSemanticVadConfig, EndOfUtteranceDetectionConfig, EndOfUtteranceDetectionModel,
     EndOfUtteranceThresholdLevel, TurnDetection,
 };
 use rodio::DeviceSinkBuilder;
-use tokio::select;
-use tokio::sync::mpsc::{channel, unbounded_channel};
 
 use context_switch::services::{
-    AristechTranscribe, AzureTranscribe, ElevenLabsTranscribe, GoogleTranscribe,
-    MicrosoftVoiceLiveTranscribe,
+    AristechTranscribe, AzureTranscribe, DeepgramTranscribe, ElevenLabsTranscribe,
+    GoogleTranscribe, MicrosoftVoiceLiveTranscribe,
 };
 use context_switch::{AudioConsumer, InputModality, OutputModality};
 use context_switch_core::language::Languages;
@@ -51,6 +52,8 @@ enum Provider {
     Aristech,
     #[value(name = "voice-live")]
     VoiceLive,
+    #[value(name = "deepgram")]
+    Deepgram,
 }
 
 #[tokio::main]
@@ -240,11 +243,10 @@ async fn start_conversation(
     diarization: bool,
     conversation: Conversation,
 ) -> Result<()> {
+    validate_provider_args(provider, model, region, diarization)?;
+
     match provider {
         Provider::Azure => {
-            if region.is_some() {
-                bail!("--region is only supported for the google provider");
-            }
             let params = azure::transcribe::Params {
                 endpoint: env::var("AZURE_ENDPOINT")
                     .ok()
@@ -259,12 +261,6 @@ async fn start_conversation(
             AzureTranscribe.conversation(params, conversation).await
         }
         Provider::Elevenlabs => {
-            if diarization {
-                bail!("--diarization is only supported for the azure provider");
-            }
-            if region.is_some() {
-                bail!("--region is only supported for the google provider");
-            }
             let language = Some(
                 languages
                     .single()
@@ -317,12 +313,6 @@ async fn start_conversation(
             GoogleTranscribe.conversation(params, conversation).await
         }
         Provider::Aristech => {
-            if diarization {
-                bail!("--diarization is only supported for the azure provider");
-            }
-            if region.is_some() {
-                bail!("--region is only supported for the google provider");
-            }
             let language = languages
                 .single()
                 .context("Aristech provider supports exactly one --language value")?
@@ -351,13 +341,6 @@ async fn start_conversation(
             AristechTranscribe.conversation(params, conversation).await
         }
         Provider::VoiceLive => {
-            if diarization {
-                bail!("--diarization is only supported for the azure provider");
-            }
-            if region.is_some() {
-                bail!("--region is only supported for the google provider");
-            }
-
             let language = Some(
                 languages
                     .single()
@@ -383,7 +366,7 @@ async fn start_conversation(
                     AzureSemanticVadConfig {
                         end_of_utterance_detection: Some(EndOfUtteranceDetectionConfig {
                             model: EndOfUtteranceDetectionModel::SmartEndOfTurnDetection,
-                            threshold_level: Some(EndOfUtteranceThresholdLevel::Low),
+                            threshold_level: Some(EndOfUtteranceThresholdLevel::Default),
                             timeout_ms: Some(5000),
                         }),
                         // remove_filler_words: Some(true),
@@ -396,5 +379,91 @@ async fn start_conversation(
                 .conversation(params, conversation)
                 .await
         }
+        Provider::Deepgram => {
+            let params = deepgram_service::transcribe::Params {
+                api_key: env::var("DEEPGRAM_API_KEY").expect("DEEPGRAM_API_KEY undefined"),
+                endpoint: env::var("DEEPGRAM_ENDPOINT").expect("DEEPGRAM_ENDPOINT undefined"),
+                language: languages.join_csv(),
+                profanity_filter: false,
+                keyterm: vec![],
+                turn_detection: deepgram_service::transcribe::TurnDetection::default(),
+            };
+
+            DeepgramTranscribe.conversation(params, conversation).await
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ProviderCapabilities {
+    region: bool,
+    diarization: bool,
+    model: bool,
+}
+
+impl Provider {
+    fn capabilities(self) -> ProviderCapabilities {
+        let mut capabilities = ProviderCapabilities::default();
+
+        match self {
+            Provider::Azure => {
+                capabilities.diarization = true;
+                capabilities.model = true;
+            }
+            Provider::Deepgram => {}
+            Provider::Elevenlabs => {
+                capabilities.model = true;
+            }
+            Provider::Google => {
+                capabilities.region = true;
+                capabilities.diarization = true;
+                capabilities.model = true;
+            }
+            Provider::Aristech => {
+                capabilities.model = true;
+            }
+            Provider::VoiceLive => {
+                capabilities.model = true;
+            }
+        }
+
+        capabilities
+    }
+}
+
+fn validate_capability(
+    option_name: &str,
+    is_used: bool,
+    capability: bool,
+    provider: Provider,
+) -> Result<()> {
+    if !is_used || capability {
+        return Ok(());
+    }
+
+    bail!(
+        "{option_name} is unsupported for provider '{}'",
+        provider
+            .to_possible_value()
+            .expect("Provider has a possible value")
+            .get_name()
+    )
+}
+
+fn validate_provider_args(
+    provider: Provider,
+    model: Option<&str>,
+    region: Option<&str>,
+    diarization: bool,
+) -> Result<()> {
+    let capabilities = provider.capabilities();
+
+    validate_capability("--model", model.is_some(), capabilities.model, provider)?;
+    validate_capability("--region", region.is_some(), capabilities.region, provider)?;
+    validate_capability(
+        "--diarization",
+        diarization,
+        capabilities.diarization,
+        provider,
+    )
 }

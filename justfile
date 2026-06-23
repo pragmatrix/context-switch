@@ -28,6 +28,9 @@ transcribe-google-latest-long:
 transcribe-voice-live-de:
     cargo run --example transcribe -- voice-live --language de-DE
 
+transcribe-deepgram-de:
+    cargo run --example transcribe -- deepgram --language de-DE
+
 transcribe-google-diarization:
     cargo run --example transcribe -- google --diarization --language de-DE --model chirp_3 --region eu
 

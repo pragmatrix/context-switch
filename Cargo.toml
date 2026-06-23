@@ -12,6 +12,7 @@ members = [
     "filter-test",
     "services/aristech",
     "services/azure",
+    "services/deepgram",
     "services/elevenlabs",
     "services/google-dialog",
     "services/google-transcribe", 
@@ -37,6 +38,7 @@ google-dialog = { workspace = true }
 azure = { workspace = true }
 azure-speech = { workspace = true }
 aristech = { workspace = true }
+deepgram-service = { workspace = true }
 elevenlabs = { workspace = true }
 google-transcribe = { workspace = true }
 microsoft-voice-live = { workspace = true }
@@ -103,6 +105,7 @@ context-switch-core = { path = "core" }
 azure = { path = "services/azure" }
 playback = { path = "services/playback" }
 aristech = { path = "services/aristech" }
+deepgram-service = { path = "services/deepgram" }
 elevenlabs = { path = "services/elevenlabs" }
 google-transcribe = { path = "services/google-transcribe" }
 google-dialog = { path = "services/google-dialog" }

@@ -23,3 +23,21 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
   Note: Voice Live and Azure OpenAI Realtime are expected to converge over time;
   the `microsoft-voice-live` boundary is kept deliberately thin so the two can be
   merged later without a rewrite.
+
+- **Deepgram Flux** — Deepgram's turn-based conversational speech-to-text API
+  (`listen` v2). Unlike classic streaming recognition, it emits per-turn events
+  rather than a continuous interim/final stream. Backs the `deepgram-service`
+  crate (`DeepgramTranscribe`, registered as `deepgram-transcribe`).
+
+- **Turn** — a single contiguous span of one speaker talking, as detected by
+  Flux. A turn accumulates transcript across `Update` events and is closed by an
+  `EndOfTurn`.
+
+- **End of Turn (EOT)** — Flux's decision that the speaker has finished the
+  current turn. Governed by `eotThreshold` (confidence to close a turn) and
+  `eotTimeoutMs` (silence after which a turn is force-closed).
+
+- **Eager End of Turn** — an early, lower-confidence EOT signal (enabled by
+  `eagerEotThreshold`) that lets a downstream agent begin preparing a reply
+  before the turn is confirmed. May be retracted by a `TurnResumed` event if the
+  speaker continues.
