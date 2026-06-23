@@ -386,7 +386,7 @@ async fn start_conversation(
                             timeout_ms: Some(5000),
                         }),
                         // remove_filler_words: Some(true),
-                        languages: Some(vec!["de-DE".to_owned()]),
+                        languages: language.clone().map(|lang| vec![lang]),
                         ..Default::default()
                     },
                 )),
