@@ -1,9 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use openai_api_rs::realtime::types::{NoiseReduction, TurnDetection};
+use openai_api_rs::realtime::types::NoiseReduction;
 use serde::{Deserialize, Serialize};
 
-use context_switch_core::{Conversation, Service};
+use context_switch_core::{Conversation, Service, TurnDetection};
 
 use crate::host::Host;
 
@@ -30,8 +30,9 @@ pub struct Params {
     pub language: Option<String>,
     /// Input-audio noise reduction (Azure deep noise suppression, near/far field).
     pub noise_reduction: Option<NoiseReduction>,
-    /// Turn-detection configuration (Azure semantic VAD, server VAD, ...). Defaults to Azure
-    /// semantic VAD with responses suppressed when omitted.
+    /// Provider-neutral turn-detection configuration. Only `threshold_level` and `timeout_ms`
+    /// are forwarded to Voice Live; the float thresholds are ignored. When omitted, Voice Live
+    /// defaults to Azure multilingual semantic VAD with smart end-of-turn detection.
     pub turn_detection: Option<TurnDetection>,
 }
 

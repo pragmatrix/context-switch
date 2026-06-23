@@ -6,7 +6,10 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use openai_api_rs::realtime::client_event::{self, ClientEvent};
 use openai_api_rs::realtime::server_event::ServerEvent;
-use openai_api_rs::realtime::types::{self, AzureSemanticVadConfig, TurnDetection};
+use openai_api_rs::realtime::types::{
+    self, AzureSemanticVadConfig, EndOfUtteranceDetectionConfig, EndOfUtteranceDetectionModel,
+    EndOfUtteranceThresholdLevel, TurnDetection,
+};
 use tokio::{net::TcpStream, select};
 use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -14,7 +17,7 @@ use tracing::{debug, info, trace, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
-    Input, OutputPath, audio,
+    Input, OutputPath, ThresholdLevel, audio,
 };
 
 use crate::transcribe::{Params, ServiceOutputEvent};
@@ -118,7 +121,7 @@ impl Client {
                 model: params.transcription_model.clone(),
                 prompt: None,
             }),
-            turn_detection: Some(transcription_turn_detection(params.turn_detection.clone())),
+            turn_detection: Some(transcription_turn_detection(params.turn_detection.as_ref())),
         };
 
         log_requested_session_update(&session);
@@ -284,25 +287,38 @@ impl Client {
     }
 }
 
-/// Produces the turn-detection configuration for transcription. Responses are always suppressed
-/// (`create_response = false`) because this service only transcribes; a missing configuration
-/// defaults to Azure semantic VAD.
-fn transcription_turn_detection(configured: Option<TurnDetection>) -> TurnDetection {
-    let mut detection = configured
-        .unwrap_or_else(|| TurnDetection::AzureSemanticVad(AzureSemanticVadConfig::default()));
-    match &mut detection {
-        TurnDetection::ServerVAD(config) => {
-            config.create_response = false;
-        }
-        TurnDetection::SemanticVAD(config) => config.create_response = false,
-        TurnDetection::AzureSemanticVad(config) => {
-            config.create_response = Some(false);
-        }
-        TurnDetection::AzureSemanticVadMultilingual(config) => {
-            config.create_response = Some(false);
-        }
+/// Produces the Voice Live turn-detection configuration for transcription.
+///
+/// The neutral configuration is realized as Azure multilingual semantic VAD with smart
+/// end-of-turn detection. Only `threshold_level` and `timeout_ms` are honored; the Deepgram-only
+/// float thresholds are ignored. Responses are always suppressed (`create_response = false`)
+/// because this service only transcribes. A missing `threshold_level` falls back to the service
+/// default behavior.
+fn transcription_turn_detection(
+    configured: Option<&context_switch_core::TurnDetection>,
+) -> TurnDetection {
+    let threshold_level = configured
+        .and_then(|detection| detection.threshold_level)
+        .map(eou_threshold_level);
+    let timeout_ms = configured.and_then(|detection| detection.timeout_ms);
+
+    TurnDetection::AzureSemanticVadMultilingual(AzureSemanticVadConfig {
+        end_of_utterance_detection: Some(EndOfUtteranceDetectionConfig {
+            model: EndOfUtteranceDetectionModel::SmartEndOfTurnDetection,
+            threshold_level,
+            timeout_ms,
+        }),
+        create_response: Some(false),
+        ..Default::default()
+    })
+}
+
+fn eou_threshold_level(level: ThresholdLevel) -> EndOfUtteranceThresholdLevel {
+    match level {
+        ThresholdLevel::Low => EndOfUtteranceThresholdLevel::Low,
+        ThresholdLevel::Medium => EndOfUtteranceThresholdLevel::Medium,
+        ThresholdLevel::High => EndOfUtteranceThresholdLevel::High,
     }
-    detection
 }
 
 enum FlowControl {

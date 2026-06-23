@@ -8,6 +8,7 @@ mod protocol;
 mod registry;
 pub mod service;
 pub mod speech_gate;
+mod turn_detection;
 
 use std::time;
 
@@ -20,6 +21,7 @@ pub use duration::Duration;
 pub use protocol::*;
 pub use registry::*;
 pub use service::Service;
+pub use turn_detection::{ThresholdLevel, TurnDetection};
 
 /// A unidirectional audio message. Useful for implementing an audio transfer channel.
 #[derive(Debug)]

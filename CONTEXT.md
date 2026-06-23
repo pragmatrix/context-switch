@@ -41,3 +41,17 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
   `eagerEotThreshold`) that lets a downstream agent begin preparing a reply
   before the turn is confirmed. May be retracted by a `TurnResumed` event if the
   speaker continues.
+
+## Turn detection terms
+
+- **Turn Detection** — the provider-neutral configuration (`context_switch_core`)
+  that controls how a backend decides a turn has ended. Each backend converter
+  forwards only the fields it understands. Because the two backends model
+  end-of-turn aggressiveness differently, it is expressed twice rather than
+  mapped between forms: `threshold` / `eagerThreshold` (confidence floats) are
+  Deepgram-only, and `thresholdLevel` is Voice Live-only.
+
+- **Threshold Level** — the categorical end-of-turn aggressiveness consumed by
+  Voice Live (`low` / `medium` / `high`). Lower levels wait for stronger
+  evidence before ending a turn; higher levels end turns earlier. When unset,
+  Voice Live uses its built-in default behavior.

@@ -8,10 +8,6 @@ use tokio::select;
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use openai_api_rs::realtime::types::{
-    AzureSemanticVadConfig, EndOfUtteranceDetectionConfig, EndOfUtteranceDetectionModel,
-    EndOfUtteranceThresholdLevel, TurnDetection,
-};
 use rodio::DeviceSinkBuilder;
 
 use context_switch::services::{
@@ -347,7 +343,6 @@ async fn start_conversation(
                     .context("Voice Live provider supports exactly one --language value")?
                     .clone(),
             );
-            let vad_languages = language.clone().map(|lang| vec![lang]);
 
             let params = microsoft_voice_live::Params {
                 api_key: env::var("MICROSOFT_VOICE_LIVE_API_KEY")
@@ -362,18 +357,9 @@ async fn start_conversation(
                     .unwrap_or_else(|_| "azure-speech".to_owned()),
                 language,
                 noise_reduction: None,
-                turn_detection: Some(TurnDetection::AzureSemanticVadMultilingual(
-                    AzureSemanticVadConfig {
-                        end_of_utterance_detection: Some(EndOfUtteranceDetectionConfig {
-                            model: EndOfUtteranceDetectionModel::SmartEndOfTurnDetection,
-                            threshold_level: Some(EndOfUtteranceThresholdLevel::Default),
-                            timeout_ms: Some(5000),
-                        }),
-                        // remove_filler_words: Some(true),
-                        languages: vad_languages,
-                        ..Default::default()
-                    },
-                )),
+                // Omitted: Voice Live defaults to Azure multilingual semantic VAD with smart
+                // end-of-turn detection.
+                turn_detection: None,
             };
             MicrosoftVoiceLiveTranscribe
                 .conversation(params, conversation)
@@ -386,7 +372,7 @@ async fn start_conversation(
                 language: languages.join_csv(),
                 profanity_filter: false,
                 keyterm: vec![],
-                turn_detection: deepgram_service::transcribe::TurnDetection::default(),
+                turn_detection: None,
             };
 
             DeepgramTranscribe.conversation(params, conversation).await
