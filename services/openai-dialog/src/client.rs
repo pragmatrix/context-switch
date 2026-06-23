@@ -15,7 +15,7 @@ use tracing::{debug, info, trace, warn};
 #[cfg(feature = "prompt-delay")]
 use uuid::Uuid;
 
-use crate::transcription::{TranscriptionSettings, TranscriptionState};
+use crate::transcription_state::{TranscriptionSettings, TranscriptionState};
 use crate::{Params, ServiceInputEvent, ServiceOutputEvent};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
