@@ -366,7 +366,7 @@ async fn start_conversation(
                     AzureSemanticVadConfig {
                         end_of_utterance_detection: Some(EndOfUtteranceDetectionConfig {
                             model: EndOfUtteranceDetectionModel::SmartEndOfTurnDetection,
-                            threshold_level: Some(EndOfUtteranceThresholdLevel::Low),
+                            threshold_level: Some(EndOfUtteranceThresholdLevel::Default),
                             timeout_ms: Some(5000),
                         }),
                         // remove_filler_words: Some(true),
