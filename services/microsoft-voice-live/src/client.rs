@@ -137,9 +137,9 @@ impl Client {
         language: Option<&str>,
     ) -> Result<FlowControl> {
         match message {
-            Message::Text(str) => {
-                let value: serde_json::Value = serde_json::from_str(&str)
-                    .with_context(|| format!("Deserialization failed: `{str}`"))?;
+            Message::Text(text) => {
+                let value: serde_json::Value = serde_json::from_str(&text)
+                    .with_context(|| format!("Deserialization failed: `{text}`"))?;
                 self.handle_server_event(value, output, language).await?;
                 Ok(FlowControl::Continue)
             }
