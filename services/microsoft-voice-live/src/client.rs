@@ -138,9 +138,10 @@ impl Client {
     ) -> Result<FlowControl> {
         match message {
             Message::Text(text) => {
-                let value: serde_json::Value = serde_json::from_str(&text)
-                    .with_context(|| format!("Deserialization failed: `{text}`"))?;
-                self.handle_server_event(value, output, language).await?;
+                let event: ServerEvent = serde_json::from_str(text.as_ref())
+                    .with_context(|| format!("Server event decoding failed: `{text}`"))?;
+                self.handle_server_event(event, text.as_ref(), output, language)
+                    .await?;
                 Ok(FlowControl::Continue)
             }
             Message::Ping(data) => Ok(FlowControl::PongAndContinue(data)),
@@ -151,15 +152,17 @@ impl Client {
 
     async fn handle_server_event(
         &mut self,
-        message: serde_json::Value,
+        event: ServerEvent,
+        raw_message: &str,
         output: &ConversationOutput,
         language: Option<&str>,
     ) -> Result<()> {
-        let event: ServerEvent = serde_json::from_value(message.clone())
-            .with_context(|| format!("Server event decoding failed: `{message}`"))?;
-
         match event {
             ServerEvent::SessionUpdated(e) => {
+                let message: serde_json::Value =
+                    serde_json::from_str(raw_message).with_context(|| {
+                        format!("Failed to parse raw session.updated payload: `{raw_message}`")
+                    })?;
                 debug!(session_updated_raw = %message, "Raw session.updated from server");
                 log_confirmed_session_from_server(&e.session);
                 debug!("Session update acknowledged");
