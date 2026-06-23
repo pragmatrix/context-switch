@@ -364,6 +364,7 @@ async fn start_conversation(
                     .context("Voice Live provider supports exactly one --language value")?
                     .clone(),
             );
+            let vad_languages = language.clone().map(|lang| vec![lang]);
 
             let params = microsoft_voice_live::Params {
                 api_key: env::var("MICROSOFT_VOICE_LIVE_API_KEY")
@@ -386,7 +387,7 @@ async fn start_conversation(
                             timeout_ms: Some(5000),
                         }),
                         // remove_filler_words: Some(true),
-                        languages: language.clone().map(|lang| vec![lang]),
+                        languages: vad_languages,
                         ..Default::default()
                     },
                 )),
