@@ -264,12 +264,10 @@ fn normalize_endpoint(endpoint: &str) -> Result<String> {
     }
 
     if trimmed.contains("/listen") {
-        bail!(
-            "Invalid Deepgram endpoint: expected terminal /v1/listen or /v2/listen path ({endpoint})"
-        );
+        bail!("invalid endpoint: expected terminal /v1/listen or /v2/listen path ({endpoint})");
     }
 
     bail!(
-        "Invalid DEEPGRAM_ENDPOINT: expected full listen path (for example wss://api.deepgram.com/v2/listen), got base URL ({endpoint})"
+        "invalid endpoint: expected full listen path (for example wss://api.deepgram.com/v2/listen), got base URL ({endpoint})"
     )
 }

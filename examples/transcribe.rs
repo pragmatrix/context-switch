@@ -441,7 +441,13 @@ fn validate_capability(
         return Ok(());
     }
 
-    bail!("{option_name} is unsupported for provider '{provider:?}'")
+    bail!(
+        "{option_name} is unsupported for provider '{}'",
+        provider
+            .to_possible_value()
+            .expect("Provider has a possible value")
+            .get_name()
+    )
 }
 
 fn validate_provider_args(
