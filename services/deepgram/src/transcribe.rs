@@ -15,7 +15,7 @@ use deepgram::common::options::{Encoding, Model, Options};
 
 use context_switch_core::language::{Languages, bcp47_to_iso639_3};
 use context_switch_core::{
-    BillingRecord, BillingSchedule, Conversation, Input, OutputPath, Service,
+    BillingRecord, BillingSchedule, Conversation, Input, OutputPath, Service, TurnDetection,
 };
 
 #[derive(Debug, Deserialize)]
@@ -29,16 +29,11 @@ pub struct Params {
     pub profanity_filter: bool,
     #[serde(default)]
     pub keyterm: Vec<String>,
-    #[serde(flatten)]
-    pub turn_detection: TurnDetection,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnDetection {
-    pub threshold: Option<f64>,
-    pub timeout_ms: Option<u32>,
-    pub eager_threshold: Option<f64>,
+    /// Provider-neutral turn-detection configuration. Only `threshold`, `timeoutMs`, and
+    /// `eagerThreshold` are forwarded to Deepgram Flux; `thresholdLevel` is ignored. When
+    /// omitted, Flux applies its own built-in end-of-turn defaults.
+    #[serde(default)]
+    pub turn_detection: Option<TurnDetection>,
 }
 
 #[derive(Debug)]
@@ -66,14 +61,16 @@ impl Service for DeepgramTranscribe {
         let (model, language_hints) = select_model_and_language_hints(&languages)?;
         let mut options_builder = Options::builder().model(model);
 
-        if let Some(eot_threshold) = params.turn_detection.threshold {
-            options_builder = options_builder.eot_threshold(eot_threshold);
-        }
-        if let Some(eot_timeout_ms) = params.turn_detection.timeout_ms {
-            options_builder = options_builder.eot_timeout_ms(eot_timeout_ms);
-        }
-        if let Some(eager_eot_threshold) = params.turn_detection.eager_threshold {
-            options_builder = options_builder.eager_eot_threshold(eager_eot_threshold);
+        if let Some(turn_detection) = &params.turn_detection {
+            if let Some(eot_threshold) = turn_detection.threshold {
+                options_builder = options_builder.eot_threshold(eot_threshold);
+            }
+            if let Some(eot_timeout_ms) = turn_detection.timeout_ms {
+                options_builder = options_builder.eot_timeout_ms(eot_timeout_ms);
+            }
+            if let Some(eager_eot_threshold) = turn_detection.eager_threshold {
+                options_builder = options_builder.eager_eot_threshold(eager_eot_threshold);
+            }
         }
         if params.profanity_filter {
             options_builder = options_builder.profanity_filter(true);
