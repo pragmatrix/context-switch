@@ -122,6 +122,10 @@ impl Service for DeepgramTranscribe {
                     match input_event {
                         Some(Input::Audio { frame }) => {
                             let duration = frame.duration();
+                            audio_tx
+                                .send(Ok(Bytes::from(frame.to_le_bytes())))
+                                .await
+                                .context("Deepgram audio stream channel closed")?;
                             output
                                 .billing_records(
                                     None,
@@ -130,10 +134,6 @@ impl Service for DeepgramTranscribe {
                                     BillingSchedule::Now,
                                 )
                                 .context("Failed to output billing records")?;
-                            audio_tx
-                                .send(Ok(Bytes::from(frame.to_le_bytes())))
-                                .await
-                                .context("Deepgram audio stream channel closed")?;
                         }
                         // Any non-audio input or a closed input channel ends audio forwarding.
                         // Closing `audio_tx` lets the SDK finalize and deliver the remaining turns.
