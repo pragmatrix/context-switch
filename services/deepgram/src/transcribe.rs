@@ -6,7 +6,7 @@ use bytes::Bytes;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::task;
+use tokio::select;
 use tracing::{debug, info, warn};
 
 use deepgram::Deepgram;
@@ -104,41 +104,6 @@ impl Service for DeepgramTranscribe {
         let (mut input, output) = conversation.start()?;
         let (mut audio_tx, audio_rx) = mpsc::channel::<std::result::Result<Bytes, io::Error>>(8);
 
-        let billing_output = output.clone();
-        let forward_audio_task = task::spawn(async move {
-            while let Some(input_event) = input.recv().await {
-                match input_event {
-                    Input::Audio { frame } => {
-                        let duration = frame.duration();
-                        if let Err(error) = billing_output.billing_records(
-                            None,
-                            None,
-                            [BillingRecord::duration("input:audio", duration)],
-                            BillingSchedule::Now,
-                        ) {
-                            return Err(io::Error::other(format!(
-                                "Failed to output billing records: {error}"
-                            )));
-                        }
-
-                        if let Err(error) =
-                            audio_tx.send(Ok(Bytes::from(frame.to_le_bytes()))).await
-                        {
-                            return Err(io::Error::new(
-                                io::ErrorKind::BrokenPipe,
-                                format!("Deepgram audio stream channel closed: {error}"),
-                            ));
-                        }
-                    }
-                    _ => {
-                        warn!("Ignoring non-audio input in Deepgram transcribe audio forwarder");
-                    }
-                }
-            }
-
-            Ok::<(), io::Error>(())
-        });
-
         let mut stream = deepgram
             .transcription()
             .flux_request_with_options(options)
@@ -147,8 +112,46 @@ impl Service for DeepgramTranscribe {
             .stream(audio_rx)
             .await?;
 
-        while let Some(message) = stream.next().await {
-            let response = message?;
+        // Drive audio forwarding (with billing) and Deepgram response processing in a single loop so
+        // termination and billing stay deterministic: any error or end-of-input breaks immediately,
+        // and closing `audio_tx` triggers the SDK finalize/close handshake that drains final turns.
+        let mut audio_input_open = true;
+        loop {
+            let response = select! {
+                input_event = input.recv(), if audio_input_open => {
+                    match input_event {
+                        Some(Input::Audio { frame }) => {
+                            let duration = frame.duration();
+                            output
+                                .billing_records(
+                                    None,
+                                    None,
+                                    [BillingRecord::duration("input:audio", duration)],
+                                    BillingSchedule::Now,
+                                )
+                                .context("Failed to output billing records")?;
+                            audio_tx
+                                .send(Ok(Bytes::from(frame.to_le_bytes())))
+                                .await
+                                .context("Deepgram audio stream channel closed")?;
+                        }
+                        // Any non-audio input or a closed input channel ends audio forwarding.
+                        // Closing `audio_tx` lets the SDK finalize and deliver the remaining turns.
+                        Some(_) | None => {
+                            audio_input_open = false;
+                            audio_tx.close_channel();
+                        }
+                    }
+                    continue;
+                }
+                message = stream.next() => {
+                    match message {
+                        Some(message) => message?,
+                        None => break,
+                    }
+                }
+            };
+
             match response {
                 FluxResponse::Connected { .. } => {}
                 FluxResponse::ConfigureSuccess { .. } => {}
@@ -225,11 +228,6 @@ impl Service for DeepgramTranscribe {
                 }
             }
         }
-
-        let audio_forward_result = forward_audio_task
-            .await
-            .context("Joining Deepgram audio forward task")?;
-        audio_forward_result.context("Deepgram audio forward task failed")?;
 
         Ok(())
     }
