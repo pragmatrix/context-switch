@@ -66,6 +66,9 @@ cargo run --example transcribe -- azure
 # Run generic transcribe example with Deepgram provider
 cargo run --example transcribe -- deepgram
 
+# Deepgram-specific end-of-turn tuning
+cargo run --example transcribe -- deepgram --turn-threshold 0.7 --turn-timeout-ms 900 --turn-eager-threshold 0.6
+
 # Run generic transcribe example with ElevenLabs provider
 cargo run --example transcribe -- elevenlabs
 
@@ -74,6 +77,9 @@ cargo run --example transcribe -- aristech
 
 # Run generic transcribe example with Microsoft Voice Live provider
 cargo run --example transcribe -- voice-live
+
+# Voice Live end-of-turn tuning
+cargo run --example transcribe -- voice-live --turn-threshold-level high --turn-timeout-ms 800
 
 # Run Azure synthesize example
 cargo run --example azure-synthesize

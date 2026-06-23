@@ -17,7 +17,9 @@ use context_switch::services::{
 use context_switch::{AudioConsumer, InputModality, OutputModality};
 use context_switch_core::language::Languages;
 use context_switch_core::service::Service;
-use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, audio};
+use context_switch_core::{
+    AudioFormat, AudioFrame, Conversation, Input, ThresholdLevel, TurnDetection, audio,
+};
 
 const DEFAULT_LANGUAGE: &str = "en-US";
 
@@ -34,6 +36,14 @@ struct Args {
     region: Option<String>,
     #[arg(long)]
     diarization: bool,
+    #[arg(long)]
+    turn_threshold: Option<f64>,
+    #[arg(long, value_enum)]
+    turn_threshold_level: Option<TurnThresholdLevel>,
+    #[arg(long)]
+    turn_timeout_ms: Option<u32>,
+    #[arg(long)]
+    turn_eager_threshold: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -52,6 +62,31 @@ enum Provider {
     Deepgram,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TurnThresholdLevel {
+    Low,
+    Medium,
+    High,
+}
+
+impl From<TurnThresholdLevel> for ThresholdLevel {
+    fn from(value: TurnThresholdLevel) -> Self {
+        match value {
+            TurnThresholdLevel::Low => ThresholdLevel::Low,
+            TurnThresholdLevel::Medium => ThresholdLevel::Medium,
+            TurnThresholdLevel::High => ThresholdLevel::High,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ProviderArgs<'a> {
+    model: Option<&'a str>,
+    region: Option<&'a str>,
+    diarization: bool,
+    turn_detection: Option<TurnDetection>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv_override()?;
@@ -64,17 +99,29 @@ async fn main() -> Result<()> {
         args.language
     };
     let languages = Languages::new(language)?;
-    let model = args.model.as_deref();
-    let region = args.region.as_deref();
-    let diarization = args.diarization;
+    let provider_args = ProviderArgs {
+        model: args.model.as_deref(),
+        region: args.region.as_deref(),
+        diarization: args.diarization,
+        turn_detection: if args.turn_threshold.is_some()
+            || args.turn_threshold_level.is_some()
+            || args.turn_timeout_ms.is_some()
+            || args.turn_eager_threshold.is_some()
+        {
+            Some(TurnDetection {
+                threshold: args.turn_threshold,
+                threshold_level: args.turn_threshold_level.map(ThresholdLevel::from),
+                timeout_ms: args.turn_timeout_ms,
+                eager_threshold: args.turn_eager_threshold,
+            })
+        } else {
+            None
+        },
+    };
 
     match args.input.as_deref() {
-        Some(path) => {
-            recognize_from_wav(args.provider, path, &languages, model, region, diarization).await?
-        }
-        None => {
-            recognize_from_microphone(args.provider, &languages, model, region, diarization).await?
-        }
+        Some(path) => recognize_from_wav(args.provider, path, &languages, &provider_args).await?,
+        None => recognize_from_microphone(args.provider, &languages, &provider_args).await?,
     }
 
     Ok(())
@@ -84,9 +131,7 @@ async fn recognize_from_wav(
     provider: Provider,
     file: &Path,
     languages: &Languages,
-    model: Option<&str>,
-    region: Option<&str>,
-    diarization: bool,
+    provider_args: &ProviderArgs<'_>,
 ) -> Result<()> {
     let format = AudioFormat {
         channels: 1,
@@ -103,24 +148,13 @@ async fn recognize_from_wav(
         producer.produce(frame)?;
     }
 
-    recognize(
-        provider,
-        format,
-        input_consumer,
-        languages,
-        model,
-        region,
-        diarization,
-    )
-    .await
+    recognize(provider, format, input_consumer, languages, provider_args).await
 }
 
 async fn recognize_from_microphone(
     provider: Provider,
     languages: &Languages,
-    model: Option<&str>,
-    region: Option<&str>,
-    diarization: bool,
+    provider_args: &ProviderArgs<'_>,
 ) -> Result<()> {
     // Keep an output sink alive so Bluetooth headsets can switch to a bidirectional profile.
     let _output_sink = match DeviceSinkBuilder::open_default_sink() {
@@ -166,16 +200,7 @@ async fn recognize_from_microphone(
 
     stream.play().expect("Failed to play stream");
 
-    recognize(
-        provider,
-        format,
-        input_consumer,
-        languages,
-        model,
-        region,
-        diarization,
-    )
-    .await
+    recognize(provider, format, input_consumer, languages, provider_args).await
 }
 
 async fn recognize(
@@ -183,9 +208,7 @@ async fn recognize(
     format: AudioFormat,
     mut input_consumer: AudioConsumer,
     languages: &Languages,
-    model: Option<&str>,
-    region: Option<&str>,
-    diarization: bool,
+    provider_args: &ProviderArgs<'_>,
 ) -> Result<()> {
     let (output_producer, mut output_consumer) = unbounded_channel();
     let (conversation_input_producer, conversation_input_consumer) = channel(16_384);
@@ -193,9 +216,7 @@ async fn recognize(
     let conversation = start_conversation(
         provider,
         languages,
-        model,
-        region,
-        diarization,
+        provider_args,
         Conversation::new(
             InputModality::Audio { format },
             [OutputModality::Text, OutputModality::InterimText],
@@ -234,12 +255,16 @@ async fn recognize(
 async fn start_conversation(
     provider: Provider,
     languages: &Languages,
-    model: Option<&str>,
-    region: Option<&str>,
-    diarization: bool,
+    provider_args: &ProviderArgs<'_>,
     conversation: Conversation,
 ) -> Result<()> {
-    validate_provider_args(provider, model, region, diarization)?;
+    validate_provider_args(
+        provider,
+        provider_args.model,
+        provider_args.region,
+        provider_args.diarization,
+        provider_args.turn_detection.is_some(),
+    )?;
 
     match provider {
         Provider::Azure => {
@@ -251,7 +276,7 @@ async fn start_conversation(
                 subscription_key: env::var("AZURE_SUBSCRIPTION_KEY")
                     .expect("AZURE_SUBSCRIPTION_KEY undefined"),
                 language: languages.join_csv(),
-                diarization,
+                diarization: provider_args.diarization,
                 speech_gate: false,
             };
             AzureTranscribe.conversation(params, conversation).await
@@ -280,7 +305,8 @@ async fn start_conversation(
                 .await
         }
         Provider::Google => {
-            let region = region
+            let region = provider_args
+                .region
                 .map(str::to_owned)
                 .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok());
 
@@ -299,11 +325,11 @@ async fn start_conversation(
             // https://docs.cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages
 
             let params = google_transcribe::transcribe::Params {
-                model: model.map(str::to_owned).unwrap_or_else(|| {
+                model: provider_args.model.map(str::to_owned).unwrap_or_else(|| {
                     env::var("GOOGLE_TRANSCRIBE_MODEL").unwrap_or_else(|_| "latest_long".to_owned())
                 }),
                 language: languages.join_csv(),
-                diarization,
+                diarization: provider_args.diarization,
                 region,
             };
             GoogleTranscribe.conversation(params, conversation).await
@@ -349,7 +375,7 @@ async fn start_conversation(
                     .expect("MICROSOFT_VOICE_LIVE_API_KEY undefined"),
                 endpoint: env::var("MICROSOFT_VOICE_LIVE_ENDPOINT")
                     .expect("MICROSOFT_VOICE_LIVE_ENDPOINT undefined (must be wss://...)"),
-                model: model.map(str::to_owned).unwrap_or_else(|| {
+                model: provider_args.model.map(str::to_owned).unwrap_or_else(|| {
                     env::var("MICROSOFT_VOICE_LIVE_MODEL").unwrap_or_else(|_| "gpt-4.1".to_owned())
                 }),
                 api_version: env::var("MICROSOFT_VOICE_LIVE_API_VERSION").ok(),
@@ -357,9 +383,9 @@ async fn start_conversation(
                     .unwrap_or_else(|_| "azure-speech".to_owned()),
                 language,
                 noise_reduction: None,
-                // Omitted: Voice Live defaults to Azure multilingual semantic VAD with smart
-                // end-of-turn detection.
-                turn_detection: None,
+                // When omitted, Voice Live defaults to Azure multilingual semantic VAD with
+                // smart end-of-turn detection.
+                turn_detection: provider_args.turn_detection.clone(),
             };
             MicrosoftVoiceLiveTranscribe
                 .conversation(params, conversation)
@@ -372,7 +398,7 @@ async fn start_conversation(
                 language: languages.join_csv(),
                 profanity_filter: false,
                 keyterm: vec![],
-                turn_detection: None,
+                turn_detection: provider_args.turn_detection.clone(),
             };
 
             DeepgramTranscribe.conversation(params, conversation).await
@@ -385,6 +411,7 @@ struct ProviderCapabilities {
     region: bool,
     diarization: bool,
     model: bool,
+    turn_detection: bool,
 }
 
 impl Provider {
@@ -396,7 +423,9 @@ impl Provider {
                 capabilities.diarization = true;
                 capabilities.model = true;
             }
-            Provider::Deepgram => {}
+            Provider::Deepgram => {
+                capabilities.turn_detection = true;
+            }
             Provider::Elevenlabs => {
                 capabilities.model = true;
             }
@@ -410,6 +439,7 @@ impl Provider {
             }
             Provider::VoiceLive => {
                 capabilities.model = true;
+                capabilities.turn_detection = true;
             }
         }
 
@@ -441,6 +471,7 @@ fn validate_provider_args(
     model: Option<&str>,
     region: Option<&str>,
     diarization: bool,
+    turn_detection: bool,
 ) -> Result<()> {
     let capabilities = provider.capabilities();
 
@@ -450,6 +481,12 @@ fn validate_provider_args(
         "--diarization",
         diarization,
         capabilities.diarization,
+        provider,
+    )?;
+    validate_capability(
+        "--turn-threshold/--turn-threshold-level/--turn-timeout-ms/--turn-eager-threshold",
+        turn_detection,
+        capabilities.turn_detection,
         provider,
     )
 }
