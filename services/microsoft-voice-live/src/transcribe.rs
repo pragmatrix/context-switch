@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use openai_api_rs::realtime::types::NoiseReduction;
 use serde::{Deserialize, Serialize};
 
 use context_switch_core::{Conversation, Service, TurnDetection};
@@ -34,6 +33,26 @@ pub struct Params {
     /// are forwarded to Voice Live; the float thresholds are ignored. When omitted, Voice Live
     /// defaults to Azure multilingual semantic VAD with smart end-of-turn detection.
     pub turn_detection: Option<TurnDetection>,
+}
+
+/// Input-audio noise reduction. Mapped to the provider noise-reduction configuration before
+/// being sent in the session update.
+#[derive(Debug, Deserialize)]
+pub struct NoiseReduction {
+    #[serde(rename = "type")]
+    pub reduction_type: NoiseReductionType,
+}
+
+/// Noise-reduction profile. Mirrors the provider's variants with a camelCase wire form.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NoiseReductionType {
+    /// `nearField` is for close-talking microphones such as headphones.
+    NearField,
+    /// `farField` is for far-field microphones such as laptop or conference room microphones.
+    FarField,
+    /// Azure deep noise suppression, optimized for the speaker closest to the microphone.
+    AzureDeepNoiseSuppression,
 }
 
 #[derive(Debug)]
