@@ -43,7 +43,10 @@ pub struct Params {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+// External callers use camelCase (matching `Params`), but ElevenLabs' wire protocol expects
+// snake_case field names, so we bridge the two by deserializing camelCase and serializing
+// snake_case.
+#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
 pub struct VoiceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stability: Option<f64>,

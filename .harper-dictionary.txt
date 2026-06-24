@@ -1,10 +1,12 @@
 AirPods
 BCP
 ContextSwitch
+ElevenLabs
 FreeSWITCH
 SSML
 VAD
 alsa
+camelCase
 inband
 realtime
 seekable
