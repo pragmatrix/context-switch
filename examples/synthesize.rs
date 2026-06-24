@@ -18,7 +18,9 @@ use rodio::{DeviceSinkBuilder, Player, Source};
 use context_switch::services::{AristechSynthesize, AzureSynthesize, ElevenLabsSynthesize};
 use context_switch::{InputModality, OutputModality};
 use context_switch_core::service::Service;
-use context_switch_core::{AudioFormat, AudioFrame, AudioProducer, Conversation, Input, Output, audio};
+use context_switch_core::{
+    AudioFormat, AudioFrame, AudioProducer, Conversation, Input, Output, audio,
+};
 
 const DEFAULT_LANGUAGE: &str = "en-US";
 const SAMPLE_TEXT: &str = "In a small village, surrounded by dense forests and gentle hills, there once lived an inventive tinkerer who built machines that amazed people.";
@@ -173,7 +175,9 @@ async fn start_conversation(
                 .voice
                 .clone()
                 .or_else(|| env::var("ELEVENLABS_VOICE_ID").ok())
-                .context("ElevenLabs requires --voice (or ELEVENLABS_VOICE_ID)")?;
+                .context(
+                    "ElevenLabs requires --voice (or ELEVENLABS_VOICE_ID); run with --list-voices to see the available voices",
+                )?;
             let params = elevenlabs::synthesize::Params {
                 api_key: env::var("ELEVENLABS_API_KEY").context("ELEVENLABS_API_KEY undefined")?,
                 voice,
@@ -182,7 +186,9 @@ async fn start_conversation(
                 language: options.language.clone(),
                 voice_settings: None,
             };
-            ElevenLabsSynthesize.conversation(params, conversation).await
+            ElevenLabsSynthesize
+                .conversation(params, conversation)
+                .await
         }
         Provider::Aristech => {
             let params = aristech::synthesize::Params {
@@ -314,8 +320,18 @@ impl Provider {
 
 fn validate_provider_args(provider: Provider, args: &Args) -> Result<()> {
     let capabilities = provider.capabilities();
-    validate_capability("--language", args.language.is_some(), capabilities.language, provider)?;
-    validate_capability("--model", args.model.is_some(), capabilities.model, provider)
+    validate_capability(
+        "--language",
+        args.language.is_some(),
+        capabilities.language,
+        provider,
+    )?;
+    validate_capability(
+        "--model",
+        args.model.is_some(),
+        capabilities.model,
+        provider,
+    )
 }
 
 fn validate_capability(
