@@ -1,17 +1,19 @@
 use anyhow::{Context, Result, bail};
 use async_stream::stream;
 use async_trait::async_trait;
-use azure_speech::recognizer::{self, Event};
 use futures::StreamExt;
 use serde::Deserialize;
 use tracing::{error, info};
 
-use crate::Host;
+use azure_speech::recognizer::{self, Event};
+
 use context_switch_core::language::Languages;
 use context_switch_core::{
     BillingRecord, BillingSchedule, Conversation, ConversationOutput, Input, Service,
     speech_gate::make_speech_gate_processor_soft_rms,
 };
+
+use crate::Host;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

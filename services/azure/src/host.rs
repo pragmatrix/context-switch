@@ -1,8 +1,9 @@
 use std::env;
 
 use anyhow::{Result, anyhow};
-use azure_speech::Auth;
 use url::Url;
+
+use azure_speech::Auth;
 
 #[derive(Debug)]
 pub struct Host {

@@ -1,20 +1,20 @@
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use azure_speech::{
-    stream::StreamExt,
-    synthesizer::{
-        self, AudioFormat,
-        ssml::{ToSSML, ssml, ssml::SerializeOptions},
-    },
-};
+
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::Host;
+use azure_speech::stream::StreamExt;
+use azure_speech::synthesizer::ssml::ToSSML;
+use azure_speech::synthesizer::ssml::ssml::{self, SerializeOptions};
+use azure_speech::synthesizer::{self, AudioFormat};
+
 use context_switch_core::{
     AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, Service,
 };
+
+use crate::Host;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +39,7 @@ impl Service for AzureSynthesize {
         let output_format = conversation.require_single_audio_output()?;
         let azure_audio_format = import_output_audio_format(output_format)?;
 
-        // Resolve default voice if none is set.
+        // Resolve to default voice if none is set.
         let voice = match params.voice {
             Some(voice) => voice,
             None => resolve_default_voice(&params.language)?.to_string(),
@@ -114,7 +114,7 @@ impl Service for AzureSynthesize {
                         let duration = frame.duration();
                         debug!("Received audio: {duration:?}");
 
-                        // Robustness: Output max size of 1seconds frame. Moreover define the
+                        // Robustness: Output max size of 1seconds frame. Moreover, define the
                         // granularity of the frames somewhere.
                         output.audio_frame(frame)?;
                         output.billing_records(

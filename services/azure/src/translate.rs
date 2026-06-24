@@ -36,7 +36,7 @@ impl Service for AzureTranslate {
         let output_modalities = OutputModalities::from_modalities(&conversation.output_modalities)?;
 
         // There is no way to change the translator's output audio format to be found, so we
-        // need to use 16khz.
+        // need to use 16 kHz.
         const AUDIO_OUTPUT_FORMAT: AudioFormat = AudioFormat {
             channels: 1,
             sample_rate: 16000,
