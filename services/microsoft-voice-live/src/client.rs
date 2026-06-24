@@ -20,7 +20,7 @@ use context_switch_core::{
     Input, OutputPath, ThresholdLevel, audio,
 };
 
-use crate::transcribe::{Params, ServiceOutputEvent};
+use crate::transcribe::{NoiseReduction, NoiseReductionType, Params, ServiceOutputEvent};
 use crate::transcription_state::TranscriptionState;
 
 pub struct Client {
@@ -114,7 +114,7 @@ impl Client {
     async fn send_session_update(&mut self, params: &Params) -> Result<()> {
         let session = types::VoiceLiveSession {
             input_audio_sampling_rate: None,
-            input_audio_noise_reduction: params.noise_reduction.clone(),
+            input_audio_noise_reduction: params.noise_reduction.as_ref().map(noise_reduction),
             input_audio_echo_cancellation: None,
             input_audio_transcription: Some(types::TranscriptionConfig {
                 language: params.language.clone(),
@@ -319,6 +319,18 @@ fn eou_threshold_level(level: ThresholdLevel) -> EndOfUtteranceThresholdLevel {
         ThresholdLevel::Medium => EndOfUtteranceThresholdLevel::Medium,
         ThresholdLevel::High => EndOfUtteranceThresholdLevel::High,
     }
+}
+
+fn noise_reduction(configured: &NoiseReduction) -> types::NoiseReduction {
+    let reduction_type = match configured.reduction_type {
+        NoiseReductionType::NearField => types::NoiseReductionType::NearField,
+        NoiseReductionType::FarField => types::NoiseReductionType::FarField,
+        NoiseReductionType::AzureDeepNoiseSuppression => {
+            types::NoiseReductionType::AzureDeepNoiseSuppression
+        }
+    };
+
+    types::NoiseReduction { reduction_type }
 }
 
 enum FlowControl {
