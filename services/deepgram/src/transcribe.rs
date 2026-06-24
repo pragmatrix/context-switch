@@ -41,9 +41,11 @@ pub struct DeepgramTranscribe;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::enum_variant_names)]
 enum ServiceOutputEvent {
-    StartOfTurn,
-    EagerEndOfTurn,
+    TurnStarted,
+    TurnCompleted,
+    TurnCompletedEager,
     TurnResumed,
 }
 
@@ -178,17 +180,21 @@ impl Service for DeepgramTranscribe {
                             if !transcript.is_empty() {
                                 output.text(true, transcript, language, None)?;
                             }
+                            output.service_event(
+                                OutputPath::Media,
+                                ServiceOutputEvent::TurnCompleted,
+                            )?;
                         }
                         TurnEvent::StartOfTurn => {
                             output.service_event(
                                 OutputPath::Media,
-                                ServiceOutputEvent::StartOfTurn,
+                                ServiceOutputEvent::TurnStarted,
                             )?;
                         }
                         TurnEvent::EagerEndOfTurn => {
                             output.service_event(
                                 OutputPath::Media,
-                                ServiceOutputEvent::EagerEndOfTurn,
+                                ServiceOutputEvent::TurnCompletedEager,
                             )?;
                         }
                         TurnEvent::TurnResumed => {
