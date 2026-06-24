@@ -87,6 +87,9 @@ gemini-live = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 reqwest = { workspace = true }
 
+# For listing Aristech voices in the `synthesize` example.
+aristech-tts-client = "1.0.9"
+
 # For advanced parameters in `openai-dialog`
 openai-api-rs = { workspace = true }
 serde_json = { workspace = true }

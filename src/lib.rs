@@ -12,11 +12,13 @@ pub use protocol::*;
 pub use speech_gate::make_speech_gate_processor;
 
 pub mod services {
+    pub use aristech::AristechSynthesize;
     pub use aristech::AristechTranscribe;
+    pub use azure::AzureSynthesize;
     pub use azure::AzureTranscribe;
     pub use deepgram_service::DeepgramTranscribe;
-    pub use elevenlabs::ElevenLabsTranscribe;
     pub use elevenlabs::ElevenLabsSynthesize;
+    pub use elevenlabs::ElevenLabsTranscribe;
     pub use google_dialog::GoogleDialog;
     pub use google_transcribe::GoogleTranscribe;
     pub use microsoft_voice_live::MicrosoftVoiceLiveTranscribe;
