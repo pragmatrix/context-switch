@@ -28,10 +28,10 @@ use context_switch_core::{
 //   notification.
 // - When a language hint is set, output is sometimes translated into the target language. This
 //   appears to depend on the language spoken immediately before.
-// - For nonsense input (for example, "Däm, Däm, Däm"), `partial_transcript` may contain text while
+// - For nonsense input (for example, `Däm, Däm, Däm`), `partial_transcript` may contain text while
 //   `committed_transcript` is empty. (We could fall back to partial text in this case.)
-// - Background noise is sometimes transcribed as text such as "* unverständliche Stimme *" or
-//   "(water splashing)".
+// - Background noise is sometimes transcribed as text such as `* unverständliche Stimme *` or
+//   `(water splashing)`.
 // - Some utterances appear to be recognized twice.
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
@@ -134,7 +134,7 @@ impl Service for ElevenLabsTranscribe {
             HeaderValue::from_str(&params.api_key).context("Invalid xi-api-key header value")?,
         );
 
-        // Disable Nagle (TCP_NODELAY) to reduce latency for realtime audio chunk streaming.
+        // Disable Nagle (`TCP_NODELAY`) to reduce latency for realtime audio chunk streaming.
         let (socket, _) = connect_async_with_config(request, None, true)
             .await
             .context("Connecting to ElevenLabs realtime websocket")?;

@@ -6,5 +6,6 @@ SSML
 VAD
 alsa
 inband
+realtime
 seekable
 subtag
