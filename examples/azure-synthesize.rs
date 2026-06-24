@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
         content: text.into(),
         content_type: None,
         billing_scope: None,
+        is_final: true,
     })?;
     let (output_producer, playback_task) = setup_audio_playback(output_format).await;
 

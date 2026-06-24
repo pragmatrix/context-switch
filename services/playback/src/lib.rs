@@ -54,6 +54,7 @@ impl Service for Playback {
                     text,
                     text_type,
                     billing_scope,
+                    is_final: _,
                 } => {
                     let text_type = text_type.as_deref().unwrap_or("text/plain");
                     let method = PlaybackMethod::from_text_and_mime_type(
@@ -73,6 +74,7 @@ impl Service for Playback {
                                         text,
                                         text_type: Some(text_type),
                                         billing_scope: None,
+                                        is_final: true,
                                     },
                                 )
                                 .await?;

@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         sample_rate: 22050,
     };
 
-    // Create params for Aristech synthesize service
+    // Create parameters for Aristech synthesize service
     let params = get_aristech_params()?;
 
     // Set up channels for the conversation
@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
             text: SAMPLE_TEXT.to_string(),
             text_type: None,
             billing_scope: None,
+            is_final: true,
         })
         .await
         .context("Failed to send text input")?;

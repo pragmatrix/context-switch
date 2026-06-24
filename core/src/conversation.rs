@@ -308,6 +308,9 @@ pub enum Input {
         text: String,
         text_type: Option<String>,
         billing_scope: Option<String>,
+        /// `false` marks a partial text fragment of a streamed request; `true` (the default at the
+        /// protocol boundary) completes the request.
+        is_final: bool,
     },
     ServiceEvent {
         value: serde_json::Value,

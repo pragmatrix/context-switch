@@ -42,6 +42,7 @@ pub fn registry() -> Registry {
         .add_service("azure-translate", azure::AzureTranslate)
         .add_service("deepgram-transcribe", deepgram_service::DeepgramTranscribe)
         .add_service("elevenlabs-transcribe", elevenlabs::ElevenLabsTranscribe)
+        .add_service("elevenlabs-synthesize", elevenlabs::ElevenLabsSynthesize)
         .add_service("google-transcribe", google_transcribe::GoogleTranscribe)
         .add_service(
             "microsoft-voice-live-transcribe",
@@ -296,10 +297,10 @@ async fn process_conversation_protected(
                             .try_send(Input::Audio { frame })
                             .context("Sending input audio frame to conversation")?;
                     },
-                    ClientEvent::Text { content, content_type, billing_scope,.. } => {
+                    ClientEvent::Text { content, content_type, billing_scope, is_final, .. } => {
                         if let InputModality::Text = input_modality {
                             input_sender
-                                .try_send(Input::Text { request_id: None, text: content, text_type: content_type, billing_scope })
+                                .try_send(Input::Text { request_id: None, text: content, text_type: content_type, billing_scope, is_final })
                                 .context("Sending input text to conversation")?;
                         } else {
                             bail!("Received unexpected Text");

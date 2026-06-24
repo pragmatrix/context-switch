@@ -21,6 +21,11 @@
 - Avoid redundant logic and repeated calls; keep only the minimal behavior required for correctness.
 - Do not add tests unless explicitly requested by the user.
 
+## YAGNI
+- Apply "You Aren't Gonna Need It": build only what a current, concrete requirement demands.
+- Do not add parameters, fields, abstractions, or bookkeeping for hypothetical future cases.
+- Prefer the simplest design for the present case; generalize only when a real need arises.
+
 ## Control Flow Style
 - Prefer exhaustive `match` statements for enum-based control flow instead of `if matches!(...)` shortcuts.
 
