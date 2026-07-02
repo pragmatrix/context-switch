@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
-use std::io::BufWriter;
+use std::future::Future;
+use std::io::{BufWriter, Write};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -10,8 +11,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use serde::Deserialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::select;
-use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel};
 
 use rodio::{DeviceSinkBuilder, Player, Source};
 
@@ -47,6 +49,11 @@ struct Args {
     /// List the voices available for the provider and exit.
     #[arg(long)]
     list_voices: bool,
+    /// Interactive mode: keep one connection open and synthesize each entered line as a separate
+    /// request, re-prompting once synthesis completes. Useful for manually testing idle/timeout
+    /// behavior of the connection.
+    #[arg(long)]
+    interactive: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -79,17 +86,23 @@ async fn main() -> Result<()> {
 
     validate_provider_args(args.provider, &args)?;
 
+    let options = SynthesizeOptions {
+        language: args.language,
+        model: args.model,
+        output: args.output,
+    };
+
+    if args.interactive {
+        let voice = args.voice.first().cloned();
+        return interactive(args.provider, voice, &options).await;
+    }
+
     let phrases = match args.text {
         Some(text) => vec![text],
         None => SAMPLE_PHRASES
             .iter()
             .map(|phrase| phrase.to_string())
             .collect(),
-    };
-    let options = SynthesizeOptions {
-        language: args.language,
-        model: args.model,
-        output: args.output,
     };
 
     synthesize(args.provider, phrases, args.voice, &options).await
@@ -128,6 +141,101 @@ async fn synthesize(
     sink.finish().await
 }
 
+/// Opens a single conversation (one WebSocket for providers that use one) and synthesizes each
+/// entered line as its own request, re-prompting once synthesis completes. The conversation future
+/// is kept polled while waiting for input, so a server-side idle timeout surfaces immediately
+/// instead of only after the next line is entered.
+async fn interactive(
+    provider: Provider,
+    voice: Option<String>,
+    options: &SynthesizeOptions,
+) -> Result<()> {
+    let output_format = AudioFormat {
+        channels: 1,
+        sample_rate: 16_000,
+    };
+    let mut sink = Sink::new(output_format, options.output.as_deref()).await;
+
+    let (input_producer, mut output_consumer, conversation) =
+        open_conversation(provider, voice, options, output_format);
+    let mut input_producer = Some(input_producer);
+    tokio::pin!(conversation);
+
+    println!(
+        "Interactive mode: type a line and press Enter to synthesize it. Press Ctrl-D to exit."
+    );
+
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut index = 0usize;
+    // Gate stdin reads so exactly one line is synthesized at a time; re-enabled on completion.
+    let mut ready_for_next = true;
+
+    print_prompt()?;
+
+    let result = loop {
+        select! {
+            // Always poll the conversation so the connection stays alive between requests and a
+            // server-initiated close (for example an idle timeout) is observed right away.
+            result = &mut conversation => {
+                break result.context("Conversation stopped");
+            }
+            output = output_consumer.recv() => {
+                match handle_output(output, &mut sink)? {
+                    OutputEvent::Completed(request_id) => {
+                        match request_id {
+                            Some(id) => println!("Synthesis completed for {id}"),
+                            None => println!("Synthesis completed"),
+                        }
+                        ready_for_next = true;
+                        if input_producer.is_some() {
+                            print_prompt()?;
+                        }
+                    }
+                    OutputEvent::Closed => break Ok(()),
+                    OutputEvent::Continue => {}
+                }
+            }
+            line = lines.next_line(), if ready_for_next && input_producer.is_some() => {
+                match line.context("Reading stdin")? {
+                    Some(text) => {
+                        let request_id = RequestId::from(format!("line-{index}"));
+                        index += 1;
+                        input_producer
+                            .as_ref()
+                            .expect("input channel open")
+                            .send(Input::Text {
+                                request_id: Some(request_id),
+                                text,
+                                text_type: None,
+                                billing_scope: None,
+                                is_final: true,
+                            })
+                            .await
+                            .context("Sending text input")?;
+                        ready_for_next = false;
+                    }
+                    None => {
+                        // EOF (Ctrl-D): stop accepting input and let the conversation drain.
+                        println!("Input closed, finishing...");
+                        input_producer = None;
+                        ready_for_next = false;
+                    }
+                }
+            }
+        }
+    };
+
+    // Drop the input sender so the conversation closes the connection before the sink is finished.
+    drop(input_producer);
+    result?;
+    sink.finish().await
+}
+
+fn print_prompt() -> Result<()> {
+    print!("text> ");
+    std::io::stdout().flush().context("Flushing stdout")
+}
+
 /// Picks the voice for `index` by cycling through `voices`, or `None` when none were provided.
 fn rotate_voice(voices: &[String], index: usize) -> Option<String> {
     if voices.is_empty() {
@@ -145,27 +253,13 @@ async fn synthesize_phrase(
     output_format: AudioFormat,
     sink: &mut Sink,
 ) -> Result<()> {
-    let (output_producer, mut output_consumer) = tokio::sync::mpsc::unbounded_channel();
-    let (input_producer, input_consumer) = channel(16);
-
     match &voice {
         Some(voice) => println!("Synthesizing with voice {voice}: \"{phrase}\""),
         None => println!("Synthesizing: \"{phrase}\""),
     }
 
-    let conversation = start_conversation(
-        provider,
-        voice,
-        options,
-        Conversation::new(
-            InputModality::Text,
-            [OutputModality::Audio {
-                format: output_format,
-            }],
-            input_consumer,
-            output_producer,
-        ),
-    );
+    let (input_producer, mut output_consumer, conversation) =
+        open_conversation(provider, voice, options, output_format);
     tokio::pin!(conversation);
 
     let request_id = RequestId::from(format!("phrase-{index}"));
@@ -187,18 +281,70 @@ async fn synthesize_phrase(
                 return Ok(());
             }
             output = output_consumer.recv() => {
-                match output {
-                    Some(Output::Audio { frame }) => sink.write(frame)?,
-                    Some(Output::RequestCompleted { request_id: completed }) => {
+                match handle_output(output, sink)? {
+                    OutputEvent::Completed(completed) => {
                         println!("Synthesis completed for {}", completed.unwrap_or(request_id));
                         return Ok(());
                     }
-                    Some(other) => println!("Unexpected output: {other:?}"),
-                    None => return Ok(()),
+                    OutputEvent::Closed => return Ok(()),
+                    OutputEvent::Continue => {}
                 }
             }
         }
     }
+}
+
+/// Creates the input/output channels and starts the provider conversation, returning the input
+/// sender, the output receiver, and the (not yet pinned) conversation future.
+fn open_conversation(
+    provider: Provider,
+    voice: Option<String>,
+    options: &SynthesizeOptions,
+    output_format: AudioFormat,
+) -> (
+    Sender<Input>,
+    UnboundedReceiver<Output>,
+    impl Future<Output = Result<()>> + '_,
+) {
+    let (output_producer, output_consumer) = unbounded_channel();
+    let (input_producer, input_consumer) = channel(16);
+    let conversation = start_conversation(
+        provider,
+        voice,
+        options,
+        Conversation::new(
+            InputModality::Text,
+            [OutputModality::Audio {
+                format: output_format,
+            }],
+            input_consumer,
+            output_producer,
+        ),
+    );
+    (input_producer, output_consumer, conversation)
+}
+
+/// Applies one conversation output to the sink, reporting whether the current request finished or
+/// the output stream closed.
+fn handle_output(output: Option<Output>, sink: &mut Sink) -> Result<OutputEvent> {
+    match output {
+        Some(Output::Audio { frame }) => {
+            sink.write(frame)?;
+            Ok(OutputEvent::Continue)
+        }
+        Some(Output::RequestCompleted { request_id }) => Ok(OutputEvent::Completed(request_id)),
+        Some(other) => {
+            println!("Unexpected output: {other:?}");
+            Ok(OutputEvent::Continue)
+        }
+        None => Ok(OutputEvent::Closed),
+    }
+}
+
+enum OutputEvent {
+    Continue,
+    Completed(Option<RequestId>),
+    Closed,
 }
 
 async fn start_conversation(
