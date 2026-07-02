@@ -229,7 +229,7 @@ where
                             .send(text_message(message))
                             .context("ElevenLabs websocket writer task stopped unexpectedly")?;
                         output.billing_records(
-                            None,
+                            context.request_id.clone(),
                             None,
                             [BillingRecord::count("output:characters", text.chars().count())],
                             BillingSchedule::Now,
