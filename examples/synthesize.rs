@@ -392,6 +392,8 @@ async fn start_conversation(
                 language: options.language.clone(),
                 voice_settings: None,
                 generation_config: None,
+                apply_text_normalization: None,
+                auto_mode: None,
             };
             ElevenLabsSynthesize
                 .conversation(params, conversation)

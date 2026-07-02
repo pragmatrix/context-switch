@@ -1,3 +1,17 @@
+//! Streaming text-to-speech over ElevenLabs' multi-context WebSocket protocol.
+//!
+//! Uses the multi-stream (multi-context) realtime endpoint, documented at
+//! <https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-multi-stream-input>.
+//!
+//! Timeout behavior:
+//! - A context is closed automatically after `inactivity_timeout` seconds without new text
+//!   (default 20s). On timeout the server silently completes the context with `isFinal`, dropping
+//!   any buffered partial text, so we request the documented maximum (180s) to keep idle gaps
+//!   between partial fragments from truncating a request.
+//! - We have observed the WebSocket connection itself staying open for at least 5 minutes of
+//!   idle time without being closed by the server. This is empirical; ElevenLabs documents no
+//!   connection-level idle timeout.
+
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
@@ -24,6 +38,12 @@ use crate::ws::{API_KEY_HEADER, OutboundMessage, run_writer, shutdown_writer_tas
 const DEFAULT_HOST: &str = "wss://api.elevenlabs.io";
 const DEFAULT_MODEL: &str = "eleven_flash_v2_5";
 
+// ElevenLabs closes an idle context after `inactivity_timeout` seconds (default 20), silently
+// completing the request via `isFinal` and dropping any buffered partial text. Our requests can
+// stream partial fragments with idle gaps between them, so we request the documented maximum (180s)
+// to make those gaps far less likely to truncate a request.
+const INACTIVITY_TIMEOUT_SECS: u32 = 180;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
@@ -44,6 +64,33 @@ pub struct Params {
     /// Lowering `chunk_length_schedule` makes audio generation start on smaller amounts of
     /// buffered text, reducing latency for streamed partial input at the cost of some quality.
     pub generation_config: Option<GenerationConfig>,
+    /// Optional text normalization mode, passed as the `apply_text_normalization` query param.
+    /// Controls whether numbers, dates, and symbols are spelled out before synthesis.
+    pub apply_text_normalization: Option<TextNormalization>,
+    /// When set, generates audio as soon as text arrives instead of buffering per
+    /// `chunk_length_schedule`. Optimizes latency for full-sentence input at the cost of context.
+    pub auto_mode: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextNormalization {
+    /// Let ElevenLabs decide whether to normalize (the server default).
+    Auto,
+    /// Always normalize.
+    On,
+    /// Never normalize.
+    Off,
+}
+
+impl TextNormalization {
+    fn as_str(self) -> &'static str {
+        match self {
+            TextNormalization::Auto => "auto",
+            TextNormalization::On => "on",
+            TextNormalization::Off => "off",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -276,8 +323,16 @@ fn process_server_json(
     let event: ServerEvent = serde_json::from_str(json)
         .with_context(|| format!("Parsing ElevenLabs TTS server event: {json}"))?;
 
-    if let Some(message) = event.error.or(event.message) {
-        bail!("ElevenLabs realtime TTS error: {message}");
+    if let Some(error) = event.error {
+        bail!("ElevenLabs realtime TTS error: {error}");
+    }
+
+    // `error` and `message` are undocumented inbound fields: the AsyncAPI schema only defines
+    // audio chunks and the `isFinal` marker. An inactivity timeout is *not* reported here — it
+    // simply closes the context with `isFinal`. We still surface any stray `message` as an error
+    // for visibility while keeping the socket open, since it is not known to be fatal.
+    if let Some(message) = event.message {
+        error!("ElevenLabs realtime TTS message: {message}");
     }
 
     // Server messages name the context they belong to; ignore any that don't match the active
@@ -345,8 +400,15 @@ fn build_endpoint(params: &Params, output_format: &str) -> Result<Url> {
         let mut q = url.query_pairs_mut();
         q.append_pair("model_id", params.model.as_deref().unwrap_or(DEFAULT_MODEL));
         q.append_pair("output_format", output_format);
+        q.append_pair("inactivity_timeout", &INACTIVITY_TIMEOUT_SECS.to_string());
         if let Some(language) = params.language.as_deref() {
             q.append_pair("language_code", language);
+        }
+        if let Some(normalization) = params.apply_text_normalization {
+            q.append_pair("apply_text_normalization", normalization.as_str());
+        }
+        if let Some(auto_mode) = params.auto_mode {
+            q.append_pair("auto_mode", if auto_mode { "true" } else { "false" });
         }
     }
 
