@@ -215,8 +215,7 @@ where
                         // Each fragment must end with a single space. Voice settings and
                         // generation config are only accepted on a context's opening fragment.
                         let mut message =
-                            json!({ "text": format!("{text} "), "context_id": context_id.clone() });
-                        if opening {
+                            json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
                             if let Some(voice_settings) = voice_settings {
                                 message["voice_settings"] = serde_json::to_value(voice_settings)
                                     .context("Serializing voice settings")?;
