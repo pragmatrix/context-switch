@@ -19,20 +19,24 @@ use context_switch::services::{AristechSynthesize, AzureSynthesize, ElevenLabsSy
 use context_switch::{InputModality, OutputModality};
 use context_switch_core::service::Service;
 use context_switch_core::{
-    AudioFormat, AudioFrame, AudioProducer, Conversation, Input, Output, audio,
+    AudioFormat, AudioFrame, AudioProducer, Conversation, Input, Output, RequestId, audio,
 };
 
 const DEFAULT_LANGUAGE: &str = "en-US";
-const SAMPLE_TEXT: &str = "In a small village, surrounded by dense forests and gentle hills, there once lived an inventive tinkerer who built machines that amazed people.";
+const SAMPLE_PHRASES: [&str; 2] = [
+    "In a small village, surrounded by dense forests and gentle hills,",
+    "there once lived an inventive tinkerer who built machines that amazed people.",
+];
 
 #[derive(Debug, Parser)]
 struct Args {
     #[arg(value_enum)]
     provider: Provider,
-    /// Text to synthesize. Falls back to a built-in sample sentence when omitted.
+    /// Text to synthesize. Falls back to a pair of built-in sample phrases when omitted.
     text: Option<String>,
+    /// Voice to use. Repeat the flag to rotate multiple voices across the phrases.
     #[arg(long)]
-    voice: Option<String>,
+    voice: Vec<String>,
     #[arg(long)]
     language: Option<String>,
     #[arg(long)]
@@ -57,7 +61,6 @@ enum Provider {
 
 #[derive(Debug)]
 struct SynthesizeOptions {
-    voice: Option<String>,
     language: Option<String>,
     model: Option<String>,
     output: Option<PathBuf>,
@@ -76,28 +79,83 @@ async fn main() -> Result<()> {
 
     validate_provider_args(args.provider, &args)?;
 
-    let text = args.text.unwrap_or_else(|| SAMPLE_TEXT.to_owned());
+    let phrases = match args.text {
+        Some(text) => vec![text],
+        None => SAMPLE_PHRASES
+            .iter()
+            .map(|phrase| phrase.to_string())
+            .collect(),
+    };
     let options = SynthesizeOptions {
-        voice: args.voice,
         language: args.language,
         model: args.model,
         output: args.output,
     };
 
-    synthesize(args.provider, text, &options).await
+    synthesize(args.provider, phrases, args.voice, &options).await
 }
 
-async fn synthesize(provider: Provider, text: String, options: &SynthesizeOptions) -> Result<()> {
+async fn synthesize(
+    provider: Provider,
+    phrases: Vec<String>,
+    voices: Vec<String>,
+    options: &SynthesizeOptions,
+) -> Result<()> {
     let output_format = AudioFormat {
         channels: 1,
         sample_rate: 16_000,
     };
 
+    // The audio is either written to a WAV file or played back, never both.
+    let mut sink = Sink::new(output_format, options.output.as_deref()).await;
+
+    // Synthesize each phrase as a separate generation, rotating through the provided voices and
+    // waiting for the request to complete before starting the next one.
+    for (index, phrase) in phrases.into_iter().enumerate() {
+        let voice = rotate_voice(&voices, index);
+        synthesize_phrase(
+            provider,
+            index,
+            &phrase,
+            voice,
+            options,
+            output_format,
+            &mut sink,
+        )
+        .await?;
+    }
+
+    sink.finish().await
+}
+
+/// Picks the voice for `index` by cycling through `voices`, or `None` when none were provided.
+fn rotate_voice(voices: &[String], index: usize) -> Option<String> {
+    if voices.is_empty() {
+        return None;
+    }
+    Some(voices[index % voices.len()].clone())
+}
+
+async fn synthesize_phrase(
+    provider: Provider,
+    index: usize,
+    phrase: &str,
+    voice: Option<String>,
+    options: &SynthesizeOptions,
+    output_format: AudioFormat,
+    sink: &mut Sink,
+) -> Result<()> {
     let (output_producer, mut output_consumer) = tokio::sync::mpsc::unbounded_channel();
     let (input_producer, input_consumer) = channel(16);
 
+    match &voice {
+        Some(voice) => println!("Synthesizing with voice {voice}: \"{phrase}\""),
+        None => println!("Synthesizing: \"{phrase}\""),
+    }
+
     let conversation = start_conversation(
         provider,
+        voice,
         options,
         Conversation::new(
             InputModality::Text,
@@ -110,11 +168,11 @@ async fn synthesize(provider: Provider, text: String, options: &SynthesizeOption
     );
     tokio::pin!(conversation);
 
-    println!("Synthesizing: \"{text}\"");
+    let request_id = RequestId::from(format!("phrase-{index}"));
     input_producer
         .send(Input::Text {
-            request_id: None,
-            text,
+            request_id: Some(request_id.clone()),
+            text: phrase.to_owned(),
             text_type: None,
             billing_scope: None,
             is_final: true,
@@ -122,34 +180,30 @@ async fn synthesize(provider: Provider, text: String, options: &SynthesizeOption
         .await
         .context("Sending text input")?;
 
-    // The audio is either written to a WAV file or played back, never both.
-    let mut sink = Sink::new(output_format, options.output.as_deref()).await;
-
     loop {
         select! {
             result = &mut conversation => {
                 result.context("Conversation stopped")?;
-                break;
+                return Ok(());
             }
             output = output_consumer.recv() => {
                 match output {
                     Some(Output::Audio { frame }) => sink.write(frame)?,
-                    Some(Output::RequestCompleted { .. }) => {
-                        println!("Synthesis completed");
-                        break;
+                    Some(Output::RequestCompleted { request_id: completed }) => {
+                        println!("Synthesis completed for {}", completed.unwrap_or(request_id));
+                        return Ok(());
                     }
                     Some(other) => println!("Unexpected output: {other:?}"),
-                    None => break,
+                    None => return Ok(()),
                 }
             }
         }
     }
-
-    sink.finish().await
 }
 
 async fn start_conversation(
     provider: Provider,
+    voice: Option<String>,
     options: &SynthesizeOptions,
     conversation: Conversation,
 ) -> Result<()> {
@@ -166,14 +220,12 @@ async fn start_conversation(
                     .language
                     .clone()
                     .unwrap_or_else(|| DEFAULT_LANGUAGE.to_owned()),
-                voice: options.voice.clone(),
+                voice,
             };
             AzureSynthesize.conversation(params, conversation).await
         }
         Provider::Elevenlabs => {
-            let voice = options
-                .voice
-                .clone()
+            let voice = voice
                 .or_else(|| env::var("ELEVENLABS_VOICE_ID").ok())
                 .context(
                     "ElevenLabs requires --voice (or ELEVENLABS_VOICE_ID); run with --list-voices to see the available voices",
@@ -193,7 +245,7 @@ async fn start_conversation(
         Provider::Aristech => {
             let params = aristech::synthesize::Params {
                 endpoint: env::var("ARISTECH_ENDPOINT").context("ARISTECH_ENDPOINT undefined")?,
-                voice: options.voice.clone(),
+                voice,
                 token: env::var("ARISTECH_TOKEN").context("ARISTECH_TOKEN undefined")?,
                 secret: env::var("ARISTECH_SECRET").context("ARISTECH_SECRET undefined")?,
             };
