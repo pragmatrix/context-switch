@@ -391,6 +391,7 @@ async fn start_conversation(
                 endpoint: env::var("ELEVENLABS_ENDPOINT").ok(),
                 language: options.language.clone(),
                 voice_settings: None,
+                generation_config: None,
             };
             ElevenLabsSynthesize
                 .conversation(params, conversation)

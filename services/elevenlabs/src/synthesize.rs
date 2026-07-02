@@ -40,6 +40,10 @@ pub struct Params {
     pub language: Option<String>,
     /// Optional voice settings sent on the opening fragment of each request's context.
     pub voice_settings: Option<VoiceSettings>,
+    /// Optional generation config sent on the opening fragment of each request's context.
+    /// Lowering `chunk_length_schedule` makes audio generation start on smaller amounts of
+    /// buffered text, reducing latency for streamed partial input at the cost of some quality.
+    pub generation_config: Option<GenerationConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -58,6 +62,15 @@ pub struct VoiceSettings {
     pub use_speaker_boost: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
+pub struct GenerationConfig {
+    /// Minimum buffered-text thresholds (characters) before each successive audio chunk is
+    /// generated. ElevenLabs defaults to `[120, 160, 250, 290]`; each value must be in 50-500.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_length_schedule: Option<Vec<u32>>,
 }
 
 #[derive(Debug)]
@@ -102,6 +115,7 @@ impl Service for ElevenLabsSynthesize {
             &outbound_tx,
             output_format,
             params.voice_settings.as_ref(),
+            params.generation_config.as_ref(),
         )
         .await;
 
@@ -121,6 +135,7 @@ async fn run_conversation_loop<R>(
     outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
     output_format: AudioFormat,
     voice_settings: Option<&VoiceSettings>,
+    generation_config: Option<&GenerationConfig>,
 ) -> Result<()>
 where
     R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
@@ -150,13 +165,19 @@ where
                         }
                         let context_id = context.id.clone();
 
-                        // Each fragment must end with a single space. Voice settings are only
-                        // accepted on a context's opening fragment.
+                        // Each fragment must end with a single space. Voice settings and
+                        // generation config are only accepted on a context's opening fragment.
                         let mut message =
                             json!({ "text": format!("{text} "), "context_id": context_id.clone() });
-                        if opening && let Some(voice_settings) = voice_settings {
-                            message["voice_settings"] = serde_json::to_value(voice_settings)
-                                .context("Serializing voice settings")?;
+                        if opening {
+                            if let Some(voice_settings) = voice_settings {
+                                message["voice_settings"] = serde_json::to_value(voice_settings)
+                                    .context("Serializing voice settings")?;
+                            }
+                            if let Some(generation_config) = generation_config {
+                                message["generation_config"] = serde_json::to_value(generation_config)
+                                    .context("Serializing generation config")?;
+                            }
                         }
                         outbound_tx
                             .send(text_message(message))
@@ -232,8 +253,16 @@ fn process_server_message(
     output_format: AudioFormat,
     active: &mut Option<ActiveContext>,
 ) -> Result<()> {
-    let Message::Text(text) = message else {
-        return Ok(());
+    let text = match message {
+        Message::Text(text) => text,
+        Message::Ping(payload) => {
+            error!(
+                "Received unexpected ElevenLabs websocket ping ({} bytes payload); should be handled with a pong",
+                payload.len()
+            );
+            return Ok(());
+        }
+        _ => return Ok(()),
     };
     process_server_json(text.as_str(), output, output_format, active)
 }
