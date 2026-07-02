@@ -173,9 +173,13 @@ where
                         )?;
 
                         if is_final {
-                            // Closing the context flushes its buffer and makes the server emit the
-                            // context's `isFinal` marker, while the socket stays open for the next
-                            // request.
+                            // Force generation of any buffered text before closing, otherwise the
+                            // tail of the utterance can be truncated.
+                            outbound_tx
+                                .send(text_message(json!({ "context_id": context_id.clone(), "flush": true })))
+                                .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+                            // Closing the context makes the server emit the context's `isFinal`
+                            // marker, while the socket stays open for the next request.
                             outbound_tx
                                 .send(text_message(json!({ "context_id": context_id, "close_context": true })))
                                 .context("ElevenLabs websocket writer task stopped unexpectedly")?;
