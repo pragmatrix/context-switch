@@ -303,8 +303,11 @@ fn process_server_message(
     let text = match message {
         Message::Text(text) => text,
         Message::Ping(payload) => {
-            error!(
-                "Received unexpected ElevenLabs websocket ping ({} bytes payload); should be handled with a pong",
+            // tokio-tungstenite queues and flushes the pong reply automatically (on the next read
+            // poll or outbound write over the shared split socket), so no manual pong is sent here;
+            // a second manual pong would risk being sent in addition to the queued one.
+            debug!(
+                "ElevenLabs websocket ping ({} bytes payload); auto-ponged",
                 payload.len()
             );
             return Ok(());
