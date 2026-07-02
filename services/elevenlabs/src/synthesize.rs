@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
@@ -127,32 +125,30 @@ async fn run_conversation_loop<R>(
 where
     R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
-    // One multi-stream context per request, allocated sequentially. `open_context` is the context
-    // currently accepting fragments; `contexts` maps every live context id to the request id that
-    // is echoed in `RequestCompleted` once the server reports the context's `isFinal`.
+    // Requests are synthesized one at a time: after a request is finalized the loop stops pulling
+    // new input until the server reports the context's `isFinal`. This keeps a single live context,
+    // so one `active` slot replaces the previous per-context map.
     let mut next_context = 0u64;
-    let mut open_context: Option<String> = None;
-    let mut contexts: HashMap<String, Option<RequestId>> = HashMap::new();
+    let mut active: Option<ActiveContext> = None;
+    let mut draining = false;
     let mut input_closed = false;
 
     loop {
         select! {
-            input_event = input.recv(), if !input_closed => {
+            input_event = input.recv(), if !input_closed && !draining => {
                 match input_event {
                     Some(Input::Text { request_id, text, is_final, .. }) => {
-                        let opening = open_context.is_none();
-                        let context_id = open_context.clone().unwrap_or_else(|| {
+                        let opening = active.is_none();
+                        let context = active.get_or_insert_with(|| {
                             next_context += 1;
-                            next_context.to_string()
+                            ActiveContext { id: next_context.to_string(), request_id: None }
                         });
-                        if opening {
-                            open_context = Some(context_id.clone());
+                        // Keep the latest known request id; only a present id overwrites, so a
+                        // partial fragment never clears an earlier one.
+                        if let Some(request_id) = request_id {
+                            context.request_id = Some(request_id);
                         }
-                        // Register the context and keep the latest known request id; only a present
-                        // id overwrites, so a partial fragment never clears an earlier one.
-                        if opening || request_id.is_some() {
-                            contexts.insert(context_id.clone(), request_id);
-                        }
+                        let context_id = context.id.clone();
 
                         // Each fragment must end with a single space. Voice settings are only
                         // accepted on a context's opening fragment.
@@ -179,17 +175,18 @@ where
                                 .send(text_message(json!({ "context_id": context_id.clone(), "flush": true })))
                                 .context("ElevenLabs websocket writer task stopped unexpectedly")?;
                             // Closing the context makes the server emit the context's `isFinal`
-                            // marker, while the socket stays open for the next request.
+                            // marker, while the socket stays open for the next request. Pause input
+                            // until that marker arrives so only one context is ever live.
                             outbound_tx
                                 .send(text_message(json!({ "context_id": context_id, "close_context": true })))
                                 .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-                            open_context = None;
+                            draining = true;
                         }
                     }
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
                     None => {
                         input_closed = true;
-                        // Close every context and the socket; buffered audio is flushed first.
+                        // Close the socket; buffered audio is flushed first.
                         let _ = outbound_tx.send(text_message(json!({ "close_socket": true })));
                     }
                 }
@@ -197,7 +194,12 @@ where
             msg = read.next() => {
                 match msg {
                     Some(Ok(message)) => {
-                        process_server_message(message, output, output_format, &mut contexts)?
+                        process_server_message(message, output, output_format, &mut active)?;
+                        // The active context is cleared once the server reports `isFinal`; resume
+                        // pulling input for the next request.
+                        if active.is_none() {
+                            draining = false;
+                        }
                     }
                     Some(Err(e)) => bail!("Error reading ElevenLabs websocket: {e}"),
                     None => return Ok(()),
@@ -205,6 +207,12 @@ where
             }
         }
     }
+}
+
+#[derive(Debug)]
+struct ActiveContext {
+    id: String,
+    request_id: Option<RequestId>,
 }
 
 fn text_message(value: serde_json::Value) -> OutboundMessage {
@@ -215,19 +223,19 @@ fn process_server_message(
     message: Message,
     output: &ConversationOutput,
     output_format: AudioFormat,
-    contexts: &mut HashMap<String, Option<RequestId>>,
+    active: &mut Option<ActiveContext>,
 ) -> Result<()> {
     let Message::Text(text) = message else {
         return Ok(());
     };
-    process_server_json(text.as_str(), output, output_format, contexts)
+    process_server_json(text.as_str(), output, output_format, active)
 }
 
 fn process_server_json(
     json: &str,
     output: &ConversationOutput,
     output_format: AudioFormat,
-    contexts: &mut HashMap<String, Option<RequestId>>,
+    active: &mut Option<ActiveContext>,
 ) -> Result<()> {
     let event: ServerEvent = serde_json::from_str(json)
         .with_context(|| format!("Parsing ElevenLabs TTS server event: {json}"))?;
@@ -236,10 +244,10 @@ fn process_server_json(
         bail!("ElevenLabs realtime TTS error: {message}");
     }
 
-    // Server messages name the context they belong to; ignore any that target a context we no
-    // longer track (for example trailing chunks from an already-completed request).
+    // Server messages name the context they belong to; ignore any that don't match the active
+    // context (for example trailing chunks from an already-completed request).
     if let Some(context_id) = event.context_id.as_deref()
-        && !contexts.contains_key(context_id)
+        && active.as_ref().map(|context| context.id.as_str()) != Some(context_id)
     {
         debug!("Ignoring ElevenLabs message for stale context {context_id}");
         return Ok(());
@@ -253,13 +261,9 @@ fn process_server_json(
         output.audio_frame(AudioFrame::from_le_bytes(output_format, &bytes))?;
     }
 
-    // `isFinal` closes a context: complete the matching request and stop tracking the context.
+    // `isFinal` closes the active context: complete its request and stop tracking it.
     if event.is_final == Some(true) {
-        let request_id = event
-            .context_id
-            .as_deref()
-            .and_then(|id| contexts.remove(id))
-            .flatten();
+        let request_id = active.take().and_then(|context| context.request_id);
         output.request_completed(request_id)?;
     }
 
