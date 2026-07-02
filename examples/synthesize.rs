@@ -162,7 +162,7 @@ async fn interactive(
     tokio::pin!(conversation);
 
     println!(
-        "Interactive mode: type a line and press Enter to synthesize it. Press Ctrl-D to exit."
+        "Interactive mode: type a line and press Enter to synthesize it. End a line with a space to send it as a partial fragment that keeps the request open. Press Ctrl-D to exit."
     );
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -197,22 +197,30 @@ async fn interactive(
             }
             line = lines.next_line(), if ready_for_next && input_producer.is_some() => {
                 match line.context("Reading stdin")? {
-                    Some(text) => {
+                    Some(line) => {
+                        // A trailing space marks a partial fragment: it keeps the current request
+                        // open so the next line appends to it, instead of finalizing the request.
+                        let is_final = !line.ends_with(' ');
                         let request_id = RequestId::from(format!("line-{index}"));
-                        index += 1;
                         input_producer
                             .as_ref()
                             .expect("input channel open")
                             .send(Input::Text {
                                 request_id: Some(request_id),
-                                text,
+                                text: line.trim_end().to_owned(),
                                 text_type: None,
                                 billing_scope: None,
-                                is_final: true,
+                                is_final,
                             })
                             .await
                             .context("Sending text input")?;
-                        ready_for_next = false;
+                        if is_final {
+                            index += 1;
+                            ready_for_next = false;
+                        } else {
+                            // Wait for more fragments of the same request.
+                            print_prompt()?;
+                        }
                     }
                     None => {
                         // EOF (Ctrl-D): stop accepting input and let the conversation drain.
