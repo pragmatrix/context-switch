@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::select;
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, error};
 use url::Url;
 
 use tokio_tungstenite::connect_async_with_config;
@@ -186,8 +186,12 @@ where
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
                     None => {
                         input_closed = true;
-                        // Close the socket; buffered audio is flushed first.
-                        let _ = outbound_tx.send(text_message(json!({ "close_socket": true })));
+                        // Close the socket; buffered audio is flushed first. Best-effort: the
+                        // writer task result is still surfaced by shutdown_writer_task, but log
+                        // here so a dead writer during shutdown is visible.
+                        if let Err(e) = outbound_tx.send(text_message(json!({ "close_socket": true }))) {
+                            error!("Failed to send ElevenLabs close_socket message: {e}");
+                        }
                     }
                 }
             }
@@ -202,7 +206,10 @@ where
                         }
                     }
                     Some(Err(e)) => bail!("Error reading ElevenLabs websocket: {e}"),
-                    None => return Ok(()),
+                    // A clean close is only expected after we requested it via close_socket;
+                    // an earlier server-initiated close truncates the in-flight request.
+                    None if input_closed => return Ok(()),
+                    None => bail!("ElevenLabs websocket closed before synthesis completed"),
                 }
             }
         }
