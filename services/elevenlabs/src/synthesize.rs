@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
@@ -16,7 +18,7 @@ use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, ConversationInput,
-    ConversationOutput, Input, Service,
+    ConversationOutput, Input, RequestId, Service,
 };
 
 use crate::ws::{API_KEY_HEADER, OutboundMessage, run_writer, shutdown_writer_task};
@@ -38,7 +40,7 @@ pub struct Params {
     pub endpoint: Option<String>,
     /// Optional ElevenLabs `language_code` (ISO 639-1), passed through verbatim.
     pub language: Option<String>,
-    /// Optional voice settings forwarded in the initial connection message.
+    /// Optional voice settings sent on the opening fragment of each request's context.
     pub voice_settings: Option<VoiceSettings>,
 }
 
@@ -93,20 +95,17 @@ impl Service for ElevenLabsSynthesize {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let writer_task = tokio::spawn(run_writer(write, outbound_rx));
 
-        // The connection must be initialized with a blank-space text message before any audio is
-        // generated; voice settings, if any, are only accepted here.
-        let mut init = json!({ "text": " " });
-        if let Some(voice_settings) = &params.voice_settings {
-            init["voice_settings"] =
-                serde_json::to_value(voice_settings).context("Serializing voice settings")?;
-        }
-        outbound_tx
-            .send(text_message(init))
-            .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-
-        let conversation_result =
-            run_conversation_loop(&mut input, &output, &mut read, &outbound_tx, output_format)
-                .await;
+        // Each synthesis request maps to a multi-stream context; the context's opening fragment
+        // carries the voice settings, so no separate connection-init message is sent.
+        let conversation_result = run_conversation_loop(
+            &mut input,
+            &output,
+            &mut read,
+            &outbound_tx,
+            output_format,
+            params.voice_settings.as_ref(),
+        )
+        .await;
 
         drop(outbound_tx);
 
@@ -123,21 +122,48 @@ async fn run_conversation_loop<R>(
     read: &mut R,
     outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
     output_format: AudioFormat,
+    voice_settings: Option<&VoiceSettings>,
 ) -> Result<()>
 where
     R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
+    // One multi-stream context per request, allocated sequentially. `open_context` is the context
+    // currently accepting fragments; `contexts` maps every live context id to the request id that
+    // is echoed in `RequestCompleted` once the server reports the context's `isFinal`.
+    let mut next_context = 0u64;
+    let mut open_context: Option<String> = None;
+    let mut contexts: HashMap<String, Option<RequestId>> = HashMap::new();
     let mut input_closed = false;
 
     loop {
         select! {
             input_event = input.recv(), if !input_closed => {
                 match input_event {
-                    Some(Input::Text { text, is_final, .. }) => {
-                        // Each fragment must end with a single space; `flush` forces generation of
-                        // the buffered text once the fragment is final.
+                    Some(Input::Text { request_id, text, is_final, .. }) => {
+                        let opening = open_context.is_none();
+                        let context_id = open_context.clone().unwrap_or_else(|| {
+                            next_context += 1;
+                            next_context.to_string()
+                        });
+                        if opening {
+                            open_context = Some(context_id.clone());
+                        }
+                        // Register the context and keep the latest known request id; only a present
+                        // id overwrites, so a partial fragment never clears an earlier one.
+                        if opening || request_id.is_some() {
+                            contexts.insert(context_id.clone(), request_id);
+                        }
+
+                        // Each fragment must end with a single space. Voice settings are only
+                        // accepted on a context's opening fragment.
+                        let mut message =
+                            json!({ "text": format!("{text} "), "context_id": context_id.clone() });
+                        if opening && let Some(voice_settings) = voice_settings {
+                            message["voice_settings"] = serde_json::to_value(voice_settings)
+                                .context("Serializing voice settings")?;
+                        }
                         outbound_tx
-                            .send(text_message(json!({ "text": format!("{text} "), "flush": is_final })))
+                            .send(text_message(message))
                             .context("ElevenLabs websocket writer task stopped unexpectedly")?;
                         output.billing_records(
                             None,
@@ -145,18 +171,30 @@ where
                             [BillingRecord::count("output:characters", text.chars().count())],
                             BillingSchedule::Now,
                         )?;
+
+                        if is_final {
+                            // Closing the context flushes its buffer and makes the server emit the
+                            // context's `isFinal` marker, while the socket stays open for the next
+                            // request.
+                            outbound_tx
+                                .send(text_message(json!({ "context_id": context_id, "close_context": true })))
+                                .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+                            open_context = None;
+                        }
                     }
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
                     None => {
                         input_closed = true;
-                        // Close the input stream so the provider flushes any buffered text.
-                        let _ = outbound_tx.send(text_message(json!({ "text": "" })));
+                        // Close every context and the socket; buffered audio is flushed first.
+                        let _ = outbound_tx.send(text_message(json!({ "close_socket": true })));
                     }
                 }
             }
             msg = read.next() => {
                 match msg {
-                    Some(Ok(message)) => process_server_message(message, output, output_format)?,
+                    Some(Ok(message)) => {
+                        process_server_message(message, output, output_format, &mut contexts)?
+                    }
                     Some(Err(e)) => bail!("Error reading ElevenLabs websocket: {e}"),
                     None => return Ok(()),
                 }
@@ -173,18 +211,19 @@ fn process_server_message(
     message: Message,
     output: &ConversationOutput,
     output_format: AudioFormat,
+    contexts: &mut HashMap<String, Option<RequestId>>,
 ) -> Result<()> {
     let Message::Text(text) = message else {
         return Ok(());
     };
-    debug!("ElevenLabs TTS websocket received: {}", text);
-    process_server_json(text.as_str(), output, output_format)
+    process_server_json(text.as_str(), output, output_format, contexts)
 }
 
 fn process_server_json(
     json: &str,
     output: &ConversationOutput,
     output_format: AudioFormat,
+    contexts: &mut HashMap<String, Option<RequestId>>,
 ) -> Result<()> {
     let event: ServerEvent = serde_json::from_str(json)
         .with_context(|| format!("Parsing ElevenLabs TTS server event: {json}"))?;
@@ -193,16 +232,31 @@ fn process_server_json(
         bail!("ElevenLabs realtime TTS error: {message}");
     }
 
+    // Server messages name the context they belong to; ignore any that target a context we no
+    // longer track (for example trailing chunks from an already-completed request).
+    if let Some(context_id) = event.context_id.as_deref()
+        && !contexts.contains_key(context_id)
+    {
+        debug!("Ignoring ElevenLabs message for stale context {context_id}");
+        return Ok(());
+    }
+
     if let Some(audio) = event.audio.as_deref().filter(|audio| !audio.is_empty()) {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(audio)
             .context("Decoding ElevenLabs audio chunk")?;
+        debug!("ElevenLabs TTS audio chunk: {} bytes", bytes.len());
         output.audio_frame(AudioFrame::from_le_bytes(output_format, &bytes))?;
     }
 
-    // `isFinal` marks the end of a flush or the stream; signal the request as done.
+    // `isFinal` closes a context: complete the matching request and stop tracking the context.
     if event.is_final == Some(true) {
-        output.request_completed(None)?;
+        let request_id = event
+            .context_id
+            .as_deref()
+            .and_then(|id| contexts.remove(id))
+            .flatten();
+        output.request_completed(request_id)?;
     }
 
     Ok(())
@@ -240,7 +294,7 @@ fn build_endpoint(params: &Params, output_format: &str) -> Result<Url> {
             "v1",
             "text-to-speech",
             params.voice.as_str(),
-            "stream-input",
+            "multi-stream-input",
         ]);
 
     {
@@ -260,6 +314,7 @@ fn build_endpoint(params: &Params, output_format: &str) -> Result<Url> {
 struct ServerEvent {
     audio: Option<String>,
     is_final: Option<bool>,
+    context_id: Option<String>,
     message: Option<String>,
     error: Option<String>,
 }
