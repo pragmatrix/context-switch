@@ -248,20 +248,27 @@ fn send_text_fragment(
     voice_settings: Option<&VoiceSettings>,
     generation_config: Option<&GenerationConfig>,
 ) -> Result<String> {
-    let context_id = state.record_fragment(request_id)?;
+    let RecordedFragment {
+        context_id,
+        opens_context,
+    } = state.record_fragment(request_id)?;
 
-    // Each fragment must end with a single space. Voice settings and generation config are only
-    // accepted on a context's opening fragment.
+    // Each fragment must end with a single space.
     let mut message =
         json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
 
-    if let Some(voice_settings) = voice_settings {
-        message["voice_settings"] =
-            serde_json::to_value(voice_settings).context("Serializing voice settings")?;
-    }
-    if let Some(generation_config) = generation_config {
-        message["generation_config"] =
-            serde_json::to_value(generation_config).context("Serializing generation config")?;
+    // Voice settings and generation config initialize the context, so the protocol only accepts
+    // them on its opening fragment (`InitialiseContext`); later `SendTextMulti` fragments carry
+    // text only.
+    if opens_context {
+        if let Some(voice_settings) = voice_settings {
+            message["voice_settings"] =
+                serde_json::to_value(voice_settings).context("Serializing voice settings")?;
+        }
+        if let Some(generation_config) = generation_config {
+            message["generation_config"] =
+                serde_json::to_value(generation_config).context("Serializing generation config")?;
+        }
     }
     outbound_tx
         .send(text_message(message))
@@ -269,7 +276,10 @@ fn send_text_fragment(
     output.billing_records(
         state.active_request_id(),
         None,
-        [BillingRecord::count("output:characters", text.chars().count())],
+        [BillingRecord::count(
+            "output:characters",
+            text.chars().count(),
+        )],
         BillingSchedule::Now,
     )?;
 
@@ -286,12 +296,16 @@ fn finalize_context(
     // Force generation of any buffered text before closing, otherwise the tail of the utterance can
     // be truncated.
     outbound_tx
-        .send(text_message(json!({ "context_id": context_id, "flush": true })))
+        .send(text_message(
+            json!({ "context_id": context_id, "flush": true }),
+        ))
         .context("ElevenLabs websocket writer task stopped unexpectedly")?;
     // Closing the context makes the server emit the context's `isFinal` marker, while the socket
     // stays open for the next request.
     outbound_tx
-        .send(text_message(json!({ "context_id": context_id, "close_context": true })))
+        .send(text_message(
+            json!({ "context_id": context_id, "close_context": true }),
+        ))
         .context("ElevenLabs websocket writer task stopped unexpectedly")?;
     state.finalize();
 
@@ -307,8 +321,9 @@ fn handle_input_end(
 ) {
     // A context is still active only when input ended mid-request without a final fragment.
     if let Some(context_id) = state.close_input()
-        && let Err(e) =
-            outbound_tx.send(text_message(json!({ "context_id": context_id, "flush": true })))
+        && let Err(e) = outbound_tx.send(text_message(
+            json!({ "context_id": context_id, "flush": true }),
+        ))
     {
         error!("Failed to send ElevenLabs flush message: {e}");
     }
@@ -339,7 +354,10 @@ enum Phase {
 
 impl SynthesisState {
     fn new() -> Self {
-        Self { phase: Phase::Accepting, next_id: 0 }
+        Self {
+            phase: Phase::Accepting,
+            next_id: 0,
+        }
     }
 
     /// Whether the input `select!` arm should be polled. Input is paused while draining a closed
@@ -349,9 +367,9 @@ impl SynthesisState {
     }
 
     /// Record an incoming text fragment: open the context on the first fragment (fixing its request
-    /// id for the whole sequence) and return the context id for message building. Once set, the
-    /// request id must not change until the sequence ends with `is_final`.
-    fn record_fragment(&mut self, request_id: Option<RequestId>) -> Result<String> {
+    /// id for the whole sequence) and report the context id plus whether this fragment opened it.
+    /// Once set, the request id must not change until the sequence ends with `is_final`.
+    fn record_fragment(&mut self, request_id: Option<RequestId>) -> Result<RecordedFragment> {
         match &mut self.phase {
             // First fragment opens the context and fixes its request id for the whole sequence.
             Phase::Accepting => {
@@ -362,7 +380,10 @@ impl SynthesisState {
                 };
                 let context_id = context.id.clone();
                 self.phase = Phase::Synthesizing(context);
-                Ok(context_id)
+                Ok(RecordedFragment {
+                    context_id,
+                    opens_context: true,
+                })
             }
             // The request id is fixed when the context opens; a later fragment carrying a different
             // id is a protocol violation. A `None` id carries no id and never counts as a change.
@@ -370,7 +391,10 @@ impl SynthesisState {
                 if request_id.is_some() && request_id != context.request_id {
                     bail!("ElevenLabs synthesize request id changed within a text sequence");
                 }
-                Ok(context.id.clone())
+                Ok(RecordedFragment {
+                    context_id: context.id.clone(),
+                    opens_context: false,
+                })
             }
             Phase::Draining(_) | Phase::Closing(_) => {
                 unreachable!("record_fragment is only reachable while accepting input")
@@ -442,6 +466,14 @@ impl SynthesisState {
 struct ActiveContext {
     id: String,
     request_id: Option<RequestId>,
+}
+
+/// Outcome of recording a text fragment: its context id and whether the fragment opened the
+/// context (only the opening fragment carries the context's init settings).
+#[derive(Debug)]
+struct RecordedFragment {
+    context_id: String,
+    opens_context: bool,
 }
 
 enum ServerOutcome {
