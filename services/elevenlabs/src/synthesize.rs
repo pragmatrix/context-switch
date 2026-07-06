@@ -12,6 +12,8 @@
 //!   idle time without being closed by the server. This is empirical; ElevenLabs documents no
 //!   connection-level idle timeout.
 
+use std::mem;
+
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
@@ -188,28 +190,15 @@ where
     R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
     // Requests are synthesized one at a time: after a request is finalized the loop stops pulling
-    // new input until the server reports the context's `isFinal`. This keeps a single live context,
-    // so one `active` slot replaces the previous per-context map.
-    let mut next_context = 0u64;
-    let mut active: Option<ActiveContext> = None;
-    let mut draining = false;
-    let mut input_closed = false;
+    // new input until the server reports the context's `isFinal`, keeping a single live context.
+    let mut state = SynthesisState::new();
 
     loop {
         select! {
-            input_event = input.recv(), if !input_closed && !draining => {
+            input_event = input.recv(), if state.accepts_input() => {
                 match input_event {
                     Some(Input::Text { request_id, text, is_final, .. }) => {
-                        let context = active.get_or_insert_with(|| {
-                            next_context += 1;
-                            ActiveContext { id: next_context.to_string(), request_id: None }
-                        });
-                        // Keep the latest known request id; only a present id overwrites, so a
-                        // partial fragment never clears an earlier one.
-                        if let Some(request_id) = request_id {
-                            context.request_id = Some(request_id);
-                        }
-                        let context_id = context.id.clone();
+                        let context_id = state.record_fragment(request_id)?;
 
                         // Each fragment must end with a single space. Voice settings and
                         // generation config are only accepted on a context's opening fragment.
@@ -228,7 +217,7 @@ where
                             .send(text_message(message))
                             .context("ElevenLabs websocket writer task stopped unexpectedly")?;
                         output.billing_records(
-                            context.request_id.clone(),
+                            state.active_request_id(),
                             None,
                             [BillingRecord::count("output:characters", text.chars().count())],
                             BillingSchedule::Now,
@@ -246,18 +235,17 @@ where
                             outbound_tx
                                 .send(text_message(json!({ "context_id": context_id, "close_context": true })))
                                 .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-                            draining = true;
+                            state.finalize();
                         }
                     }
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
                     None => {
-                        input_closed = true;
                         // A context is still active only when input ended mid-request without a
                         // final fragment. Force generation of its buffered text before closing,
                         // otherwise `close_socket` can drop the untriggered tail.
-                        if let Some(context) = &active
+                        if let Some(context_id) = state.close_input()
                             && let Err(e) = outbound_tx
-                                .send(text_message(json!({ "context_id": context.id.clone(), "flush": true })))
+                                .send(text_message(json!({ "context_id": context_id, "flush": true })))
                         {
                             error!("Failed to send ElevenLabs flush message: {e}");
                         }
@@ -273,19 +261,141 @@ where
             msg = read.next() => {
                 match msg {
                     Some(Ok(message)) => {
-                        process_server_message(message, output, output_format, &mut active)?;
-                        // The active context is cleared once the server reports `isFinal`; resume
-                        // pulling input for the next request.
-                        if active.is_none() {
-                            draining = false;
+                        match process_server_message(message, output, output_format, state.active_context_id())? {
+                            ServerOutcome::Final => {
+                                let request_id = state.context_finalized();
+                                output.request_completed(request_id)?;
+                            }
+                            ServerOutcome::Continue => {}
                         }
                     }
                     Some(Err(e)) => bail!("Error reading ElevenLabs websocket: {e}"),
                     // A clean close is only expected after we requested it via close_socket;
                     // an earlier server-initiated close truncates the in-flight request.
-                    None if input_closed => return Ok(()),
+                    None if state.is_closing() => return Ok(()),
                     None => bail!("ElevenLabs websocket closed before synthesis completed"),
                 }
+            }
+        }
+    }
+}
+
+/// Tracks the single live synthesis context and the input/output lifecycle around it. Only one
+/// context is ever live, so the phases below form a small state machine that makes the previously
+/// implicit combinations (draining while input-closed, no context while draining) unrepresentable.
+struct SynthesisState {
+    phase: Phase,
+    next_id: u64,
+}
+
+enum Phase {
+    /// No context is live; waiting for text for the next request.
+    Accepting,
+    /// A context is live and still accepting text fragments.
+    Synthesizing(ActiveContext),
+    /// The context was closed; input is paused until the server reports `isFinal`.
+    Draining(ActiveContext),
+    /// Input ended; drain remaining server messages until the socket closes. Holds a context iff
+    /// input ended mid-request, so its `isFinal` still completes the request.
+    Closing(Option<ActiveContext>),
+}
+
+impl SynthesisState {
+    fn new() -> Self {
+        Self { phase: Phase::Accepting, next_id: 0 }
+    }
+
+    /// Whether the input `select!` arm should be polled. Input is paused while draining a closed
+    /// context and after the input stream has ended.
+    fn accepts_input(&self) -> bool {
+        matches!(self.phase, Phase::Accepting | Phase::Synthesizing(_))
+    }
+
+    /// Record an incoming text fragment: open the context on the first fragment (fixing its request
+    /// id for the whole sequence) and return the context id for message building. Once set, the
+    /// request id must not change until the sequence ends with `is_final`.
+    fn record_fragment(&mut self, request_id: Option<RequestId>) -> Result<String> {
+        match &mut self.phase {
+            // First fragment opens the context and fixes its request id for the whole sequence.
+            Phase::Accepting => {
+                self.next_id += 1;
+                let context = ActiveContext {
+                    id: self.next_id.to_string(),
+                    request_id,
+                };
+                let context_id = context.id.clone();
+                self.phase = Phase::Synthesizing(context);
+                Ok(context_id)
+            }
+            // The request id is fixed when the context opens; a later fragment carrying a different
+            // id is a protocol violation. A `None` id carries no id and never counts as a change.
+            Phase::Synthesizing(context) => {
+                if request_id.is_some() && request_id != context.request_id {
+                    bail!("ElevenLabs synthesize request id changed within a text sequence");
+                }
+                Ok(context.id.clone())
+            }
+            Phase::Draining(_) | Phase::Closing(_) => {
+                unreachable!("record_fragment is only reachable while accepting input")
+            }
+        }
+    }
+
+    /// The request id to attribute the current fragment's billing to.
+    fn active_request_id(&self) -> Option<RequestId> {
+        match &self.phase {
+            Phase::Synthesizing(context) | Phase::Draining(context) => context.request_id.clone(),
+            Phase::Accepting | Phase::Closing(_) => None,
+        }
+    }
+
+    /// A final fragment was sent (flush + close_context): pause input until the server `isFinal`.
+    fn finalize(&mut self) {
+        if let Phase::Synthesizing(context) = mem::replace(&mut self.phase, Phase::Accepting) {
+            self.phase = Phase::Draining(context);
+        }
+    }
+
+    /// The input stream ended: move to `Closing`, carrying any in-flight context so the caller can
+    /// flush it. Returns the context id still needing a flush, if any.
+    fn close_input(&mut self) -> Option<String> {
+        let context = match mem::replace(&mut self.phase, Phase::Closing(None)) {
+            Phase::Synthesizing(context) => Some(context),
+            _ => None,
+        };
+        let context_id = context.as_ref().map(|context| context.id.clone());
+        self.phase = Phase::Closing(context);
+        context_id
+    }
+
+    fn is_closing(&self) -> bool {
+        matches!(self.phase, Phase::Closing(_))
+    }
+
+    /// Context id that server messages must match, if a context is live.
+    fn active_context_id(&self) -> Option<&str> {
+        match &self.phase {
+            Phase::Synthesizing(context)
+            | Phase::Draining(context)
+            | Phase::Closing(Some(context)) => Some(&context.id),
+            Phase::Accepting | Phase::Closing(None) => None,
+        }
+    }
+
+    /// The server reported `isFinal`: complete the request and resume accepting input, or stay in
+    /// `Closing` when the input already ended. Returns the request id to complete.
+    fn context_finalized(&mut self) -> Option<RequestId> {
+        match mem::replace(&mut self.phase, Phase::Accepting) {
+            Phase::Draining(context) => context.request_id,
+            Phase::Closing(context) => {
+                let request_id = context.and_then(|context| context.request_id);
+                self.phase = Phase::Closing(None);
+                request_id
+            }
+            // A stray `isFinal` outside a draining/closing context: keep the current phase.
+            other => {
+                self.phase = other;
+                None
             }
         }
     }
@@ -297,6 +407,13 @@ struct ActiveContext {
     request_id: Option<RequestId>,
 }
 
+enum ServerOutcome {
+    /// Nothing further for the caller; any audio chunk was already emitted.
+    Continue,
+    /// The server reported `isFinal` for the active context; the caller completes the request.
+    Final,
+}
+
 fn text_message(value: serde_json::Value) -> OutboundMessage {
     OutboundMessage::Ws(Message::Text(value.to_string().into()))
 }
@@ -305,8 +422,8 @@ fn process_server_message(
     message: Message,
     output: &ConversationOutput,
     output_format: AudioFormat,
-    active: &mut Option<ActiveContext>,
-) -> Result<()> {
+    active_context_id: Option<&str>,
+) -> Result<ServerOutcome> {
     let text = match message {
         Message::Text(text) => text,
         Message::Ping(payload) => {
@@ -317,19 +434,19 @@ fn process_server_message(
                 "ElevenLabs websocket ping ({} bytes payload); auto-ponged",
                 payload.len()
             );
-            return Ok(());
+            return Ok(ServerOutcome::Continue);
         }
-        _ => return Ok(()),
+        _ => return Ok(ServerOutcome::Continue),
     };
-    process_server_json(text.as_str(), output, output_format, active)
+    process_server_json(text.as_str(), output, output_format, active_context_id)
 }
 
 fn process_server_json(
     json: &str,
     output: &ConversationOutput,
     output_format: AudioFormat,
-    active: &mut Option<ActiveContext>,
-) -> Result<()> {
+    active_context_id: Option<&str>,
+) -> Result<ServerOutcome> {
     let event: ServerEvent = serde_json::from_str(json)
         .with_context(|| format!("Parsing ElevenLabs TTS server event: {json}"))?;
 
@@ -348,10 +465,10 @@ fn process_server_json(
     // Server messages name the context they belong to; ignore any that don't match the active
     // context (for example trailing chunks from an already-completed request).
     if let Some(context_id) = event.context_id.as_deref()
-        && active.as_ref().map(|context| context.id.as_str()) != Some(context_id)
+        && active_context_id != Some(context_id)
     {
         debug!("Ignoring ElevenLabs message for stale context {context_id}");
-        return Ok(());
+        return Ok(ServerOutcome::Continue);
     }
 
     if let Some(audio) = event.audio.as_deref().filter(|audio| !audio.is_empty()) {
@@ -362,13 +479,12 @@ fn process_server_json(
         output.audio_frame(AudioFrame::from_le_bytes(output_format, &bytes))?;
     }
 
-    // `isFinal` closes the active context: complete its request and stop tracking it.
+    // `isFinal` closes the active context; the caller completes its request.
     if event.is_final == Some(true) {
-        let request_id = active.take().and_then(|context| context.request_id);
-        output.request_completed(request_id)?;
+        return Ok(ServerOutcome::Final);
     }
 
-    Ok(())
+    Ok(ServerOutcome::Continue)
 }
 
 fn resolve_output_format(output_format: AudioFormat) -> Result<&'static str> {
