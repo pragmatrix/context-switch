@@ -81,8 +81,20 @@ cargo run --example transcribe -- voice-live
 # Voice Live end-of-turn tuning
 cargo run --example transcribe -- voice-live --turn-threshold-level high --turn-timeout-ms 800
 
-# Run Azure synthesize example
-cargo run --example azure-synthesize
+# Run generic synthesize example with Azure provider
+cargo run --example synthesize -- azure
+
+# Run generic synthesize example with ElevenLabs provider (voice is required)
+cargo run --example synthesize -- elevenlabs --voice <voice-id>
+
+# Run generic synthesize example with Aristech provider
+cargo run --example synthesize -- aristech
+
+# Synthesize custom text to a WAV file instead of playing it back
+cargo run --example synthesize -- azure "Hello there" --output out.wav
+
+# List the voices available for a provider
+cargo run --example synthesize -- azure --list-voices
 
 # Run dialog example with Google Agent Platform endpoint construction
 cargo run --example dialog -- google-agent-platform --project your-project --location us-central1

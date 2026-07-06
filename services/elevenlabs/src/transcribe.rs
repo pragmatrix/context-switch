@@ -1,17 +1,16 @@
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::select;
 use tokio::sync::mpsc;
-use tokio::time::{Duration, sleep};
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use url::Url;
 
 use context_switch_core::language::{bcp47_to_iso639_3, iso639_to_bcp47};
@@ -19,6 +18,8 @@ use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, ConversationInput,
     ConversationOutput, Input, Service,
 };
+
+use crate::ws::{API_KEY_HEADER, OutboundMessage, run_writer, shutdown_writer_task};
 
 // Observed Scribe v2 behavior as of 2026-04-02:
 //
@@ -35,8 +36,6 @@ use context_switch_core::{
 // - Some utterances appear to be recognized twice.
 
 const DEFAULT_REALTIME_HOST: &str = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
-const API_KEY_HEADER: &str = "xi-api-key";
-const WRITER_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(2);
 const DEFAULT_MODEL: &str = "scribe_v2_realtime";
 const DEFAULT_INCLUDE_LANGUAGE_DETECTION: bool = false;
 
@@ -250,26 +249,6 @@ fn enqueue_audio_chunk_and_emit_billing(
         .context("Failed to output billing records")
 }
 
-async fn shutdown_writer_task(mut writer_task: tokio::task::JoinHandle<Result<()>>) -> Result<()> {
-    select! {
-        join_result = &mut writer_task => {
-            match join_result {
-                Ok(result) => result,
-                Err(e) => bail!("ElevenLabs websocket writer task failed to join: {e}"),
-            }
-        }
-        _ = sleep(WRITER_SHUTDOWN_GRACE_PERIOD) => {
-            warn!(
-                "ElevenLabs writer shutdown grace period reached; aborting writer task after {:?}",
-                WRITER_SHUTDOWN_GRACE_PERIOD
-            );
-            writer_task.abort();
-            let _ = writer_task.await;
-            Ok(())
-        }
-    }
-}
-
 fn resolve_audio_encoding(input_format: AudioFormat) -> Result<AudioEncoding> {
     let encoding = match input_format.sample_rate {
         8_000 => AudioEncoding::Pcm8000,
@@ -360,39 +339,6 @@ fn build_audio_chunk_message(
 
     let json = serde_json::to_string(&request).context("Serializing input audio chunk")?;
     Ok(OutboundMessage::Ws(Message::Text(json.into())))
-}
-
-enum OutboundMessage {
-    Ws(Message),
-    Close,
-}
-
-async fn run_writer<S>(
-    mut write: S,
-    mut outbound_rx: mpsc::UnboundedReceiver<OutboundMessage>,
-) -> Result<()>
-where
-    S: futures::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
-{
-    while let Some(outbound) = outbound_rx.recv().await {
-        match outbound {
-            OutboundMessage::Ws(message) => {
-                write
-                    .send(message)
-                    .await
-                    .context("Sending input audio chunk")?;
-            }
-            OutboundMessage::Close => {
-                write
-                    .close()
-                    .await
-                    .context("Closing websocket write stream")?;
-                return Ok(());
-            }
-        }
-    }
-
-    Ok(())
 }
 
 #[derive(Debug, Serialize)]

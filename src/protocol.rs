@@ -48,6 +48,10 @@ pub enum ClientEvent {
         content: String,
         content_type: Option<String>,
         billing_scope: Option<String>,
+        /// `false` marks a partial text fragment; the request completes on the first fragment with
+        /// `isFinal: true`. Defaults to `true`, so a single text event is a complete request.
+        #[serde(default = "default_final")]
+        is_final: bool,
     },
     Service {
         id: ConversationId,
@@ -65,6 +69,10 @@ impl ClientEvent {
             | ClientEvent::Service { id, .. } => id,
         }
     }
+}
+
+fn default_final() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

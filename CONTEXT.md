@@ -55,3 +55,13 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
   Voice Live (`low` / `medium` / `high`). Lower levels wait for stronger
   evidence before ending a turn; higher levels end turns earlier. When unset,
   Voice Live uses its built-in default behavior.
+
+## Protocol terms
+
+- **Partial Text** — a non-final fragment of a text input request. A client can
+  stream a synthesis request as several in-order text events; every fragment
+  except the last is partial (`isFinal: false`), and the final fragment
+  (`isFinal: true`, the default) completes the request and triggers a
+  `RequestCompleted`. Fragments are delivered in order and not interleaved with
+  other requests, so they carry no correlation id. Used by streaming
+  text-to-speech backends that generate audio from text as it arrives.
