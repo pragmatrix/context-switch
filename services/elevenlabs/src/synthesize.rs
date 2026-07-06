@@ -198,64 +198,21 @@ where
             input_event = input.recv(), if state.accepts_input() => {
                 match input_event {
                     Some(Input::Text { request_id, text, is_final, .. }) => {
-                        let context_id = state.record_fragment(request_id)?;
-
-                        // Each fragment must end with a single space. Voice settings and
-                        // generation config are only accepted on a context's opening fragment.
-                        let mut message =
-                            json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
-
-                        if let Some(voice_settings) = voice_settings {
-                            message["voice_settings"] = serde_json::to_value(voice_settings)
-                                .context("Serializing voice settings")?;
-                        }
-                        if let Some(generation_config) = generation_config {
-                            message["generation_config"] = serde_json::to_value(generation_config)
-                                .context("Serializing generation config")?;
-                        }
-                        outbound_tx
-                            .send(text_message(message))
-                            .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-                        output.billing_records(
-                            state.active_request_id(),
-                            None,
-                            [BillingRecord::count("output:characters", text.chars().count())],
-                            BillingSchedule::Now,
+                        let context_id = send_text_fragment(
+                            &mut state,
+                            outbound_tx,
+                            output,
+                            request_id,
+                            &text,
+                            voice_settings,
+                            generation_config,
                         )?;
-
                         if is_final {
-                            // Force generation of any buffered text before closing, otherwise the
-                            // tail of the utterance can be truncated.
-                            outbound_tx
-                                .send(text_message(json!({ "context_id": context_id.clone(), "flush": true })))
-                                .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-                            // Closing the context makes the server emit the context's `isFinal`
-                            // marker, while the socket stays open for the next request. Pause input
-                            // until that marker arrives so only one context is ever live.
-                            outbound_tx
-                                .send(text_message(json!({ "context_id": context_id, "close_context": true })))
-                                .context("ElevenLabs websocket writer task stopped unexpectedly")?;
-                            state.finalize();
+                            finalize_context(&mut state, outbound_tx, &context_id)?;
                         }
                     }
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
-                    None => {
-                        // A context is still active only when input ended mid-request without a
-                        // final fragment. Force generation of its buffered text before closing,
-                        // otherwise `close_socket` can drop the untriggered tail.
-                        if let Some(context_id) = state.close_input()
-                            && let Err(e) = outbound_tx
-                                .send(text_message(json!({ "context_id": context_id, "flush": true })))
-                        {
-                            error!("Failed to send ElevenLabs flush message: {e}");
-                        }
-                        // Close the socket. Best-effort: The writer task result is still surfaced
-                        // by shutdown_writer_task, but log here so a dead writer during shutdown is
-                        // visible.
-                        if let Err(e) = outbound_tx.send(text_message(json!({ "close_socket": true }))) {
-                            error!("Failed to send ElevenLabs close_socket message: {e}");
-                        }
-                    }
+                    None => handle_input_end(&mut state, outbound_tx),
                 }
             }
             msg = read.next() => {
@@ -277,6 +234,86 @@ where
                 }
             }
         }
+    }
+}
+
+/// Streams one text fragment: open or continue the context, send its text, and emit billing.
+/// Returns the context id so a final fragment can flush and close the same context.
+fn send_text_fragment(
+    state: &mut SynthesisState,
+    outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
+    output: &ConversationOutput,
+    request_id: Option<RequestId>,
+    text: &str,
+    voice_settings: Option<&VoiceSettings>,
+    generation_config: Option<&GenerationConfig>,
+) -> Result<String> {
+    let context_id = state.record_fragment(request_id)?;
+
+    // Each fragment must end with a single space. Voice settings and generation config are only
+    // accepted on a context's opening fragment.
+    let mut message =
+        json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
+
+    if let Some(voice_settings) = voice_settings {
+        message["voice_settings"] =
+            serde_json::to_value(voice_settings).context("Serializing voice settings")?;
+    }
+    if let Some(generation_config) = generation_config {
+        message["generation_config"] =
+            serde_json::to_value(generation_config).context("Serializing generation config")?;
+    }
+    outbound_tx
+        .send(text_message(message))
+        .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+    output.billing_records(
+        state.active_request_id(),
+        None,
+        [BillingRecord::count("output:characters", text.chars().count())],
+        BillingSchedule::Now,
+    )?;
+
+    Ok(context_id)
+}
+
+/// Flushes and closes the context so the server reports its `isFinal`. Input stays paused until
+/// that marker arrives, so only one context is ever live.
+fn finalize_context(
+    state: &mut SynthesisState,
+    outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
+    context_id: &str,
+) -> Result<()> {
+    // Force generation of any buffered text before closing, otherwise the tail of the utterance can
+    // be truncated.
+    outbound_tx
+        .send(text_message(json!({ "context_id": context_id, "flush": true })))
+        .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+    // Closing the context makes the server emit the context's `isFinal` marker, while the socket
+    // stays open for the next request.
+    outbound_tx
+        .send(text_message(json!({ "context_id": context_id, "close_context": true })))
+        .context("ElevenLabs websocket writer task stopped unexpectedly")?;
+    state.finalize();
+
+    Ok(())
+}
+
+/// Input stream ended: flush any in-flight context so its buffered tail is generated, then close
+/// the socket. Both sends are best-effort; the writer task result is surfaced by
+/// shutdown_writer_task, but failures are logged so a dead writer during shutdown stays visible.
+fn handle_input_end(
+    state: &mut SynthesisState,
+    outbound_tx: &mpsc::UnboundedSender<OutboundMessage>,
+) {
+    // A context is still active only when input ended mid-request without a final fragment.
+    if let Some(context_id) = state.close_input()
+        && let Err(e) =
+            outbound_tx.send(text_message(json!({ "context_id": context_id, "flush": true })))
+    {
+        error!("Failed to send ElevenLabs flush message: {e}");
+    }
+    if let Err(e) = outbound_tx.send(text_message(json!({ "close_socket": true }))) {
+        error!("Failed to send ElevenLabs close_socket message: {e}");
     }
 }
 
