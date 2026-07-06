@@ -252,9 +252,18 @@ where
                     Some(_) => bail!("ElevenLabs synthesize received non-text input"),
                     None => {
                         input_closed = true;
-                        // Close the socket; buffered audio is flushed first. Best-effort: the
-                        // writer task result is still surfaced by shutdown_writer_task, but log
-                        // here so a dead writer during shutdown is visible.
+                        // A context is still active only when input ended mid-request without a
+                        // final fragment. Force generation of its buffered text before closing,
+                        // otherwise `close_socket` can drop the untriggered tail.
+                        if let Some(context) = &active
+                            && let Err(e) = outbound_tx
+                                .send(text_message(json!({ "context_id": context.id.clone(), "flush": true })))
+                        {
+                            error!("Failed to send ElevenLabs flush message: {e}");
+                        }
+                        // Close the socket. Best-effort: The writer task result is still surfaced
+                        // by shutdown_writer_task, but log here so a dead writer during shutdown is
+                        // visible.
                         if let Err(e) = outbound_tx.send(text_message(json!({ "close_socket": true }))) {
                             error!("Failed to send ElevenLabs close_socket message: {e}");
                         }
