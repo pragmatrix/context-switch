@@ -200,7 +200,6 @@ where
             input_event = input.recv(), if !input_closed && !draining => {
                 match input_event {
                     Some(Input::Text { request_id, text, is_final, .. }) => {
-                        let opening = active.is_none();
                         let context = active.get_or_insert_with(|| {
                             next_context += 1;
                             ActiveContext { id: next_context.to_string(), request_id: None }
@@ -216,14 +215,14 @@ where
                         // generation config are only accepted on a context's opening fragment.
                         let mut message =
                             json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
-                            if let Some(voice_settings) = voice_settings {
-                                message["voice_settings"] = serde_json::to_value(voice_settings)
-                                    .context("Serializing voice settings")?;
-                            }
-                            if let Some(generation_config) = generation_config {
-                                message["generation_config"] = serde_json::to_value(generation_config)
-                                    .context("Serializing generation config")?;
-                            }
+
+                        if let Some(voice_settings) = voice_settings {
+                            message["voice_settings"] = serde_json::to_value(voice_settings)
+                                .context("Serializing voice settings")?;
+                        }
+                        if let Some(generation_config) = generation_config {
+                            message["generation_config"] = serde_json::to_value(generation_config)
+                                .context("Serializing generation config")?;
                         }
                         outbound_tx
                             .send(text_message(message))
