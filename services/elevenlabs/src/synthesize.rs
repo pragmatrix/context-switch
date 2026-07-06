@@ -277,7 +277,7 @@ fn send_text_fragment(
         state.active_request_id(),
         None,
         [BillingRecord::count(
-            "output:characters",
+            "input:characters",
             text.chars().count(),
         )],
         BillingSchedule::Now,
