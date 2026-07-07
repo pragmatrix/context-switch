@@ -33,6 +33,8 @@ struct Args {
     #[arg(long)]
     model: Option<String>,
     #[arg(long)]
+    transcription_model: Option<String>,
+    #[arg(long)]
     region: Option<String>,
     #[arg(long)]
     diarization: bool,
@@ -82,6 +84,7 @@ impl From<TurnThresholdLevel> for ThresholdLevel {
 #[derive(Debug, Clone)]
 struct ProviderArgs<'a> {
     model: Option<&'a str>,
+    transcription_model: Option<&'a str>,
     region: Option<&'a str>,
     diarization: bool,
     turn_detection: Option<TurnDetection>,
@@ -101,6 +104,7 @@ async fn main() -> Result<()> {
     let languages = Languages::new(language)?;
     let provider_args = ProviderArgs {
         model: args.model.as_deref(),
+        transcription_model: args.transcription_model.as_deref(),
         region: args.region.as_deref(),
         diarization: args.diarization,
         turn_detection: if args.turn_threshold.is_some()
@@ -261,6 +265,7 @@ async fn start_conversation(
     validate_provider_args(
         provider,
         provider_args.model,
+        provider_args.transcription_model,
         provider_args.region,
         provider_args.diarization,
         provider_args.turn_detection.is_some(),
@@ -379,8 +384,11 @@ async fn start_conversation(
                     env::var("MICROSOFT_VOICE_LIVE_MODEL").unwrap_or_else(|_| "gpt-4.1".to_owned())
                 }),
                 api_version: env::var("MICROSOFT_VOICE_LIVE_API_VERSION").ok(),
-                transcription_model: env::var("MICROSOFT_VOICE_LIVE_TRANSCRIPTION_MODEL")
-                    .unwrap_or_else(|_| "azure-speech".to_owned()),
+                transcription_model: provider_args
+                    .transcription_model
+                    .map(str::to_owned)
+                    .or_else(|| env::var("MICROSOFT_VOICE_LIVE_TRANSCRIPTION_MODEL").ok())
+                    .unwrap_or_else(|| "azure-speech".to_owned()),
                 language,
                 noise_reduction: None,
                 // When omitted, Voice Live defaults to Azure multilingual semantic VAD with
@@ -411,6 +419,7 @@ struct ProviderCapabilities {
     region: bool,
     diarization: bool,
     model: bool,
+    transcription_model: bool,
     turn_detection: bool,
 }
 
@@ -439,6 +448,7 @@ impl Provider {
             }
             Provider::VoiceLive => {
                 capabilities.model = true;
+                capabilities.transcription_model = true;
                 capabilities.turn_detection = true;
             }
         }
@@ -469,6 +479,7 @@ fn validate_capability(
 fn validate_provider_args(
     provider: Provider,
     model: Option<&str>,
+    transcription_model: Option<&str>,
     region: Option<&str>,
     diarization: bool,
     turn_detection: bool,
@@ -476,6 +487,12 @@ fn validate_provider_args(
     let capabilities = provider.capabilities();
 
     validate_capability("--model", model.is_some(), capabilities.model, provider)?;
+    validate_capability(
+        "--transcription-model",
+        transcription_model.is_some(),
+        capabilities.transcription_model,
+        provider,
+    )?;
     validate_capability("--region", region.is_some(), capabilities.region, provider)?;
     validate_capability(
         "--diarization",
