@@ -206,6 +206,14 @@ impl Client {
                 );
             }
 
+            // Interim (non-final) transcription. This is the ONLY interim path Voice Live
+            // exposes: there is no `conversation.item.input_audio_transcription.segment` event
+            // on the Voice Live surface (that event exists only in the raw OpenAI Realtime
+            // spec). Delta events are produced only by the streaming/OpenAI transcription
+            // models (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`,
+            // `gpt-4o-transcribe-diarize`), which in turn require a `gpt-realtime` /
+            // `gpt-realtime-mini` chat model. The default `azure-speech` (and `mai-transcribe`)
+            // emit only the final `completed` event, so no interim text is available with them.
             ServerEvent::ConversationItemInputAudioTranscriptionDelta(e) => {
                 let text =
                     self.transcription_state

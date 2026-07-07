@@ -23,6 +23,12 @@ pub struct Params {
     pub model: String,
     pub api_version: Option<String>,
     /// Transcription model set in `audio.input.transcription.model`.
+    ///
+    /// Interim (non-final) transcription is only emitted by the streaming/OpenAI models
+    /// (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize`),
+    /// which require `model` to be `gpt-realtime` or `gpt-realtime-mini`. The default
+    /// `azure-speech` (and `mai-transcribe`) emit only the final transcript, so no interim
+    /// text is produced with them and there is no session flag to enable it.
     #[serde(default = "default_transcription_model")]
     pub transcription_model: String,
     /// Input audio language hint in `ISO-639-1` form (e.g. `en`).
