@@ -1,6 +1,6 @@
 use std::io;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::channel::mpsc;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::select;
 use tracing::{debug, info, warn};
 
-use deepgram::Deepgram;
+use deepgram::{Deepgram, DeepgramError, TungsteniteError};
 use deepgram::common::flux_response::{FluxResponse, TurnEvent};
 use deepgram::common::options::{Encoding, Model, Options};
 
@@ -25,8 +25,10 @@ pub struct Params {
     #[serde(alias = "host")]
     pub endpoint: String,
     pub language: String,
+    /// Replace detected profanity with asterisks in the transcript.
     #[serde(default)]
     pub profanity_filter: bool,
+    /// Key terms to boost recognition accuracy for domain-specific vocabulary.
     #[serde(default)]
     pub keyterm: Vec<String>,
     /// Provider-neutral turn-detection configuration. Only `threshold`, `timeoutMs`, and
@@ -109,7 +111,8 @@ impl Service for DeepgramTranscribe {
             .encoding(Encoding::Linear16)
             .sample_rate(input_format.sample_rate)
             .stream(audio_rx)
-            .await?;
+            .await
+            .map_err(describe_stream_error)?;
 
         // Drive audio forwarding (with billing) and Deepgram response processing in a single loop so
         // termination and billing stay deterministic: any error or end-of-input breaks immediately,
@@ -274,3 +277,22 @@ fn normalize_endpoint(endpoint: &str) -> Result<String> {
         "invalid endpoint: expected full listen path (for example wss://api.deepgram.com/v2/listen), got base URL ({endpoint})"
     )
 }
+
+/// Turns a Deepgram connection error into a richer message. A rejected websocket handshake arrives
+/// as `Http(response)`, whose `Display` only reports the status code; the response body carries the
+/// actual reason (for example an unsupported option), so extract and surface it.
+fn describe_stream_error(error: DeepgramError) -> anyhow::Error {
+    if let DeepgramError::WsError(ws_error) = &error
+        && let TungsteniteError::Http(response) = ws_error.as_ref()
+    {
+        let status = response.status();
+        if let Some(body) = response.body() {
+            let reason = String::from_utf8_lossy(body);
+            return anyhow!("Deepgram rejected the stream request ({status}): {reason}");
+        }
+        return anyhow!("Deepgram rejected the stream request ({status})");
+    }
+
+    anyhow!(error)
+}
+
