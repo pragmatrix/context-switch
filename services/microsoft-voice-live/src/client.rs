@@ -4,8 +4,10 @@ use anyhow::{Context, Result, bail};
 use base64::prelude::*;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use tokio::{net::TcpStream, select};
-use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
+use tokio::net::TcpStream;
+use tokio::select;
+use tokio_tungstenite::tungstenite::Bytes;
+use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, info, trace, warn};
 
@@ -16,9 +18,10 @@ use openai_api_rs::realtime::types::{
     EndOfUtteranceThresholdLevel, TurnDetection,
 };
 
+use context_switch_core::audio;
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
-    Input, OutputPath, ThresholdLevel, audio,
+    Input, OutputPath, ThresholdLevel,
 };
 
 use crate::transcribe::{NoiseReduction, NoiseReductionType, Params, ServiceOutputEvent};
