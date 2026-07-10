@@ -4,16 +4,17 @@ use anyhow::{Context, Result, bail};
 use base64::prelude::*;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
+use tokio::{net::TcpStream, select};
+use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tracing::{debug, info, trace, warn};
+
 use openai_api_rs::realtime::client_event::{self, ClientEvent};
 use openai_api_rs::realtime::server_event::ServerEvent;
 use openai_api_rs::realtime::types::{
     self, AzureSemanticVadConfig, EndOfUtteranceDetectionConfig, EndOfUtteranceDetectionModel,
     EndOfUtteranceThresholdLevel, TurnDetection,
 };
-use tokio::{net::TcpStream, select};
-use tokio_tungstenite::tungstenite::{Bytes, protocol::Message};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tracing::{debug, info, trace, warn};
 
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, ConversationInput, ConversationOutput,
