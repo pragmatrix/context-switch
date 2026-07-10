@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use tokio::select;
 use tracing::{debug, info, warn};
 
-use deepgram::{Deepgram, DeepgramError, TungsteniteError};
 use deepgram::common::flux_response::{FluxResponse, TurnEvent};
 use deepgram::common::options::{Encoding, Model, Options};
+use deepgram::{Deepgram, DeepgramError, TungsteniteError};
 
 use context_switch_core::language::{Languages, bcp47_to_iso639_3};
 use context_switch_core::{
@@ -42,7 +42,7 @@ pub struct Params {
 pub struct DeepgramTranscribe;
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 #[allow(clippy::enum_variant_names)]
 enum ServiceOutputEvent {
     TurnStarted,
@@ -295,4 +295,3 @@ fn describe_stream_error(error: DeepgramError) -> anyhow::Error {
 
     anyhow!(error)
 }
-
