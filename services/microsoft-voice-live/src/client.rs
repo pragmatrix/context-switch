@@ -79,6 +79,9 @@ impl Client {
                         Some(Input::Audio { frame }) => {
                             let duration = frame.duration();
                             self.send_frame(frame).await?;
+                            // Actually Microsoft does bill transcription models by token 10 Audio
+                            // Input Tokens per Second (you can see that in analytics). Which is
+                            // roughly equivalent to the regular pricing.
                             output.billing_records(
                                 None,
                                 billing_scope.to_string(),
