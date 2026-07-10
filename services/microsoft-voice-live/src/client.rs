@@ -67,6 +67,9 @@ impl Client {
         self.send_session_update(&params).await?;
         debug!("Session updated");
 
+        // For transcribe only workflows, we just the transcription model as the billing scope.
+        let billing_scope = &params.transcription_model;
+
         let language = params.language.clone();
 
         loop {
@@ -78,7 +81,7 @@ impl Client {
                             self.send_frame(frame).await?;
                             output.billing_records(
                                 None,
-                                None,
+                                billing_scope.to_string(),
                                 [BillingRecord::duration("input:audio", duration)],
                                 BillingSchedule::Now,
                             )?;
