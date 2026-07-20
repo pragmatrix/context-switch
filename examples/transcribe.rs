@@ -39,6 +39,8 @@ struct Args {
     #[arg(long)]
     diarization: bool,
     #[arg(long)]
+    numerals: bool,
+    #[arg(long)]
     turn_threshold: Option<f64>,
     #[arg(long, value_enum)]
     turn_threshold_level: Option<TurnThresholdLevel>,
@@ -87,6 +89,7 @@ struct ProviderArgs<'a> {
     transcription_model: Option<&'a str>,
     region: Option<&'a str>,
     diarization: bool,
+    numerals: bool,
     turn_detection: Option<TurnDetection>,
 }
 
@@ -107,6 +110,7 @@ async fn main() -> Result<()> {
         transcription_model: args.transcription_model.as_deref(),
         region: args.region.as_deref(),
         diarization: args.diarization,
+        numerals: args.numerals,
         turn_detection: if args.turn_threshold.is_some()
             || args.turn_threshold_level.is_some()
             || args.turn_timeout_ms.is_some()
@@ -268,6 +272,7 @@ async fn start_conversation(
         provider_args.transcription_model,
         provider_args.region,
         provider_args.diarization,
+        provider_args.numerals,
         provider_args.turn_detection.is_some(),
     )?;
 
@@ -405,6 +410,7 @@ async fn start_conversation(
                 endpoint: env::var("DEEPGRAM_ENDPOINT").expect("DEEPGRAM_ENDPOINT undefined"),
                 language: languages.join_csv(),
                 profanity_filter: false,
+                numerals: provider_args.numerals,
                 keyterm: vec![],
                 turn_detection: provider_args.turn_detection.clone(),
             };
@@ -418,6 +424,7 @@ async fn start_conversation(
 struct ProviderCapabilities {
     region: bool,
     diarization: bool,
+    numerals: bool,
     model: bool,
     transcription_model: bool,
     turn_detection: bool,
@@ -433,6 +440,7 @@ impl Provider {
                 capabilities.model = true;
             }
             Provider::Deepgram => {
+                capabilities.numerals = true;
                 capabilities.turn_detection = true;
             }
             Provider::Elevenlabs => {
@@ -482,6 +490,7 @@ fn validate_provider_args(
     transcription_model: Option<&str>,
     region: Option<&str>,
     diarization: bool,
+    numerals: bool,
     turn_detection: bool,
 ) -> Result<()> {
     let capabilities = provider.capabilities();
@@ -500,6 +509,7 @@ fn validate_provider_args(
         capabilities.diarization,
         provider,
     )?;
+    validate_capability("--numerals", numerals, capabilities.numerals, provider)?;
     validate_capability(
         "--turn-threshold/--turn-threshold-level/--turn-timeout-ms/--turn-eager-threshold",
         turn_detection,
