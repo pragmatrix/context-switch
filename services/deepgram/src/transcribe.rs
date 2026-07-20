@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, result};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
@@ -103,7 +103,7 @@ impl Service for DeepgramTranscribe {
         let deepgram = Deepgram::with_base_url_and_api_key(endpoint.as_str(), params.api_key)?;
 
         let (mut input, output) = conversation.start()?;
-        let (mut audio_tx, audio_rx) = mpsc::channel::<std::result::Result<Bytes, io::Error>>(8);
+        let (mut audio_tx, audio_rx) = mpsc::channel::<result::Result<Bytes, io::Error>>(8);
 
         let mut stream = deepgram
             .transcription()

@@ -3,7 +3,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use azure_speech::recognizer::{self, Event};
 
@@ -128,17 +128,27 @@ impl Service for AzureTranscribe {
 
         while let Some(event) = stream.next().await {
             match event? {
-                Event::SessionStarted(_)
-                | Event::SessionEnded(_)
-                | Event::StartDetected(_, _)
-                | Event::EndDetected(_, _) => {}
+                Event::SessionStarted(_) | Event::SessionEnded(_) => {}
+                // StartDetected and EndDetected seem to be received only once per session. They are
+                // not usable for turn detection.
+                Event::StartDetected(request_id, offset) => {
+                    debug!(?request_id, offset, "Start of speech detected (ignored)");
+                }
+                Event::EndDetected(request_id, offset) => {
+                    debug!(?request_id, offset, "End of speech detected (ignored)");
+                }
                 Event::Recognizing(_, recognized, _, _, _) => {
                     output_recognized_text(&output, recognized, false, include_detected_language)?
                 }
                 Event::Recognized(_, recognized, _, _, _) => {
                     output_recognized_text(&output, recognized, true, include_detected_language)?
                 }
-                Event::UnMatch(_, _, _, _) => {}
+                Event::UnMatch(request_id, offset, duration, raw_message) => {
+                    debug!(
+                        ?request_id,
+                        offset, duration, raw_message, "Speech not recognized (ignored)"
+                    );
+                }
             }
         }
 

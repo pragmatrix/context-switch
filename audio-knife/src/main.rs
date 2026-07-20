@@ -373,7 +373,7 @@ impl SessionState {
             }
         };
 
-        let conversation_span = info_span!("", cid = %short_conversation_id);
+        let conversation_span = info_span!("conversation", cid = %short_conversation_id);
         // We enter here, so that ContextSwitch picks the span up via `Span::current()`.
         let entered_conversation_span = conversation_span.enter();
 
