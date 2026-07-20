@@ -28,6 +28,9 @@ pub struct Params {
     /// Replace detected profanity with asterisks in the transcript.
     #[serde(default)]
     pub profanity_filter: bool,
+    /// Format recognized numbers as numerals in the transcript.
+    #[serde(default)]
+    pub numerals: bool,
     /// Key terms to boost recognition accuracy for domain-specific vocabulary.
     #[serde(default)]
     pub keyterm: Vec<String>,
@@ -78,6 +81,9 @@ impl Service for DeepgramTranscribe {
         }
         if params.profanity_filter {
             options_builder = options_builder.profanity_filter(true);
+        }
+        if params.numerals {
+            options_builder = options_builder.numerals(true);
         }
 
         let options_builder = if let Some(language_hints) = language_hints {
