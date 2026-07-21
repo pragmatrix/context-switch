@@ -44,12 +44,15 @@ const DEFAULT_INCLUDE_LANGUAGE_DETECTION: bool = false;
 pub struct Params {
     /// ElevenLabs API key for the `xi-api-key` websocket header.
     pub api_key: String,
-    /// Optional realtime model. Defaults to `scribe_v2_realtime` when omitted.
+    /// Optional realtime model sent as the `model_id` query parameter.
+    /// Defaults to `scribe_v2_realtime` when omitted.
     pub model: Option<String>,
-    /// Optional WebSocket endpoint override.
+    /// Optional WebSocket endpoint override. The `host` name is accepted as an alias.
+    /// Defaults to `wss://api.elevenlabs.io/v1/speech-to-text/realtime`.
     #[serde(alias = "host")]
     pub endpoint: Option<String>,
-    /// Optional language hint in BCP 47 format (for example `en-US`).
+    /// Optional BCP 47 language hint (for example, `en-US`). The adapter converts it to the
+    /// ISO 639-3 `language_code` query parameter.
     pub language: Option<String>,
     /// Include detected language in timestamped output.
     /// When omitted, this integration defaults it to `false`.

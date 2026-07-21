@@ -14,6 +14,7 @@ const DEFAULT_TRANSCRIPTION_MODEL: &str = "azure-speech";
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
+    /// Voice Live API key.
     pub api_key: String,
     /// Resource endpoint URL. Must be a full `wss://` URL.
     /// The path is used exactly as provided; only the `api-version` and `model` query
@@ -21,6 +22,7 @@ pub struct Params {
     pub endpoint: String,
     /// Realtime model used for the Voice Live session (URL `model` query parameter).
     pub model: String,
+    /// Optional Voice Live API version. Defaults to `2026-06-01-preview` when omitted.
     pub api_version: Option<String>,
     /// Transcription model set in `audio.input.transcription.model`.
     ///

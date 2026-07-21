@@ -14,18 +14,23 @@ use tonic::codegen::CompressionEncoding;
 
 use context_switch_core::{Conversation, Input, Service};
 
-/// Authentication configuration
+/// API-key authentication for Aristech STT.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyAuth {
+    /// Aristech STT API key.
     pub api_key: String,
 }
 
+/// Credential-based authentication for an Aristech STT server.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialsAuth {
+    /// Aristech STT server address.
     pub host: String,
+    /// Credential token.
     pub token: String,
+    /// Credential secret.
     pub secret: String,
 }
 
@@ -44,15 +49,17 @@ pub enum AuthConfig {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
+    /// Authentication: either `apiKey`, or the complete `host`/`token`/`secret` credential set.
     #[serde(flatten)]
     pub auth_config: AuthConfig,
-    /// N.B. This is expected to be in locale format, e.g. "en_GB" or "de_DE".
-    /// A BCP 47 language code (e.g. "en-US") is not expected here.
+    /// Required locale in underscore form (for example, `en_GB` or `de_DE`).
+    /// BCP 47 language tags with a hyphen (for example, `en-US`) are not accepted.
     pub language: String,
-    // TODO: Determine whether this could really be used in practice, in the future.
-    // It seems that the language code used, automatically chooses the appropriate model. TBC.
+    /// Optional recognition model sent as `RecognitionSpec.model`. When omitted, an empty model
+    /// is sent and the provider generally derives the appropriate model from `language`.
     pub model: Option<String>,
-    // TODO: Determine whether this could really be used in practice, in the future.
+    /// Optional recognition prompt sent as `RecognitionSpec.prompt`. When omitted, an empty
+    /// prompt is sent.
     pub prompt: Option<String>,
 }
 

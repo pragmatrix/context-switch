@@ -21,9 +21,14 @@ use context_switch_core::{
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
+    /// Deepgram API key.
     pub api_key: String,
+    /// Deepgram endpoint base URL. The `host` name is accepted as an alias.
+    /// A trailing `/v1/listen` or `/v2/listen` path is normalized to the base URL.
     #[serde(alias = "host")]
     pub endpoint: String,
+    /// One or more comma-separated BCP 47 locale codes. A single English language selects
+    /// `flux-general-en`; all other inputs select `flux-general-multi` with language hints.
     pub language: String,
     /// Replace detected profanity with asterisks in the transcript.
     #[serde(default)]
@@ -31,7 +36,8 @@ pub struct Params {
     /// Format recognized numbers as numerals in the transcript.
     #[serde(default)]
     pub numerals: bool,
-    /// Key terms to boost recognition accuracy for domain-specific vocabulary.
+    /// Key terms to boost recognition accuracy for domain-specific vocabulary. Flux accepts up
+    /// to 100 terms; weighting syntax is not supported.
     #[serde(default)]
     pub keyterm: Vec<String>,
     /// Provider-neutral turn-detection configuration. Only `threshold`, `timeoutMs`, and
