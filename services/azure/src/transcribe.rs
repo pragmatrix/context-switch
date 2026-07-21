@@ -18,13 +18,24 @@ use crate::Host;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Params {
+    /// Optional full Azure Speech endpoint URL. The `host` name is accepted as an alias.
+    /// Either this field or `region` must be set.
     #[serde(alias = "host")]
     pub endpoint: Option<String>,
+    /// Azure region used for key-based connections (for example, `westeurope`).
+    /// Used only when `endpoint` is omitted.
     pub region: Option<String>,
+    /// Azure Speech subscription key.
     pub subscription_key: String,
+    /// One or more comma-separated BCP 47 locale codes (for example, `de-DE,en-US`).
+    /// A single locale configures recognition directly; multiple locales enable continuous
+    /// language identification.
     pub language: String,
+    /// Enable speaker diarization. Availability depends on the selected Azure locale and feature.
     #[serde(default)]
     pub diarization: bool,
+    /// Enable the local RMS speech gate before audio is sent to Azure.
+    /// This is a context-switch feature, not an Azure Speech setting.
     #[serde(default)]
     pub speech_gate: bool,
 }
