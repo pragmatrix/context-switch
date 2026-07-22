@@ -6,7 +6,12 @@ edition.workspace = true
 [dependencies]
 context-switch-core = { workspace = true }
 
-azure-speech = { workspace = true }
+azure-speech = { workspace = true, features = [
+	# Enable `Connector::NativeTls`, which drives the explicit connector below via the
+	# operating system's trust store. `tokio-native-tls` alone only constructs it.
+	"tws-native-tls",
+] }
+tokio-native-tls = "0.3.1"
 
 tracing = { workspace = true }
 anyhow = { workspace = true }

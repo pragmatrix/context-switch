@@ -14,7 +14,7 @@ use context_switch_core::{
     AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, Service,
 };
 
-use crate::{Host, connect_with_timeout};
+use crate::{Host, connect_with_timeout, native_tls_connector};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,8 +64,12 @@ impl Service for AzureSynthesize {
             .enable_session_end()
             .with_audio_format(azure_audio_format);
 
-        let client =
-            connect_with_timeout(synthesizer::Client::connect(host.auth.clone(), config)).await??;
+        let client = connect_with_timeout(synthesizer::Client::connect(
+            host.auth.clone(),
+            config,
+            native_tls_connector()?,
+        ))
+        .await??;
 
         let language = params.language;
         let (mut input, output) = conversation.start()?;

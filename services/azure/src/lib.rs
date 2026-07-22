@@ -1,6 +1,9 @@
-use std::{future::Future, time::Duration};
+use std::future::Future;
+use std::sync::OnceLock;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use azure_speech::Connector;
 use tokio::time::timeout;
 
 mod host;
@@ -23,4 +26,18 @@ async fn connect_with_timeout<T>(connection: impl Future<Output = T>) -> Result<
     timeout(CONNECT_TIMEOUT, connection)
         .await
         .context("Azure connection timed out")
+}
+
+fn native_tls_connector() -> Result<&'static Connector> {
+    static CONNECTOR: OnceLock<Result<Connector, String>> = OnceLock::new();
+
+    match CONNECTOR.get_or_init(|| {
+        tokio_native_tls::native_tls::TlsConnector::new()
+            .map(tokio_native_tls::TlsConnector::from)
+            .map(Connector::NativeTls)
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(connector) => Ok(connector),
+        Err(error) => bail!("Failed to create native TLS connector: {error}"),
+    }
 }
