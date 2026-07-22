@@ -13,7 +13,7 @@ use context_switch_core::{
     speech_gate::make_speech_gate_processor_soft_rms,
 };
 
-use crate::{Host, connect_with_timeout};
+use crate::{Host, connect_with_timeout, native_tls_connector};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,8 +90,12 @@ impl Service for AzureTranscribe {
         }
         .set_output_format(recognizer::OutputFormat::Detailed);
 
-        let client =
-            connect_with_timeout(recognizer::Client::connect(host.auth.clone(), config)).await??;
+        let client = connect_with_timeout(recognizer::Client::connect(
+            host.auth.clone(),
+            config,
+            native_tls_connector()?,
+        ))
+        .await??;
 
         let (mut input, output) = conversation.start()?;
 
