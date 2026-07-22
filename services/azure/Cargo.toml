@@ -7,12 +7,9 @@ edition.workspace = true
 context-switch-core = { workspace = true }
 
 azure-speech = { workspace = true, features = [
-	# Use the operating system's trust store for Azure TLS connections.
+	# Enable `Connector::NativeTls`, which drives the explicit connector below via the
+	# operating system's trust store. `tokio-native-tls` alone only constructs it.
 	"tws-native-tls",
-	# Generate WebSocket client handshake keys.
-	"tws-rand",
-	# Validate the WebSocket server handshake response.
-	"tws-smol-sha1",
 ] }
 tokio-native-tls = "0.3.1"
 
