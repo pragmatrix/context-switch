@@ -1,4 +1,6 @@
-use std::{future::Future, sync::OnceLock, time::Duration};
+use std::future::Future;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use azure_speech::Connector;
