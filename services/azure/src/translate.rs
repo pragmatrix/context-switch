@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
-use crate::Host;
+use crate::{Host, connect_with_timeout};
 use context_switch_core::{
     AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, OutputModality,
     OutputPath, Service,
@@ -74,7 +74,8 @@ impl Service for AzureTranslate {
             }
         };
 
-        let client = translator::Client::connect(host.auth.clone(), config).await?;
+        let client =
+            connect_with_timeout(translator::Client::connect(host.auth.clone(), config)).await??;
 
         let (mut input, output) = conversation.start()?;
 
