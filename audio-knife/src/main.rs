@@ -28,7 +28,7 @@ use server_event_router::ServerEventRouter;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel};
 use tokio::{pin, select};
-use tracing::{Instrument, Span, debug, error, info, info_span, warn};
+use tracing::{Instrument, Span, debug, error, info, info_span, trace, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use uuid::Uuid;
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     };
 
     // ADR: For security reasons, this is an environment variable, and is not passed as playback
-    // service params to the playback service.
+    // service parameters to the playback service.
     let local_files = env::var("AUDIO_KNIFE_LOCAL_FILES")
         .map(|path| PathBuf::from(&path))
         .ok();
@@ -618,11 +618,10 @@ async fn take_billing_records(
         .expect("poisoned lock")
         .collect(&billing_id);
 
-    info!(
-        "Took {} billing records for ID: {}",
-        records.len(),
-        billing_id
-    );
+    match records.len() {
+        0 => trace!("Took 0 billing records for ID: {billing_id}"),
+        count => info!("Took {count} billing records for ID: {billing_id}"),
+    }
 
     // Return the records as JSON - if the billing_id doesn't exist, this will be an empty array
     Json(records).into_response()
