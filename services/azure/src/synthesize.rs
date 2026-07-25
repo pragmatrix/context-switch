@@ -218,12 +218,19 @@ fn resolve_default_voice(language: &str) -> Result<&'static str> {
 #[derive(Debug, Default, Display)]
 enum BillingScope {
     #[default]
+    Neural,
+    MultilingualNeural,
     TurboMultilingualNeural,
     MultilingualNeuralHD,
-    MultilingualNeural,
-    DragonHDFlashLatestNeural,
     DragonHDLatestNeural,
-    Neural,
+    DragonHDFlashLatestNeural,
+    DragonHDOmniLatestNeural,
+    #[display("MAI-Voice-1")]
+    MAIVoice1,
+    #[display("MAI-Voice-2")]
+    MAIVoice2,
+    #[display("MAI-Voice-2-Flash")]
+    MAIVoice2Flash,
 }
 
 fn voice_to_billing_scope(voice: &str) -> Result<BillingScope> {
@@ -232,10 +239,14 @@ fn voice_to_billing_scope(voice: &str) -> Result<BillingScope> {
         v if v.ends_with("TurboMultilingualNeural") => Ok(BillingScope::TurboMultilingualNeural),
         v if v.ends_with("MultilingualNeuralHD") => Ok(BillingScope::MultilingualNeuralHD),
         v if v.ends_with("MultilingualNeural") => Ok(BillingScope::MultilingualNeural),
+        v if v.ends_with(":DragonHDLatestNeural") => Ok(BillingScope::DragonHDLatestNeural),
         v if v.ends_with(":DragonHDFlashLatestNeural") => {
             Ok(BillingScope::DragonHDFlashLatestNeural)
         }
-        v if v.ends_with(":DragonHDLatestNeural") => Ok(BillingScope::DragonHDLatestNeural),
+        v if v.ends_with(":DragonHDOmniLatestNeural") => Ok(BillingScope::DragonHDOmniLatestNeural),
+        v if v.ends_with(":MAI-Voice-1") => Ok(BillingScope::MAIVoice1),
+        v if v.ends_with(":MAI-Voice-2") => Ok(BillingScope::MAIVoice2),
+        v if v.ends_with(":MAI-Voice-2-Flash") => Ok(BillingScope::MAIVoice2Flash),
         v if v.ends_with("Neural") => Ok(BillingScope::Neural),
         _ => bail!(
             "Unknown voice format: {}. Cannot determine billing scope.",
