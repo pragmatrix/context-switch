@@ -1,5 +1,6 @@
 //! A context switch demo. Runs locally, gets voice data from your current microphone.
 
+use std::collections::VecDeque;
 use std::env;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::thread;
@@ -101,7 +102,7 @@ async fn main() -> Result<()> {
 
     let mut conversation = service.conversation(params, conversation);
 
-    let playback_task = setup_audio_playback(output_receiver).await;
+    let playback_task = setup_audio_playback(output_format, output_receiver).await;
 
     // Spawn audio playback task
     let mut playback_handle = tokio::spawn(playback_task);
@@ -131,6 +132,7 @@ enum AudioCommand {
 }
 
 async fn setup_audio_playback(
+    format: AudioFormat,
     mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = ()> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -139,26 +141,14 @@ async fn setup_audio_playback(
     let playback_thread = thread::spawn(move || {
         let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
         let player = Player::connect_new(sink_handle.mixer());
-
-        while let Ok(cmd) = cmd_rx.recv() {
-            match cmd {
-                AudioCommand::PlayFrame(frame) => {
-                    let source = FrameSource {
-                        frames: audio::from_i16(frame.samples),
-                        position: 0,
-                        sample_rate: frame.format.sample_rate,
-                        channels: frame.format.channels,
-                    };
-                    player.append(source);
-                }
-                AudioCommand::Clear => {
-                    player.clear();
-                    player.play();
-                }
-                AudioCommand::Stop => break,
-            }
-        }
-
+        // Keep frames in one source so Rodio's resampler preserves its state between frames.
+        // Appending each frame separately resets it at every frame boundary, causing clicks.
+        player.append(StreamingFrameSource {
+            frames: VecDeque::new(),
+            receiver: cmd_rx,
+            sample_rate: format.sample_rate,
+            channels: format.channels,
+        });
         player.sleep_until_end();
     });
 
@@ -196,30 +186,47 @@ async fn setup_audio_playback(
     }
 }
 
-struct FrameSource {
-    frames: Vec<f32>,
-    position: usize,
+struct StreamingFrameSource {
+    frames: VecDeque<f32>,
+    receiver: std::sync::mpsc::Receiver<AudioCommand>,
     sample_rate: u32,
     channels: u16,
 }
 
-impl Iterator for FrameSource {
+impl Iterator for StreamingFrameSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if self.position >= self.frames.len() {
-            None
-        } else {
-            let sample = self.frames[self.position];
-            self.position += 1;
-            Some(sample)
+        loop {
+            match self.receiver.try_recv() {
+                Ok(AudioCommand::PlayFrame(frame)) => {
+                    self.frames.extend(audio::from_i16(frame.samples))
+                }
+                Ok(AudioCommand::Clear) => self.frames.clear(),
+                Ok(AudioCommand::Stop) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+
+            if let Some(sample) = self.frames.pop_front() {
+                return Some(sample);
+            }
+
+            match self.receiver.recv() {
+                Ok(AudioCommand::PlayFrame(frame)) => {
+                    self.frames.extend(audio::from_i16(frame.samples))
+                }
+                Ok(AudioCommand::Clear) => {}
+                Ok(AudioCommand::Stop) | Err(_) => return None,
+            }
         }
     }
 }
 
-impl Source for FrameSource {
+impl Source for StreamingFrameSource {
     fn current_span_len(&self) -> Option<usize> {
-        Some(self.frames.len() - self.position)
+        None
     }
 
     fn channels(&self) -> NonZeroU16 {
@@ -231,7 +238,6 @@ impl Source for FrameSource {
     }
 
     fn total_duration(&self) -> Option<Duration> {
-        let seconds = self.frames.len() as f32 / (self.sample_rate as f32 * self.channels as f32);
-        Some(Duration::from_secs_f32(seconds))
+        None
     }
 }
