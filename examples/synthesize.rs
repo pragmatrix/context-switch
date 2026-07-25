@@ -1,9 +1,11 @@
+use std::collections::VecDeque;
 use std::env;
 use std::fs::File;
 use std::future::Future;
 use std::io::{BufWriter, Write};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -655,32 +657,22 @@ enum AudioCommand {
     Stop,
 }
 
-async fn setup_audio_playback(
-    format: AudioFormat,
-) -> (AudioProducer, impl std::future::Future<Output = ()>) {
+async fn setup_audio_playback(format: AudioFormat) -> (AudioProducer, impl Future<Output = ()>) {
     let (producer, mut consumer) = format.new_channel();
 
-    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = mpsc::channel();
 
     let handle = thread::spawn(move || {
         let sink_handle = DeviceSinkBuilder::open_default_sink().unwrap();
         let player = Player::connect_new(sink_handle.mixer());
-
-        while let Ok(cmd) = cmd_rx.recv() {
-            match cmd {
-                AudioCommand::PlayFrame(frame) => {
-                    let source = FrameSource {
-                        frames: audio::from_i16(frame.samples),
-                        position: 0,
-                        sample_rate: frame.format.sample_rate,
-                        channels: format.channels,
-                    };
-                    player.append(source);
-                }
-                AudioCommand::Stop => break,
-            }
-        }
-
+        // Keep frames in one source so Rodio's resampler preserves its state between frames.
+        // Appending each frame separately resets it at every frame boundary, causing clicks.
+        player.append(StreamingFrameSource {
+            frames: VecDeque::new(),
+            receiver: cmd_rx,
+            sample_rate: format.sample_rate,
+            channels: format.channels,
+        });
         player.sleep_until_end();
     });
 
@@ -697,30 +689,35 @@ async fn setup_audio_playback(
     (producer, forward_task)
 }
 
-struct FrameSource {
-    frames: Vec<f32>,
-    position: usize,
+struct StreamingFrameSource {
+    frames: VecDeque<f32>,
+    receiver: std::sync::mpsc::Receiver<AudioCommand>,
     sample_rate: u32,
     channels: u16,
 }
 
-impl Iterator for FrameSource {
+impl Iterator for StreamingFrameSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if self.position >= self.frames.len() {
-            None
-        } else {
-            let sample = self.frames[self.position];
-            self.position += 1;
-            Some(sample)
+        loop {
+            if let Some(sample) = self.frames.pop_front() {
+                return Some(sample);
+            }
+
+            match self.receiver.recv() {
+                Ok(AudioCommand::PlayFrame(frame)) => {
+                    self.frames.extend(audio::from_i16(frame.samples))
+                }
+                Ok(AudioCommand::Stop) | Err(_) => return None,
+            }
         }
     }
 }
 
-impl Source for FrameSource {
+impl Source for StreamingFrameSource {
     fn current_span_len(&self) -> Option<usize> {
-        Some(self.frames.len() - self.position)
+        None
     }
 
     fn channels(&self) -> NonZeroU16 {
@@ -732,7 +729,6 @@ impl Source for FrameSource {
     }
 
     fn total_duration(&self) -> Option<Duration> {
-        let seconds = self.frames.len() as f32 / (self.sample_rate as f32 * self.channels as f32);
-        Some(Duration::from_secs_f32(seconds))
+        None
     }
 }
