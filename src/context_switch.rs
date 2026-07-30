@@ -114,8 +114,8 @@ impl ContextSwitch {
                 // Robustness: Clearly define this number somewhere else.
                 let (sender, receiver) = channel(256);
 
-                // The task is expected to handle all circumstances and so its never required to abort it or
-                // inspect its return value.
+                // The task is expected to handle all circumstances and so there is no need to abort
+                // it or inspect its return value.
                 tokio::spawn(
                     process_conversation(
                         self.registry.clone(),
