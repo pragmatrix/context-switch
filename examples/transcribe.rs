@@ -321,20 +321,20 @@ async fn start_conversation(
                 .or_else(|| env::var("GOOGLE_TRANSCRIBE_REGION").ok());
 
             let region = match region.as_deref() {
-                Some("global") => google_transcribe::transcribe::Region::Global,
-                Some("eu") => google_transcribe::transcribe::Region::Eu,
-                Some("us") => google_transcribe::transcribe::Region::Us,
+                Some("global") => google_transcribe::Region::Global,
+                Some("eu") => google_transcribe::Region::Eu,
+                Some("us") => google_transcribe::Region::Us,
                 Some(invalid) => bail!(
                     "Invalid GOOGLE_TRANSCRIBE_REGION '{}'. Must be one of: global, eu, us",
                     invalid
                 ),
-                None => google_transcribe::transcribe::Region::default(),
+                None => google_transcribe::Region::default(),
             };
 
             // Check model/language/region feature support (including diarization):
             // https://docs.cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages
 
-            let params = google_transcribe::transcribe::Params {
+            let params = google_transcribe::Params {
                 model: provider_args.model.map(str::to_owned).unwrap_or_else(|| {
                     env::var("GOOGLE_TRANSCRIBE_MODEL").unwrap_or_else(|_| "latest_long".to_owned())
                 }),

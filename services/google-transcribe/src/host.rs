@@ -11,7 +11,7 @@ use tonic::service::interceptor;
 use tonic::transport;
 
 use crate::client::TranscribeClient;
-use crate::transcribe::Region;
+use crate::Region;
 
 pub type Client =
     SpeechClient<interceptor::InterceptedService<transport::Channel, AuthInterceptor>>;
