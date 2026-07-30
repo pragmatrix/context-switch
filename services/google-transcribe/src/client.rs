@@ -1,157 +1,25 @@
 //! Tonic usage inspiration from:
 //! <https://github.com/bouzuya/googleapis-tonic/blob/master/examples/googleapis-tonic-google-firestore-v1-1/>
 
-use std::error;
-use std::{env, sync::Arc};
-
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use async_stream::{stream, try_stream};
-use context_switch_core::{AudioFormat, audio};
 use futures::Stream;
-use google_cloud_auth::credentials::AccessTokenCredentials;
-use google_cloud_auth::credentials::service_account;
-use google_cloud_token::TokenSource;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tracing::debug;
+
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::recognition_config::DecodingConfig;
-use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
     ExplicitDecodingConfig, RecognitionConfig, RecognitionFeatures, StreamingRecognitionConfig,
     StreamingRecognitionFeatures, StreamingRecognizeRequest, StreamingRecognizeResponse,
     SpeakerDiarizationConfig,
-    explicit_decoding_config,
 };
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::explicit_decoding_config;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streaming_recognize_request::StreamingRequest;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tonic::transport;
-use tracing::debug;
 
-use crate::transcribe::Region;
+use context_switch_core::AudioFormat;
+use context_switch_core::audio;
 
-type Client =
-    googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_client::SpeechClient<
-        tonic::service::interceptor::InterceptedService<tonic::transport::Channel, AuthInterceptor>,
-    >;
-
-#[derive(Default)]
-pub(crate) struct Config {
-    endpoint: &'static str,
-    location: &'static str,
-}
-
-impl From<Region> for Config {
-    fn from(value: Region) -> Self {
-        match value {
-            Region::Global => Self {
-                endpoint: "https://speech.googleapis.com",
-                location: "global",
-            },
-            Region::Eu => Self {
-                endpoint: "https://eu-speech.googleapis.com",
-                location: "eu",
-            },
-            Region::Us => Self {
-                endpoint: "https://us-speech.googleapis.com",
-                location: "us",
-            },
-        }
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct Host {
-    channel: tonic::transport::Channel,
-    token_source: Arc<dyn TokenSource>,
-    project_id: String,
-    location: String,
-}
-
-#[derive(Debug)]
-struct ServiceAccountTokenSource {
-    credentials: AccessTokenCredentials,
-}
-
-#[async_trait::async_trait]
-impl TokenSource for ServiceAccountTokenSource {
-    async fn token(&self) -> std::result::Result<String, Box<dyn error::Error + Send + Sync>> {
-        let access_token = self.credentials.access_token().await?;
-        Ok(format!("Bearer {}", access_token.token))
-    }
-}
-
-impl Host {
-    pub(crate) async fn new(params: Config) -> Result<Self> {
-        let credentials_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
-            .context("GOOGLE_APPLICATION_CREDENTIALS is not set")?;
-        let credentials_json = tokio::fs::read_to_string(&credentials_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to read GOOGLE_APPLICATION_CREDENTIALS from path: {credentials_path}"
-                )
-            })?;
-        let credentials_value: serde_json::Value = serde_json::from_str(&credentials_json)
-            .with_context(|| {
-                format!(
-                    "GOOGLE_APPLICATION_CREDENTIALS does not contain valid JSON: {credentials_path}"
-                )
-            })?;
-
-        let project_id = credentials_value
-            .get("project_id")
-            .and_then(serde_json::Value::as_str)
-            .context("project_id missing in GOOGLE_APPLICATION_CREDENTIALS JSON")?
-            .to_owned();
-
-        let credentials = service_account::Builder::new(credentials_value)
-            .build_access_token_credentials()
-            .context("Failed to build Google service-account credentials")?;
-
-        let token_source: Arc<dyn google_cloud_token::TokenSource> =
-            Arc::new(ServiceAccountTokenSource { credentials });
-
-        let channel = transport::Channel::from_static(params.endpoint)
-            .tls_config(transport::ClientTlsConfig::new().with_webpki_roots())?
-            .connect()
-            .await?;
-
-        Ok(Self {
-            channel,
-            token_source,
-            project_id,
-            location: params.location.to_owned(),
-        })
-    }
-
-    pub async fn client(&self) -> Result<TranscribeClient> {
-        let inner = self.channel.clone();
-        let token = self.token_source.token().await.map_err(|e| anyhow!(e))?;
-        let mut metadata_value = tonic::metadata::AsciiMetadataValue::try_from(token)?;
-        metadata_value.set_sensitive(true);
-        let interceptor = AuthInterceptor { metadata_value };
-        let client = SpeechClient::with_interceptor(inner, interceptor);
-        Ok(TranscribeClient {
-            client,
-            project_id: self.project_id.clone(),
-            location: self.location.clone(),
-        })
-    }
-}
-
-#[derive(Clone)]
-struct AuthInterceptor {
-    metadata_value: tonic::metadata::AsciiMetadataValue,
-}
-
-impl tonic::service::Interceptor for AuthInterceptor {
-    fn call(
-        &mut self,
-        mut request: tonic::Request<()>,
-    ) -> std::result::Result<tonic::Request<()>, tonic::Status> {
-        request
-            .metadata_mut()
-            .insert("authorization", self.metadata_value.clone());
-        Ok(request)
-    }
-}
+use crate::host::Client;
 
 /// A google transcribe client. Capable of streaming audio data in and transcribe results out.
 #[derive(Debug)]
@@ -162,6 +30,14 @@ pub struct TranscribeClient {
 }
 
 impl TranscribeClient {
+    pub fn new(client: Client, project_id: String, location: String) -> Self {
+        Self {
+            client,
+            project_id,
+            location,
+        }
+    }
+
     pub async fn transcribe<'a>(
         &mut self,
         model: &str,
