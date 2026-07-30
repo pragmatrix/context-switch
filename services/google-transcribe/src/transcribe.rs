@@ -17,9 +17,9 @@ use context_switch_core::{
     ConversationOutput, Input, OutputModality, Service,
 };
 
+use crate::Params;
 use crate::client::TranscribeClient;
 use crate::host::Host;
-use crate::Params;
 
 #[derive(Debug)]
 pub struct GoogleTranscribe;

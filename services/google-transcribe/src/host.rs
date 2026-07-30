@@ -10,8 +10,8 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_c
 use tonic::service::interceptor;
 use tonic::transport;
 
-use crate::client::TranscribeClient;
 use crate::Region;
+use crate::client::TranscribeClient;
 
 pub type Client =
     SpeechClient<interceptor::InterceptedService<transport::Channel, AuthInterceptor>>;
@@ -50,7 +50,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub async fn new(params: Config) -> Result<Self> {
+    pub async fn new(config: Config) -> Result<Self> {
         let credentials_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
             .context("GOOGLE_APPLICATION_CREDENTIALS is not set")?;
         let credentials_json = tokio::fs::read_to_string(&credentials_path)
@@ -80,7 +80,7 @@ impl Host {
         let token_source: Arc<dyn TokenSource> =
             Arc::new(ServiceAccountTokenSource { credentials });
 
-        let channel = transport::Channel::from_static(params.endpoint)
+        let channel = transport::Channel::from_static(config.endpoint)
             .tls_config(transport::ClientTlsConfig::new().with_webpki_roots())?
             .connect()
             .await?;
@@ -89,7 +89,7 @@ impl Host {
             channel,
             token_source,
             project_id,
-            location: params.location.to_owned(),
+            location: config.location.to_owned(),
         })
     }
 
