@@ -13,12 +13,11 @@ use crate::{
     Registry, ServerEvent, registry,
 };
 
-// Azure does not finish its recognition stream after ContextSwitch closes the input on Stop.
-// ContextSwitch therefore waits for its three-second shutdown grace period, logs the timeout,
-// and then emits Stopped. Late transcription output cannot be delivered during that period.
+// Regression: Azure recognizer should end its event stream promptly after ContextSwitch stops audio input.
+// This test ensures a Stop results in a timely `ServerEvent::Stopped` (no lingering stream/session restart).
 #[tokio::test]
 #[ignore = "requires Azure credentials and runs for about 8 seconds"]
-async fn azure_transcribe_logs_graceful_shutdown_timeout_after_stop() -> Result<()> {
+async fn azure_transcribe_stops_promptly_after_stop() -> Result<()> {
     dotenvy::dotenv_override().ok();
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
