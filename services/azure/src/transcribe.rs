@@ -3,7 +3,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::Deserialize;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use azure_speech::recognizer::{self, Event};
 
@@ -90,12 +90,14 @@ impl Service for AzureTranscribe {
         }
         .set_output_format(recognizer::OutputFormat::Detailed);
 
+        debug!("Connecting Azure recognizer");
         let client = connect_with_timeout(recognizer::Client::connect(
             host.auth.clone(),
             config,
             native_tls_connector()?,
         ))
         .await??;
+        debug!("Azure recognizer connected");
 
         let (mut input, output) = conversation.start()?;
 
@@ -130,6 +132,7 @@ impl Service for AzureTranscribe {
                         error!("Internal error: Failed to output billing records: {e}");
                     }
                 }
+                debug!("Azure recognizer audio input ended");
             }
         };
 
@@ -143,7 +146,10 @@ impl Service for AzureTranscribe {
             .await?;
 
         while let Some(event) = stream.next().await {
-            match event? {
+            let event = event?;
+            trace!(?event, "Azure recognizer event");
+
+            match event {
                 Event::SessionStarted(_) | Event::SessionEnded(_) => {}
                 // StartDetected and EndDetected seem to be received only once per session. They are
                 // not usable for turn detection.
