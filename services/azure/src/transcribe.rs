@@ -147,7 +147,7 @@ impl Service for AzureTranscribe {
 
         while let Some(event) = stream.next().await {
             let event = event?;
-            trace!(?event, "Azure recognizer event");
+            trace!(event = ?std::mem::discriminant(&event), "Azure recognizer event");
 
             match event {
                 Event::SessionStarted(_) | Event::SessionEnded(_) => {}
