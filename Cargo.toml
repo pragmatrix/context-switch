@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "3.5.1"
+version = "3.5.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/pragmatrix/context-switch"
@@ -68,7 +68,7 @@ hound = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 context-switch-core = { workspace = true }
 
 dotenvy = { workspace = true }

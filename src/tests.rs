@@ -1,11 +1,76 @@
-use std::time::Duration;
+use std::env;
+use std::time::{Duration, Instant};
 
+use anyhow::{Context, Result};
 use helper::*;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::mpsc::{channel, unbounded_channel};
+use tokio::time::{interval, timeout};
+use tracing_subscriber::EnvFilter;
 
-use crate::{ClientEvent, ContextSwitch, ConversationId, Registry, ServerEvent};
-use context_switch_core::InputModality;
+use crate::{
+    AudioFormat, ClientEvent, ContextSwitch, ConversationId, InputModality, OutputModality,
+    Registry, ServerEvent, registry,
+};
+
+// Regression: Azure recognizer should end its event stream promptly after ContextSwitch stops audio input.
+// This test ensures a Stop results in a timely `ServerEvent::Stopped` (no lingering stream/session restart).
+#[tokio::test]
+#[ignore = "requires Azure credentials and runs for about 8 seconds"]
+async fn azure_transcribe_stops_promptly_after_stop() -> Result<()> {
+    dotenvy::dotenv_override().ok();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+
+    let (server_sender, mut server_receiver) = unbounded_channel();
+    let mut context_switch = ContextSwitch::new(registry().into(), server_sender, None);
+    let conversation_id: ConversationId = "azure-shutdown-regression".to_string().into();
+    let audio_format = AudioFormat::new(1, 16_000);
+
+    context_switch.process(ClientEvent::Start {
+        id: conversation_id.clone(),
+        service: "azure-transcribe".into(),
+        params: azure_transcribe_params()?,
+        input_modality: InputModality::Audio {
+            format: audio_format,
+        },
+        output_modalities: vec![OutputModality::Text, OutputModality::InterimText],
+        billing_id: None,
+    })?;
+
+    let started = timeout(Duration::from_secs(10), server_receiver.recv())
+        .await
+        .context("Azure transcribe did not start")?
+        .context("Azure transcribe output channel closed before start")?;
+    assert!(matches!(started, ServerEvent::Started { .. }));
+
+    let audio_deadline = Instant::now() + Duration::from_secs(5);
+    let mut audio_interval = interval(Duration::from_millis(20));
+    while Instant::now() < audio_deadline {
+        audio_interval.tick().await;
+        context_switch.post_audio_frame(
+            &conversation_id,
+            crate::AudioFrame {
+                format: audio_format,
+                samples: vec![0; 320],
+            },
+        )?;
+    }
+
+    context_switch.process(ClientEvent::Stop {
+        id: conversation_id.clone(),
+    })?;
+
+    let stopped = timeout(Duration::from_secs(5), server_receiver.recv())
+        .await
+        .context("ContextSwitch did not stop Azure transcribe")?
+        .context("Azure transcribe output channel closed before stop")?;
+    assert!(matches!(stopped, ServerEvent::Stopped { id } if id == conversation_id));
+
+    Ok(())
+}
 
 #[tokio::test]
 async fn never_ending_service_shut_downs_gracefully_in_response_to_stop() {
@@ -78,6 +143,26 @@ async fn params_deserialization_failure_is_emitted_as_conversation_error() {
     assert_eq!(id, conv);
     assert!(message.contains("Conversation: `conv-deser-fail`"));
     assert!(message.contains("Failed to deserialize service params"));
+}
+
+fn azure_transcribe_params() -> Result<Value> {
+    let endpoint = env::var("AZURE_ENDPOINT")
+        .ok()
+        .or_else(|| env::var("AZURE_HOST").ok());
+    let region = env::var("AZURE_REGION").ok();
+    if endpoint.is_none() && region.is_none() {
+        anyhow::bail!("AZURE_ENDPOINT, AZURE_HOST, or AZURE_REGION must be set");
+    }
+
+    let subscription_key = env::var("AZURE_SUBSCRIPTION_KEY")
+        .context("AZURE_SUBSCRIPTION_KEY must be set for Azure shutdown regression test")?;
+
+    Ok(json!({
+        "endpoint": endpoint,
+        "region": region,
+        "subscriptionKey": subscription_key,
+        "language": "en-US",
+    }))
 }
 
 // This is currently a limitation. No output events can be sent while a graceful shutdown has
