@@ -257,9 +257,9 @@ fn send_text_fragment(
     let mut message =
         json!({ "text": format!("{} ", text.trim_end()), "context_id": context_id.clone() });
 
-    // Voice settings and generation config initialize the context, so the protocol only accepts
-    // them on its opening fragment (`InitialiseContext`); later `SendTextMulti` fragments carry
-    // text only.
+    // Voice settings and generation configuration initialize the context, so the protocol only
+    // accepts them on its opening fragment (`InitialiseContext`); later `SendTextMulti` fragments
+    // carry text only.
     if opens_context {
         if let Some(voice_settings) = voice_settings {
             message["voice_settings"] =

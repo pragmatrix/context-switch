@@ -94,6 +94,7 @@ impl Service for AzureSynthesize {
             const TYPE_SSML: &str = "application/ssml+xml";
 
             let text_type = text_type.as_deref().unwrap_or(TYPE_TEXT);
+            let character_count = text.chars().count();
             let text = match text_type {
                 TYPE_TEXT => TextOrSSML::Text(text),
                 TYPE_SSML => TextOrSSML::Ssml(text),
@@ -111,6 +112,12 @@ impl Service for AzureSynthesize {
             };
 
             let mut stream = client.synthesize(azure_request).await?;
+            output.billing_records(
+                request_id.clone(),
+                billing_scope.to_string(),
+                [BillingRecord::count("input:characters", character_count)],
+                BillingSchedule::Now,
+            )?;
             while let Some(event) = stream.next().await {
                 let event = event.context("Azure synthesizer event error")?;
                 match event {
