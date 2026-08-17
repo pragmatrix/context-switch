@@ -10,7 +10,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Service};
+use context_switch_core::{
+    AudioFormat, AudioFrame, BillingRecord, BillingSchedule, Conversation, Input, Service,
+};
 
 //TODO: Add `language` field as alternative to `voice_id`
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,6 +87,8 @@ impl Service for AristechSynthesize {
                 bail!("Unexpected input");
             };
 
+            let character_count = text.chars().count();
+
             // Create the speech request
             let request = SpeechRequest {
                 text,
@@ -98,6 +102,12 @@ impl Service for AristechSynthesize {
                 .await
                 .context("Failed to start Aristech speech stream")?
                 .into_inner();
+            output.billing_records(
+                request_id.clone(),
+                None,
+                [BillingRecord::count("input:characters", character_count)],
+                BillingSchedule::Now,
+            )?;
 
             while let Some(response) = stream
                 .message()
