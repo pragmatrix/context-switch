@@ -16,10 +16,14 @@
 ## Change Communication
 - Include a short rationale for each non-trivial code change.
 
+## Pull Requests
+- Do not treat an external GitHub review approval as a requirement for a pull request to be merge-ready.
+
 ## Code Minimalism
 - Avoid defensive code unless there is concrete evidence it is necessary.
 - Avoid redundant logic and repeated calls; keep only the minimal behavior required for correctness.
 - Do not add tests unless explicitly requested by the user.
+- Apply the Single Responsibility Principle rigorously: each function, type, and module should own one coherent responsibility.
 
 ## YAGNI
 - Apply "You Aren't Gonna Need It": build only what a current, concrete requirement demands.
