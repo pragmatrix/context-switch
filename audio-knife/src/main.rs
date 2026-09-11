@@ -427,7 +427,7 @@ impl SessionState {
             .as_object()
             .context("Deferred start must be a JSON object")?;
 
-        if start_aux.event_type != "start" {
+        if start_aux.r#type != "start" {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         }
         if start_aux.defer_params && start.contains_key("params") {
@@ -452,7 +452,7 @@ impl SessionState {
         let deferred: DeferredParamsMessage =
             serde_json::from_value(Self::decode_json_value(msg.as_str())?)?;
 
-        if deferred.event_type != "params" {
+        if deferred.r#type != "params" {
             bail!("Expecting deferred params WebSocket message to have type `params`");
         }
         if &deferred.id != start_id {
@@ -577,8 +577,7 @@ fn short_conversation_id(conversation: &ConversationId) -> String {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartEventAuxiliary {
-    #[serde(rename = "type")]
-    pub event_type: String,
+    pub r#type: String,
     pub id: ConversationId,
     /// Optional field to specify the conversation ID to which the output should be redirected.
     pub redirect_output_to: Option<ConversationId>,
@@ -588,8 +587,7 @@ struct StartEventAuxiliary {
 
 #[derive(Deserialize)]
 struct DeferredParamsMessage {
-    #[serde(rename = "type")]
-    pub event_type: String,
+    pub r#type: String,
     pub id: ConversationId,
     pub params: Value,
 }
