@@ -58,6 +58,18 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
 
 ## Protocol terms
 
+- **Initial Start Message** — the first WebSocket message for a conversation. It
+  either contains complete service parameters or declares that they will follow
+  in a deferred params message.
+
+- **Deferred Params Message** — the message immediately following an initial
+  start message that declared deferred parameters. It carries the complete
+  service parameters for the same conversation.
+
+- **Logical Start** — the complete conversation start presented to ContextSwitch.
+  It may originate from one initial start message or be assembled from an initial
+  start message and a deferred params message.
+
 - **Partial Text** — a non-final fragment of a text input request. A client can
   stream a synthesis request as several in-order text events; every fragment
   except the last is partial (`isFinal: false`), and the final fragment

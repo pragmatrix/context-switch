@@ -213,7 +213,7 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
         Some(msg) => {
             let msg = msg?;
             let (session_state, conversation_span, cs_receiver) =
-                SessionState::start_session(state, msg)?;
+                SessionState::start_session(state, msg, &mut websocket).await?;
 
             ws_session(session_state, cs_receiver, websocket)
                 .instrument(conversation_span)
@@ -333,9 +333,10 @@ impl Drop for SessionState {
 }
 
 impl SessionState {
-    fn start_session(
+    async fn start_session(
         state: State,
         msg: Message,
+        websocket: &mut WebSocket,
     ) -> Result<(Self, Span, UnboundedReceiver<ServerEvent>)> {
         let Message::Text(msg) = msg else {
             // What about Ping?
@@ -344,9 +345,25 @@ impl SessionState {
 
         // Our start msg may contain additional information to parameterize output redirection.
         // Deserialize to value first so that we parse the JSON only once.
-        let json_value: Value = Self::decode_json_value(msg.as_str())?;
+        let mut json_value = Self::decode_json_value(msg.as_str())?;
 
-        let start_event = serde_json::from_value(json_value.clone())?;
+        let start_aux: StartEventAuxiliary = serde_json::from_value(json_value.clone())?;
+        Self::verify_start(&json_value, &start_aux)?;
+
+        let short_conversation_id = short_conversation_id(&start_aux.id);
+        let conversation_span = info_span!("conversation", cid = %short_conversation_id);
+
+        if start_aux.defer_params {
+            let params = Self::receive_deferred_params(&start_aux.id, websocket)
+                .instrument(conversation_span.clone())
+                .await?;
+            json_value
+                .as_object_mut()
+                .expect("validated start object")
+                .insert("params".into(), params);
+        }
+
+        let start_event: ClientEvent = serde_json::from_value(json_value.clone())?;
 
         let ClientEvent::Start {
             input_modality,
@@ -357,28 +374,8 @@ impl SessionState {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
 
-        // Set up logging
-
-        let short_conversation_id = {
-            let id = start_event.conversation_id().as_str();
-            match Uuid::parse_str(id) {
-                Ok(uuid) => {
-                    let bytes = uuid.as_bytes();
-                    &format!(
-                        "{:02x}{:02x}{:02x}{:02x}",
-                        bytes[0], bytes[1], bytes[2], bytes[3]
-                    )
-                }
-                Err(_) => id,
-            }
-        };
-
-        let conversation_span = info_span!("conversation", cid = %short_conversation_id);
         // We enter here, so that ContextSwitch picks the span up via `Span::current()`.
         let entered_conversation_span = conversation_span.enter();
-
-        // Extract audio-knife specific fields from the start event.
-        let start_aux: StartEventAuxiliary = serde_json::from_value(json_value)?;
 
         let conversation = start_event.conversation_id().clone();
 
@@ -423,6 +420,49 @@ impl SessionState {
             conversation_span,
             se_receiver,
         ))
+    }
+
+    fn verify_start(start: &Value, start_aux: &StartEventAuxiliary) -> Result<()> {
+        let start = start
+            .as_object()
+            .context("Deferred start must be a JSON object")?;
+
+        if start_aux.r#type != "start" {
+            bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
+        }
+        if start_aux.defer_params && start.contains_key("params") {
+            bail!("Deferred start must not contain inline params");
+        }
+
+        Ok(())
+    }
+
+    async fn receive_deferred_params(
+        start_id: &ConversationId,
+        websocket: &mut WebSocket,
+    ) -> Result<Value> {
+        let msg = websocket
+            .recv()
+            .await
+            .context("WebSocket closed before deferred params message was received")??;
+        let Message::Text(msg) = msg else {
+            bail!("Expecting deferred params WebSocket message to be text");
+        };
+
+        let deferred: DeferredParamsMessage =
+            serde_json::from_value(Self::decode_json_value(msg.as_str())?)?;
+
+        if deferred.r#type != "params" {
+            bail!("Expecting deferred params WebSocket message to have type `params`");
+        }
+        if &deferred.id != start_id {
+            bail!(
+                "Received deferred params for an unexpected conversation: `{}`, expected `{start_id}`",
+                deferred.id
+            );
+        }
+
+        Ok(deferred.params)
     }
 
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
@@ -520,11 +560,36 @@ impl SessionState {
     }
 }
 
+fn short_conversation_id(conversation: &ConversationId) -> String {
+    let id = conversation.as_str();
+    match Uuid::parse_str(id) {
+        Ok(uuid) => {
+            let bytes = uuid.as_bytes();
+            format!(
+                "{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3]
+            )
+        }
+        Err(_) => id.into(),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartEventAuxiliary {
+    pub r#type: String,
+    pub id: ConversationId,
     /// Optional field to specify the conversation ID to which the output should be redirected.
     pub redirect_output_to: Option<ConversationId>,
+    #[serde(default)]
+    pub defer_params: bool,
+}
+
+#[derive(Deserialize)]
+struct DeferredParamsMessage {
+    pub r#type: String,
+    pub id: ConversationId,
+    pub params: Value,
 }
 
 /// Dispatches outgoing server events and pongs to the socket's sink.
@@ -625,4 +690,60 @@ async fn take_billing_records(
 
     // Return the records as JSON - if the billing_id doesn't exist, this will be an empty array
     Json(records).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{SessionState, StartEventAuxiliary};
+
+    #[test]
+    fn accepts_deferred_start_without_inline_params() {
+        let start = json!({
+            "type": "start",
+            "id": "conversation-id",
+            "deferParams": true,
+        });
+        let auxiliary: StartEventAuxiliary = serde_json::from_value(start.clone()).unwrap();
+
+        SessionState::verify_start(&start, &auxiliary).unwrap();
+    }
+
+    #[test]
+    fn rejects_non_start_before_receiving_deferred_params() {
+        let start = json!({
+            "type": "text",
+            "id": "conversation-id",
+            "deferParams": true,
+        });
+        let auxiliary: StartEventAuxiliary = serde_json::from_value(start.clone()).unwrap();
+
+        let error = SessionState::verify_start(&start, &auxiliary).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Expecting first WebSocket message to be a ClientEvent::Start event")
+        );
+    }
+
+    #[test]
+    fn rejects_deferred_start_with_inline_params() {
+        let start = json!({
+            "type": "start",
+            "id": "conversation-id",
+            "deferParams": true,
+            "params": {},
+        });
+        let auxiliary: StartEventAuxiliary = serde_json::from_value(start.clone()).unwrap();
+
+        let error = SessionState::verify_start(&start, &auxiliary).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Deferred start must not contain inline params")
+        );
+    }
 }
