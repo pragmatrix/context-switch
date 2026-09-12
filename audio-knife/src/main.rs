@@ -19,11 +19,11 @@ use axum::routing::get;
 use axum::serve::ListenerExt;
 use base64::Engine as _;
 use base64::engine::general_purpose;
-use futures_util::stream::SplitSink;
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use server_event_router::ServerEventRouter;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, channel, unbounded_channel};
@@ -38,6 +38,8 @@ use context_switch::{
     AudioFormat, AudioFrame, BillingId, ClientEvent, ContextSwitch, ConversationId, InputModality,
     ServerEvent, audio,
 };
+
+use crate::mod_audio_fork::AudioForkEvent;
 
 const DEFAULT_PORT: u16 = 8123;
 
@@ -212,10 +214,11 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
     match websocket.recv().await {
         Some(msg) => {
             let msg = msg?;
+            let (mut ws_sender, mut ws_receiver) = websocket.split();
             let (session_state, conversation_span, cs_receiver) =
-                SessionState::start_session(state, msg, &mut websocket).await?;
+                SessionState::start_session(state, msg, &mut ws_sender, &mut ws_receiver).await?;
 
-            ws_session(session_state, cs_receiver, websocket)
+            ws_session(session_state, cs_receiver, ws_sender, ws_receiver)
                 .instrument(conversation_span)
                 .await
         }
@@ -229,9 +232,9 @@ async fn ws(state: State, mut websocket: WebSocket) -> Result<()> {
 async fn ws_session(
     mut session_state: SessionState,
     cs_receiver: UnboundedReceiver<ServerEvent>,
-    websocket: WebSocket,
+    ws_sender: SplitSink<WebSocket, Message>,
+    mut ws_receiver: SplitStream<WebSocket>,
 ) -> Result<()> {
-    let (ws_sender, mut ws_receiver) = websocket.split();
     let billing_collector = session_state.state.billing_collector.clone();
 
     // Channel from event_scheduler to websocket dispatcher. Currently unbounded, because it's not
@@ -336,7 +339,8 @@ impl SessionState {
     async fn start_session(
         state: State,
         msg: Message,
-        websocket: &mut WebSocket,
+        websocket_sender: &mut SplitSink<WebSocket, Message>,
+        websocket_receiver: &mut SplitStream<WebSocket>,
     ) -> Result<(Self, Span, UnboundedReceiver<ServerEvent>)> {
         let Message::Text(msg) = msg else {
             // What about Ping?
@@ -354,7 +358,14 @@ impl SessionState {
         let conversation_span = info_span!("conversation", cid = %short_conversation_id);
 
         if start_aux.defer_params {
-            let params = Self::receive_deferred_params(&start_aux.id, websocket)
+            let params_request = AudioForkEvent::json(json!({
+                "type": "sendParams",
+                "id": &start_aux.id,
+            }))?;
+            mod_audio_fork::dispatch_event(websocket_sender, params_request)
+                .instrument(conversation_span.clone())
+                .await?;
+            let params = Self::receive_deferred_params(&start_aux.id, websocket_receiver)
                 .instrument(conversation_span.clone())
                 .await?;
             json_value
@@ -439,18 +450,30 @@ impl SessionState {
 
     async fn receive_deferred_params(
         start_id: &ConversationId,
-        websocket: &mut WebSocket,
+        websocket: &mut SplitStream<WebSocket>,
     ) -> Result<Value> {
-        let msg = websocket
-            .recv()
-            .await
-            .context("WebSocket closed before deferred params message was received")??;
-        let Message::Text(msg) = msg else {
-            bail!("Expecting deferred params WebSocket message to be text");
+        let text = loop {
+            let msg = websocket
+                .next()
+                .await
+                .context("WebSocket closed before deferred params message was received")??;
+
+            let message_kind = match &msg {
+                Message::Text(_) => "text",
+                Message::Binary(_) => "binary",
+                Message::Ping(_) => "ping",
+                Message::Pong(_) => "pong",
+                Message::Close(_) => "close",
+            };
+            info!(message_kind, "Received deferred params WebSocket message");
+
+            if let Some(text) = Self::deferred_params_text(msg)? {
+                break text;
+            }
         };
 
         let deferred: DeferredParamsMessage =
-            serde_json::from_value(Self::decode_json_value(msg.as_str())?)?;
+            serde_json::from_value(Self::decode_json_value(text.as_str())?)?;
 
         if deferred.r#type != "params" {
             bail!("Expecting deferred params WebSocket message to have type `params`");
@@ -463,6 +486,16 @@ impl SessionState {
         }
 
         Ok(deferred.params)
+    }
+
+    fn deferred_params_text(msg: Message) -> Result<Option<String>> {
+        match msg {
+            Message::Text(text) => Ok(Some(text.to_string())),
+            Message::Close(_) => {
+                bail!("WebSocket closed before deferred params message was received")
+            }
+            Message::Binary(_) | Message::Ping(_) | Message::Pong(_) => Ok(None),
+        }
     }
 
     fn process_request(&mut self, pong_sender: &Sender<Pong>, msg: Message) -> Result<()> {
@@ -632,7 +665,9 @@ async fn dispatch_server_event(
         ServerEvent::Audio { samples, .. } => {
             mod_audio_fork::dispatch_audio(socket, samples.into()).await
         }
-        ServerEvent::ClearAudio { .. } => mod_audio_fork::dispatch_kill_audio(socket).await,
+        ServerEvent::ClearAudio { .. } => {
+            mod_audio_fork::dispatch_event(socket, AudioForkEvent::kill_audio()).await
+        }
         ServerEvent::BillingRecords {
             service,
             scope,
@@ -694,6 +729,8 @@ async fn take_billing_records(
 
 #[cfg(test)]
 mod tests {
+    use axum::body::Bytes;
+    use axum::extract::ws::Message;
     use serde_json::json;
 
     use super::{SessionState, StartEventAuxiliary};
@@ -744,6 +781,32 @@ mod tests {
             error
                 .to_string()
                 .contains("Deferred start must not contain inline params")
+        );
+    }
+
+    #[test]
+    fn ignores_non_text_frames_while_waiting_for_deferred_params() {
+        for message in [
+            Message::Binary(Bytes::new()),
+            Message::Ping(Bytes::new()),
+            Message::Pong(Bytes::new()),
+        ] {
+            assert!(
+                SessionState::deferred_params_text(message)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_close_while_waiting_for_deferred_params() {
+        let error = SessionState::deferred_params_text(Message::Close(None)).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("WebSocket closed before deferred params message was received")
         );
     }
 }

@@ -62,9 +62,14 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
   either contains complete service parameters or declares that they will follow
   in a deferred params message.
 
-- **Deferred Params Message** — the message immediately following an initial
-  start message that declared deferred parameters. It carries the complete
-  service parameters for the same conversation.
+- **Deferred Params Message** — the first text message following an initial start
+  message that declared deferred parameters. It carries the complete service
+  parameters for the same conversation. Binary, Ping, and Pong messages received
+  while waiting are ignored; Close ends startup with an error.
+
+- **Deferred Params Request** — AudioKnife's server message telling a client to
+  send the deferred parameters. AudioKnife sends it after accepting a deferred
+  initial start and before it begins receiving the Deferred Params Message.
 
 - **Logical Start** — the complete conversation start presented to ContextSwitch.
   It may originate from one initial start message or be assembled from an initial

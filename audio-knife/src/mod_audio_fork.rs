@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
-use futures_util::{SinkExt, stream::SplitSink};
+use futures_util::SinkExt;
+use futures_util::stream::SplitSink;
 use serde::Serialize;
 use serde_json::Value;
 use tracing::debug;
@@ -53,11 +54,7 @@ pub async fn dispatch_json(
     dispatch_event(socket, AudioForkEvent::json(value)?).await
 }
 
-pub async fn dispatch_kill_audio(socket: &mut SplitSink<WebSocket, Message>) -> Result<()> {
-    dispatch_event(socket, AudioForkEvent::kill_audio()).await
-}
-
-async fn dispatch_event(
+pub(crate) async fn dispatch_event(
     socket: &mut SplitSink<WebSocket, Message>,
     event: AudioForkEvent,
 ) -> Result<()> {
