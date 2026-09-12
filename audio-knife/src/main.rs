@@ -458,16 +458,7 @@ impl SessionState {
                 .await
                 .context("WebSocket closed before deferred params message was received")??;
 
-            let message_kind = match &msg {
-                Message::Text(_) => "text",
-                Message::Binary(_) => "binary",
-                Message::Ping(_) => "ping",
-                Message::Pong(_) => "pong",
-                Message::Close(_) => "close",
-            };
-            info!(message_kind, "Received deferred params WebSocket message");
-
-            if let Some(text) = Self::deferred_params_text(msg)? {
+            if let Some(text) = Self::expect_text_ignoring_other_messages(msg)? {
                 break text;
             }
         };
@@ -488,12 +479,10 @@ impl SessionState {
         Ok(deferred.params)
     }
 
-    fn deferred_params_text(msg: Message) -> Result<Option<String>> {
+    fn expect_text_ignoring_other_messages(msg: Message) -> Result<Option<String>> {
         match msg {
             Message::Text(text) => Ok(Some(text.to_string())),
-            Message::Close(_) => {
-                bail!("WebSocket closed before deferred params message was received")
-            }
+            Message::Close(_) => bail!("WebSocket closed while waiting for a text message"),
             Message::Binary(_) | Message::Ping(_) | Message::Pong(_) => Ok(None),
         }
     }
@@ -785,14 +774,14 @@ mod tests {
     }
 
     #[test]
-    fn ignores_non_text_frames_while_waiting_for_deferred_params() {
+    fn text_expectation_ignores_non_text_messages() {
         for message in [
             Message::Binary(Bytes::new()),
             Message::Ping(Bytes::new()),
             Message::Pong(Bytes::new()),
         ] {
             assert!(
-                SessionState::deferred_params_text(message)
+                SessionState::expect_text_ignoring_other_messages(message)
                     .unwrap()
                     .is_none()
             );
@@ -800,13 +789,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_close_while_waiting_for_deferred_params() {
-        let error = SessionState::deferred_params_text(Message::Close(None)).unwrap_err();
+    fn text_expectation_rejects_close() {
+        let error =
+            SessionState::expect_text_ignoring_other_messages(Message::Close(None)).unwrap_err();
 
         assert!(
             error
                 .to_string()
-                .contains("WebSocket closed before deferred params message was received")
+                .contains("WebSocket closed while waiting for a text message")
         );
     }
 }
