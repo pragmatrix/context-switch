@@ -1,8 +1,9 @@
 # AudioKnife assembles deferred service parameters before starting a conversation
 
-mod_audio_fork limits its initial message to roughly 8 KiB, while Gemini and
-OpenAI dialog instructions embedded in service parameters can exceed that size.
-AudioKnife therefore accepts an opt-in two-message transport form and assembles
+mod_audio_fork limits its initial text message to 8191 bytes after UTF-8
+encoding, while Gemini and OpenAI dialog instructions embedded in service
+parameters can exceed that size.
+AudioKnife therefore accepts an opt-in deferred-parameter exchange and assembles
 it into one complete logical Start before passing it to ContextSwitch. This keeps
 the transport constraint out of the core protocol and service implementations.
 
@@ -10,17 +11,35 @@ the transport constraint out of the core protocol and service implementations.
 
 - An ordinary initial Start remains unchanged and contains `params`.
 - A deferred initial Start contains `"deferParams": true` and omits `params`.
-- Its literal next WebSocket frame must be a text message containing
+- Before requesting the parameters, AudioKnife validates only the transport
+  fields needed for the deferred exchange: the message is a JSON object, its
+  type is `start`, it has a valid conversation ID, and it opts into deferral
+  without inline `params`. Validation of ContextSwitch Start fields remains with
+  ContextSwitch after the Logical Start has been assembled.
+- After accepting the deferred initial Start, AudioKnife sends this Deferred
+  Params Request and waits for the send to complete:
+  `{"type":"json","data":{"type":"sendParams","id":"<same conversation id>"}}`.
+- The Deferred Params Request acknowledges only that AudioKnife is ready to
+  receive parameters; it does not mean that the conversation has started.
+- The Deferred Params Request is an AudioKnife/mod_audio_fork transport message,
+  not a ContextSwitch `ServerEvent`. ContextSwitch observes only the assembled
+  Logical Start.
+- Only after sending the Deferred Params Request does AudioKnife begin receiving
+  the deferred params message. A params frame already buffered by the WebSocket
+  is accepted; AudioKnife does not attempt to detect whether the client sent it
+  before receiving the request.
+- Its first subsequent text WebSocket frame must contain
   `{"type":"params","id":"<same conversation id>","params":<complete JSON value>}`.
 - The deferred message supports the same plain JSON and `base64:`-prefixed JSON
   encodings as other AudioKnife client text messages.
-- AudioKnife rejects mixed inline and deferred parameters, non-text or malformed
-  second frames, the wrong event type, and mismatched conversation IDs through
-  its existing startup error path.
+- AudioKnife ignores Binary, Ping, and Pong frames while waiting for deferred
+  parameters. It rejects Close frames, mixed inline and deferred parameters,
+  malformed first text frames, the wrong event type, and mismatched conversation
+  IDs through its existing startup error path.
 - The deferred message inherits the WebSocket message-size limit. AudioKnife adds
-  no separate size limit, acknowledgement, timeout, retry, or chunking protocol.
-- Ping and Pong frames are not accepted between the initial Start and deferred
-  params message; support can be added if this occurs in practice.
+  no separate size limit, completion acknowledgement, timeout, retry, or
+  chunking protocol. The normal conversation `Started` or startup error follows
+  processing of the assembled Logical Start.
 
 ## Client implementation
 
@@ -29,11 +48,12 @@ initial-message limit must:
 
 1. Serialize the complete service parameters as one JSON value.
 2. Send an initial Start without `params` and with `"deferParams": true`.
-3. Immediately send one text WebSocket message with `type` set to `params`, the
-   Start conversation ID, and the complete serialized parameters.
-4. Only send audio or other client events after the deferred params message.
+3. Wait until AudioKnife tells the client to send the parameters.
+4. Send one text WebSocket message with `type` set to `params`, the Start
+  conversation ID, and the complete serialized parameters.
+5. Only send audio or other client events after the deferred params message.
 
-For example, a client sends these two messages in order:
+For example, the exchange starts with this client message:
 
 ```json
 {
@@ -45,6 +65,20 @@ For example, a client sends these two messages in order:
   "outputModalities": []
 }
 ```
+
+AudioKnife responds:
+
+```json
+{
+  "type": "json",
+  "data": {
+    "type": "sendParams",
+    "id": "conversation-id"
+  }
+}
+```
+
+After receiving this Deferred Params Request, the client responds:
 
 ```json
 {
@@ -58,8 +92,9 @@ For example, a client sends these two messages in order:
 
 Both messages may instead use AudioKnife's `base64:<encoded-json>` text
 encoding. The client must not defer only part of the parameters, combine inline
-and deferred parameters, split the deferred value over multiple messages, or
-send a Ping or Pong between the two messages.
+and deferred parameters, or split the deferred value over multiple messages.
+Binary, Ping, and Pong frames sent before the deferred params message are
+discarded. A Close frame ends startup with an error.
 
 Clients that do not need deferral continue to send a single Start with inline
 `params`. A client opting into deferral requires an AudioKnife version that
