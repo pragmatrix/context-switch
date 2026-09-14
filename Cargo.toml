@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version = "1.94"
 
+[features]
+input-resampling = []
+
 [workspace]
 members = [ 
     "audio-knife", 

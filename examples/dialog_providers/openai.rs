@@ -1,20 +1,23 @@
-use std::{env, str::FromStr};
+use std::env;
+use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use openai_api_rs::realtime::types as openai_types;
-use openai_dialog::{
-    OpenAIDialog, Protocol, ServiceInputEvent as OpenAIServiceInputEvent,
-    ServiceOutputEvent as OpenAIServiceOutputEvent,
-};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 use strum::VariantNames;
 
+use openai_api_rs::realtime::types as openai_types;
+use openai_dialog::{
+    OpenAIDialog, Protocol, ServiceInputEvent as OpenAIServiceInputEvent,
+    ServiceOutputEvent as OpenAIServiceOutputEvent,
+};
+
+use context_switch_core::{AudioFormat, Conversation, Service};
+
 use super::{ListModelsRequest, ProviderApi, StartConversationRequest};
 use crate::{FunctionCall, get_time_parameters_schema};
-use context_switch_core::{AudioFormat, Conversation, Service};
 
 pub struct OpenAIProvider;
 
@@ -78,8 +81,12 @@ impl ProviderApi for OpenAIProvider {
             .map_err(Into::into)
     }
 
-    fn output_format(&self, input_format: AudioFormat) -> AudioFormat {
-        input_format
+    fn input_format(&self, _device_format: AudioFormat) -> AudioFormat {
+        AudioFormat::new(1, 24000)
+    }
+
+    fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {
+        AudioFormat::new(1, 24000)
     }
 
     fn voices(&self) -> &'static [&'static str] {

@@ -3,21 +3,25 @@
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::str::FromStr;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use clap::{Parser, ValueEnum};
-use context_switch::{InputModality, OutputModality};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rodio::{DeviceSinkBuilder, Player, Source};
 use serde_json::json;
+use tracing::{error, info};
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(feature = "input-resampling")]
+use rodio::conversions::SampleRateConverter;
+use rodio::{DeviceSinkBuilder, Player, Source};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::select;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, channel, unbounded_channel};
-use tracing::{error, info};
 
+use context_switch::{InputModality, OutputModality};
 use context_switch_core::{AudioFormat, AudioFrame, Conversation, Input, Output, audio};
 
 mod dialog_providers;
@@ -90,11 +94,21 @@ async fn main() -> Result<()> {
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
-    let input_format = AudioFormat::new(channels, sample_rate);
+    let device_input_format = AudioFormat::new(channels, sample_rate);
+    let input_format = cli.provider.api().input_format(device_input_format);
     let output_format = cli.provider.api().output_format(input_format);
 
     let (input_sender, input_receiver) = channel(256);
-    let input_sender2 = input_sender.clone();
+    #[cfg(feature = "input-resampling")]
+    let input_audio_sender = (device_input_format != input_format)
+        .then(|| setup_audio_input_adapter(input_sender.clone(), device_input_format, input_format));
+    #[cfg(not(feature = "input-resampling"))]
+    if device_input_format != input_format {
+        bail!(
+            "Input format {device_input_format:?} requires conversion to {input_format:?}; rebuild with --features input-resampling"
+        );
+    }
+    let input_sender_for_audio = input_sender.clone();
     let mut stdin_lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdin_closed = false;
 
@@ -105,10 +119,21 @@ async fn main() -> Result<()> {
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let samples = audio::into_i16(data);
                 let frame = AudioFrame {
-                    format: input_format,
+                    format: device_input_format,
                     samples,
                 };
-                if input_sender2.try_send(Input::Audio { frame }).is_err() {
+                #[cfg(feature = "input-resampling")]
+                let send_failed = match &input_audio_sender {
+                    Some(sender) => sender.try_send(frame).is_err(),
+                    None => input_sender_for_audio
+                        .try_send(Input::Audio { frame })
+                        .is_err(),
+                };
+                #[cfg(not(feature = "input-resampling"))]
+                let send_failed = input_sender_for_audio
+                    .try_send(Input::Audio { frame })
+                    .is_err();
+                if send_failed {
                     println!("Failed to send audio data")
                 }
             },
@@ -187,6 +212,54 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "input-resampling")]
+fn setup_audio_input_adapter(
+    input: Sender<Input>,
+    device_format: AudioFormat,
+    provider_format: AudioFormat,
+) -> mpsc::SyncSender<AudioFrame> {
+    let (sender, receiver) = mpsc::sync_channel(256);
+
+    thread::spawn(move || {
+        let source = StreamingInputSource {
+            frames: VecDeque::new(),
+            receiver,
+        };
+        let converter = SampleRateConverter::new(
+            source,
+            NonZeroU32::new(device_format.sample_rate).expect("sample rate must be non-zero"),
+            NonZeroU32::new(provider_format.sample_rate).expect("sample rate must be non-zero"),
+            NonZeroU16::new(provider_format.channels).expect("channels must be non-zero"),
+        );
+        let samples_per_frame = provider_format.sample_rate as usize / 10;
+        let mut samples = Vec::with_capacity(samples_per_frame);
+
+        for sample in converter {
+            samples.push(sample);
+            if samples.len() == samples_per_frame {
+                let frame = AudioFrame {
+                    format: provider_format,
+                    samples: audio::into_i16(&samples),
+                };
+                if input.blocking_send(Input::Audio { frame }).is_err() {
+                    return;
+                }
+                samples.clear();
+            }
+        }
+
+        if !samples.is_empty() {
+            let frame = AudioFrame {
+                format: provider_format,
+                samples: audio::into_i16(&samples),
+            };
+            let _ = input.blocking_send(Input::Audio { frame });
+        }
+    });
+
+    sender
+}
+
 async fn send_prompt_line(input: &Sender<Input>, line: &str) -> Result<()> {
     let prompt = line.trim();
     if prompt.is_empty() {
@@ -244,7 +317,7 @@ async fn setup_audio_playback(
     input: Sender<Input>,
     mut output: UnboundedReceiver<Output>,
 ) -> impl std::future::Future<Output = Result<()>> {
-    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = mpsc::channel();
 
     // Spawn a dedicated audio thread
     let playback_thread = thread::spawn(move || {
@@ -364,9 +437,32 @@ fn call_function(name: &str, arguments: Option<serde_json::Value>) -> Result<Str
 
 struct StreamingFrameSource {
     frames: VecDeque<f32>,
-    receiver: std::sync::mpsc::Receiver<AudioCommand>,
+    receiver: mpsc::Receiver<AudioCommand>,
     sample_rate: u32,
     channels: u16,
+}
+
+#[cfg(feature = "input-resampling")]
+struct StreamingInputSource {
+    frames: VecDeque<f32>,
+    receiver: mpsc::Receiver<AudioFrame>,
+}
+
+#[cfg(feature = "input-resampling")]
+impl Iterator for StreamingInputSource {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        loop {
+            if let Some(sample) = self.frames.pop_front() {
+                return Some(sample);
+            }
+
+            let frame = self.receiver.recv().ok()?;
+            self.frames
+                .extend(audio::from_i16(frame.into_mono().samples));
+        }
+    }
 }
 
 impl Iterator for StreamingFrameSource {
@@ -379,10 +475,10 @@ impl Iterator for StreamingFrameSource {
                     self.frames.extend(audio::from_i16(frame.samples))
                 }
                 Ok(AudioCommand::Clear) => self.frames.clear(),
-                Ok(AudioCommand::Stop) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Ok(AudioCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => {
                     return None;
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Empty) => {}
             }
 
             if let Some(sample) = self.frames.pop_front() {

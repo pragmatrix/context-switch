@@ -28,6 +28,9 @@ pub trait ProviderApi {
     ) -> Result<()>;
     fn parse_service_event(&self, value: serde_json::Value) -> Result<Option<FunctionCall>>;
     fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value>;
+    fn input_format(&self, device_format: AudioFormat) -> AudioFormat {
+        device_format
+    }
     fn output_format(&self, input_format: AudioFormat) -> AudioFormat;
     fn voices(&self) -> &'static [&'static str];
     async fn list_models(&self, request: ListModelsRequest) -> Result<()>;
