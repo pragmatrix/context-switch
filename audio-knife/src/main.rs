@@ -349,7 +349,7 @@ impl SessionState {
 
         // Our start msg may contain additional information to parameterize output redirection.
         // Deserialize to value first so that we parse the JSON only once.
-        let mut json_value = Self::decode_json_value(msg.as_str())?;
+        let json_value = Self::decode_json_value(msg.as_str())?;
 
         let start_aux: StartEventAuxiliary = serde_json::from_value(json_value.clone())?;
         Self::verify_start(&json_value, &start_aux)?;
@@ -357,17 +357,35 @@ impl SessionState {
         let short_conversation_id = short_conversation_id(&start_aux.id);
         let conversation_span = info_span!("conversation", cid = %short_conversation_id);
 
+        let (session_state, se_receiver) = Self::finish_start_session(
+            state,
+            json_value,
+            start_aux,
+            websocket_sender,
+            websocket_receiver,
+        )
+        .instrument(conversation_span.clone())
+        .await?;
+
+        Ok((session_state, conversation_span, se_receiver))
+    }
+
+    async fn finish_start_session(
+        state: State,
+        mut json_value: Value,
+        start_aux: StartEventAuxiliary,
+        websocket_sender: &mut SplitSink<WebSocket, Message>,
+        websocket_receiver: &mut SplitStream<WebSocket>,
+    ) -> Result<(Self, UnboundedReceiver<ServerEvent>)> {
         if start_aux.defer_params {
             let params_request = AudioForkEvent::json(json!({
                 "type": "sendParams",
                 "id": &start_aux.id,
             }))?;
-            mod_audio_fork::dispatch_event(websocket_sender, params_request)
-                .instrument(conversation_span.clone())
-                .await?;
-            let params = Self::receive_deferred_params(&start_aux.id, websocket_receiver)
-                .instrument(conversation_span.clone())
-                .await?;
+            mod_audio_fork::dispatch_event(websocket_sender, params_request).await?;
+            debug!("Waiting for deferred params WebSocket message");
+            let params = Self::receive_deferred_params(&start_aux.id, websocket_receiver).await?;
+            debug!("Received deferred params WebSocket message");
             json_value
                 .as_object_mut()
                 .expect("validated start object")
@@ -384,9 +402,6 @@ impl SessionState {
         else {
             bail!("Expecting first WebSocket message to be a ClientEvent::Start event");
         };
-
-        // We enter here, so that ContextSwitch picks the span up via `Span::current()`.
-        let entered_conversation_span = conversation_span.enter();
 
         let conversation = start_event.conversation_id().clone();
 
@@ -419,8 +434,6 @@ impl SessionState {
             .expect("Poison error")
             .process(start_event)?;
 
-        drop(entered_conversation_span);
-
         Ok((
             Self {
                 state,
@@ -428,7 +441,6 @@ impl SessionState {
                 input_audio_format,
                 billing_id,
             },
-            conversation_span,
             se_receiver,
         ))
     }
