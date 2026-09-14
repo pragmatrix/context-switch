@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
@@ -100,8 +100,9 @@ async fn main() -> Result<()> {
 
     let (input_sender, input_receiver) = channel(256);
     #[cfg(feature = "input-resampling")]
-    let input_audio_sender = (device_input_format != input_format)
-        .then(|| setup_audio_input_adapter(input_sender.clone(), device_input_format, input_format));
+    let input_audio_sender = (device_input_format != input_format).then(|| {
+        setup_audio_input_adapter(input_sender.clone(), device_input_format, input_format)
+    });
     #[cfg(not(feature = "input-resampling"))]
     if device_input_format != input_format {
         bail!(
@@ -475,10 +476,10 @@ impl Iterator for StreamingFrameSource {
                     self.frames.extend(audio::from_i16(frame.samples))
                 }
                 Ok(AudioCommand::Clear) => self.frames.clear(),
-                Ok(AudioCommand::Stop) | Err(mpsc::TryRecvError::Disconnected) => {
+                Ok(AudioCommand::Stop) | Err(TryRecvError::Disconnected) => {
                     return None;
                 }
-                Err(mpsc::TryRecvError::Empty) => {}
+                Err(TryRecvError::Empty) => {}
             }
 
             if let Some(sample) = self.frames.pop_front() {
