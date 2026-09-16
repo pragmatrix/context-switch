@@ -12,16 +12,15 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
 };
 use tonic::Code;
 
-use context_switch_core::language::Languages;
 use context_switch_core::{
     AudioFormat, AudioFrame, AudioProducer, BillingRecord, BillingSchedule, Conversation,
     ConversationOutput, Input, OutputModality, Service,
 };
 
 use crate::Params;
+use crate::TranscribeParams;
 use crate::client::TranscribeClient;
 use crate::host::Host;
-
 #[derive(Debug)]
 pub struct GoogleTranscribe;
 
@@ -43,8 +42,6 @@ impl Service for GoogleTranscribe {
             .output_modalities
             .iter()
             .any(|modality| matches!(modality, OutputModality::InterimText));
-        let languages = Languages::from_csv(&params.language)
-            .context("language must contain at least one locale code")?;
 
         let host = Host::new(params.region.into()).await?;
 
@@ -61,8 +58,7 @@ impl Service for GoogleTranscribe {
 
             let session_future = transcribe_and_process_stream_session(
                 &mut client,
-                &params,
-                &languages,
+                &params.transcribe,
                 interim_results,
                 audio_format,
                 audio_receiver,
@@ -128,24 +124,16 @@ fn forward_audio_and_emit_billing(
 
 async fn transcribe_and_process_stream_session(
     client: &mut TranscribeClient,
-    params: &Params,
-    languages: &Languages,
+    params: &TranscribeParams,
     interim_results: bool,
     audio_format: AudioFormat,
     audio_receiver: UnboundedReceiver<Vec<i16>>,
     output: &ConversationOutput,
 ) -> Result<SessionExit> {
-    let include_detected_language = languages.len() > 1;
+    let include_detected_language = params.languages()?.len() > 1;
 
     let response_stream = client
-        .transcribe(
-            &params.model,
-            languages,
-            params.diarization,
-            interim_results,
-            audio_format,
-            audio_receiver,
-        )
+        .transcribe(params, interim_results, audio_format, audio_receiver)
         .await?;
 
     process_stream_session(

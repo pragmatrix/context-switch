@@ -335,12 +335,16 @@ async fn start_conversation(
             // https://docs.cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages
 
             let params = google_transcribe::Params {
-                model: provider_args.model.map(str::to_owned).unwrap_or_else(|| {
-                    env::var("GOOGLE_TRANSCRIBE_MODEL").unwrap_or_else(|_| "latest_long".to_owned())
-                }),
-                language: languages.join_csv(),
-                diarization: provider_args.diarization,
                 region,
+                transcribe: google_transcribe::TranscribeParams {
+                    model: provider_args.model.map(str::to_owned).unwrap_or_else(|| {
+                        env::var("GOOGLE_TRANSCRIBE_MODEL")
+                            .unwrap_or_else(|_| "latest_long".to_owned())
+                    }),
+                    language: languages.join_csv(),
+                    diarization: provider_args.diarization,
+                    numerals: provider_args.numerals,
+                },
             };
             GoogleTranscribe.conversation(params, conversation).await
         }
@@ -449,6 +453,7 @@ impl Provider {
             Provider::Google => {
                 capabilities.region = true;
                 capabilities.diarization = true;
+                capabilities.numerals = true;
                 capabilities.model = true;
             }
             Provider::Aristech => {

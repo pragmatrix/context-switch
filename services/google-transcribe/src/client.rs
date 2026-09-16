@@ -5,13 +5,16 @@ use anyhow::Result;
 use async_stream::{stream, try_stream};
 use futures::Stream;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::debug;
+use tracing::{debug, info};
 
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::recognition_config::DecodingConfig;
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_adaptation::AdaptationPhraseSet;
+use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::speech_adaptation::adaptation_phrase_set::Value as AdaptationPhraseSetValue;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    ExplicitDecodingConfig, RecognitionConfig, RecognitionFeatures, StreamingRecognitionConfig,
-    StreamingRecognitionFeatures, StreamingRecognizeRequest, StreamingRecognizeResponse,
-    SpeakerDiarizationConfig,
+    ExplicitDecodingConfig, PhraseSet, RecognitionConfig, RecognitionFeatures,
+    StreamingRecognitionConfig, StreamingRecognitionFeatures, StreamingRecognizeRequest,
+    StreamingRecognizeResponse, SpeakerDiarizationConfig, SpeechAdaptation,
+    phrase_set::Phrase,
 };
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::explicit_decoding_config;
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streaming_recognize_request::StreamingRequest;
@@ -19,6 +22,8 @@ use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::streamin
 use context_switch_core::AudioFormat;
 use context_switch_core::audio;
 
+use crate::TranscribeParams;
+use crate::class_tokens::OOV_CLASS_DIGIT_SEQUENCE;
 use crate::host::Client;
 
 /// A google transcribe client. Capable of streaming audio data in and transcribe results out.
@@ -40,19 +45,47 @@ impl TranscribeClient {
 
     pub async fn transcribe<'a>(
         &mut self,
-        model: &str,
-        language_codes: &[String],
-        diarization: bool,
+        params: &TranscribeParams,
         interim_results: bool,
         audio_format: AudioFormat,
         mut audio_receiver: UnboundedReceiver<Vec<i16>>,
     ) -> Result<impl Stream<Item = Result<StreamingRecognizeResponse>> + 'a> {
+        let language_codes = params.languages()?;
+        let TranscribeParams {
+            model,
+            diarization,
+            numerals,
+            ..
+        } = params;
+        let model = model.as_str();
         let decoding_config = ExplicitDecodingConfig {
             // We only support 16-bit signed little-endian PCM samples here for now.
             encoding: explicit_decoding_config::AudioEncoding::Linear16.into(),
             sample_rate_hertz: audio_format.sample_rate as i32,
             audio_channel_count: audio_format.channels as i32,
         };
+
+        // Bias digit-sequence recognition so spoken numbers are transcribed as digits.
+        // Sent unconditionally when requested; token availability depends on the model and
+        // locale, and Google silently ignores unsupported tokens.
+        let adaptation = numerals.then(|| {
+            info!(
+                token = OOV_CLASS_DIGIT_SEQUENCE,
+                "Sending speech adaptation class token"
+            );
+            SpeechAdaptation {
+                phrase_sets: vec![AdaptationPhraseSet {
+                    value: Some(AdaptationPhraseSetValue::InlinePhraseSet(PhraseSet {
+                        phrases: vec![Phrase {
+                            value: OOV_CLASS_DIGIT_SEQUENCE.to_owned(),
+                            boost: 0.0,
+                        }],
+                        ..Default::default()
+                    })),
+                }],
+                custom_classes: vec![],
+            }
+        });
 
         let recognition_config = RecognitionConfig {
             // TODO: configure
@@ -65,7 +98,7 @@ impl TranscribeClient {
                 }),
                 ..Default::default()
             }),
-            adaptation: None,
+            adaptation,
             transcript_normalization: None,
             denoiser_config: None,
             translation_config: None,
@@ -91,6 +124,7 @@ impl TranscribeClient {
             model = %model,
             language_codes = ?language_codes,
             diarization,
+            numerals,
             interim_results,
             "Starting Google streaming_recognize"
         );
