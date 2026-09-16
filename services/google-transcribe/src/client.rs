@@ -78,7 +78,9 @@ impl TranscribeClient {
                     value: Some(AdaptationPhraseSetValue::InlinePhraseSet(PhraseSet {
                         phrases: vec![Phrase {
                             value: OOV_CLASS_DIGIT_SEQUENCE.to_owned(),
-                            boost: 0.0,
+                            // This was taken over from the internal project that parameterized
+                            // google via FreeSWITCH. Probably a good way to go for sure.
+                            boost: 20.0,
                         }],
                         ..Default::default()
                     })),
@@ -91,11 +93,15 @@ impl TranscribeClient {
             // TODO: configure
             model: model.into(),
             language_codes: language_codes.to_vec(),
-            features: diarization.then_some(RecognitionFeatures {
-                diarization_config: Some(SpeakerDiarizationConfig {
+            features: Some(RecognitionFeatures {
+                diarization_config: diarization.then_some(SpeakerDiarizationConfig {
                     min_speaker_count: 0,
                     max_speaker_count: 0,
                 }),
+                // We only ever emit the first alternative (see the selection comment in
+                // transcribe.rs); requesting more would only produce alternatives whose
+                // confidence is unset and cannot be compared.
+                max_alternatives: 1,
                 ..Default::default()
             }),
             adaptation,

@@ -32,6 +32,8 @@ numbers come out as digits.
   no model/locale filter: Google publishes no (model × locale) support
   matrix for class tokens (the class-tokens page is locale-only), and
   Google silently ignores tokens unsupported for the request's locale.
+- The phrase carries a `boost` of 20.0 (the maximum), taken over from an
+  internal project that parameterized Google via FreeSWITCH.
 - The example CLI accepts `--numerals` for the Google provider.
 
 ## Consequences
@@ -45,3 +47,23 @@ numbers come out as digits.
 - If a support filter is ever needed, per-locale availability data must be
   sourced fresh from Google's class-tokens page; it is not derivable from
   the API reference or the proto crate.
+
+## Rejected alternative: post-hoc alternative re-ranking
+
+An earlier iteration added a `digitBoost` parameter that added a
+confidence bonus to final alternatives whose transcript was digit-only,
+plus a `maxAlternatives` parameter (default 4) so Google would return
+lower alternatives to boost. It was removed because it cannot work
+reliably:
+
+- Google populates `confidence` only on the top alternative of a final
+  streaming result; every lower alternative carries `0.0`, which is the
+  documented sentinel for "not set", not a real score. Re-ranking by
+  confidence therefore compares unknown values against one known value.
+- The only reliable ranking signal is Google's own ordering ("alternatives
+  are ordered in terms of accuracy, with the top (first) alternative being
+  the most probable, as ranked by the recognizer"), which the service now
+  follows directly: final results take the first alternative, and
+  `max_alternatives` is hardcoded to 1 in `client.rs`.
+- Lower alternatives' confidences are still logged for observability, but
+  never used for selection.

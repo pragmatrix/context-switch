@@ -7,8 +7,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tracing::{debug, info, warn};
 
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    SpeechRecognitionAlternative, StreamingRecognizeResponse, WordInfo,
-    streaming_recognize_response::SpeechEventType,
+    StreamingRecognizeResponse, WordInfo, streaming_recognize_response::SpeechEventType,
 };
 use tonic::Code;
 
@@ -179,19 +178,20 @@ where
         // - For each result, alternatives are ordered by confidence, most confident first.
         //
         // Implementation detail:
-        // - For final results, we select the alternative with the highest confidence.
-        //   Confidence is only populated on the top alternative; `0.0` is a sentinel for
-        //   "not set", so ties (including all-unset) fall back to the first alternative.
+        // - For final results, we take the first alternative. Google's docs state that
+        //   alternatives are "ordered in terms of accuracy, with the top (first)
+        //   alternative being the most probable, as ranked by the recognizer", and that
+        //   `confidence` "is set only for the top alternative" with `0.0` as the
+        //   sentinel for "not set". Lower alternatives therefore carry no comparable
+        //   score, so re-ranking them by confidence would compare unknown values;
+        //   Google's own ordering is the only reliable signal, and it already puts the
+        //   best hypothesis first. Their confidences are logged for observability only.
         // - For non-final responses, we concatenate transcripts from all results in the
         //   current response as-is.
 
         match &response.results[..] {
             [] => continue,
-            [one]
-                if one.is_final
-                    && let Some(alternative) =
-                        alternative_with_max_confidence(&one.alternatives) =>
-            {
+            [one] if one.is_final => {
                 match one.alternatives.as_slice() {
                     [only] => debug!(
                         confidence = only.confidence,
@@ -206,6 +206,11 @@ where
                         "Final recognition alternatives"
                     ),
                 }
+
+                let Some(alternative) = one.alternatives.first() else {
+                    continue;
+                };
+
                 // Sometimes there is whitespace at the beginning, so we trim.
                 //
                 // Intentionally allow empty final text. A non-final hypothesis may contain
@@ -317,25 +322,6 @@ fn should_restart_for_stream_limit(code: Code, message: &str) -> bool {
     // Based on Cloud Speech-to-Text docs:
     // - "409 Max duration of 5 minutes reached for stream" (StreamingRecognize 409 aborted)
     code == Code::Aborted && message.contains("max duration of 5 minutes reached for stream")
-}
-
-/// Selects the alternative with the highest confidence.
-///
-/// Google only populates `confidence` on the top alternative (`0.0` = not set), so
-/// ties are common; on a tie the first alternative wins, matching Google's
-/// documented "most confident first" ordering.
-fn alternative_with_max_confidence(
-    alternatives: &[SpeechRecognitionAlternative],
-) -> Option<&SpeechRecognitionAlternative> {
-    alternatives
-        .iter()
-        .enumerate()
-        .max_by(|(index_a, a), (index_b, b)| {
-            a.confidence
-                .total_cmp(&b.confidence)
-                .then(index_b.cmp(index_a))
-        })
-        .map(|(_, alternative)| alternative)
 }
 
 fn speaker_with_max_assigned_characters(words: &[WordInfo]) -> Option<String> {
