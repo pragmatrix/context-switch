@@ -4,10 +4,11 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use googleapis_tonic_google_cloud_speech_v2::google::cloud::speech::v2::{
-    StreamingRecognizeResponse, WordInfo, streaming_recognize_response::SpeechEventType,
+    SpeechRecognitionAlternative, StreamingRecognizeResponse, WordInfo,
+    streaming_recognize_response::SpeechEventType,
 };
 use tonic::Code;
 
@@ -190,7 +191,9 @@ where
         // - For each result, alternatives are ordered by confidence, most confident first.
         //
         // Implementation detail:
-        // - We always take the first alternative from each result.
+        // - For final results, we select the alternative with the highest confidence.
+        //   Confidence is only populated on the top alternative; `0.0` is a sentinel for
+        //   "not set", so ties (including all-unset) fall back to the first alternative.
         // - For non-final responses, we concatenate transcripts from all results in the
         //   current response as-is.
 
@@ -198,8 +201,23 @@ where
             [] => continue,
             [one]
                 if one.is_final
-                    && let Some(alternative) = one.alternatives.first() =>
+                    && let Some(alternative) =
+                        alternative_with_max_confidence(&one.alternatives) =>
             {
+                match one.alternatives.as_slice() {
+                    [only] => debug!(
+                        confidence = only.confidence,
+                        "Final recognition alternative"
+                    ),
+                    _ => debug!(
+                        alternatives = ?one
+                            .alternatives
+                            .iter()
+                            .map(|a| (a.confidence, a.transcript.as_str()))
+                            .collect::<Vec<_>>(),
+                        "Final recognition alternatives"
+                    ),
+                }
                 // Sometimes there is whitespace at the beginning, so we trim.
                 //
                 // Intentionally allow empty final text. A non-final hypothesis may contain
@@ -311,6 +329,25 @@ fn should_restart_for_stream_limit(code: Code, message: &str) -> bool {
     // Based on Cloud Speech-to-Text docs:
     // - "409 Max duration of 5 minutes reached for stream" (StreamingRecognize 409 aborted)
     code == Code::Aborted && message.contains("max duration of 5 minutes reached for stream")
+}
+
+/// Selects the alternative with the highest confidence.
+///
+/// Google only populates `confidence` on the top alternative (`0.0` = not set), so
+/// ties are common; on a tie the first alternative wins, matching Google's
+/// documented "most confident first" ordering.
+fn alternative_with_max_confidence(
+    alternatives: &[SpeechRecognitionAlternative],
+) -> Option<&SpeechRecognitionAlternative> {
+    alternatives
+        .iter()
+        .enumerate()
+        .max_by(|(index_a, a), (index_b, b)| {
+            a.confidence
+                .total_cmp(&b.confidence)
+                .then(index_b.cmp(index_a))
+        })
+        .map(|(_, alternative)| alternative)
 }
 
 fn speaker_with_max_assigned_characters(words: &[WordInfo]) -> Option<String> {
