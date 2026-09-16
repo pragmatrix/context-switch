@@ -3,6 +3,7 @@
 mod app_error;
 mod event_scheduler;
 mod mod_audio_fork;
+mod selftest;
 mod server_event_router;
 
 use std::env;
@@ -64,6 +65,8 @@ async fn main() -> Result<()> {
     if let Ok(env_path) = env_path {
         info!("Environment variables loaded from {env_path:?}");
     }
+
+    selftest::run();
 
     let addr = {
         match env::var("AUDIO_KNIFE_ADDRESS") {
