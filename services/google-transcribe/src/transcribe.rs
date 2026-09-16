@@ -192,24 +192,13 @@ where
         match &response.results[..] {
             [] => continue,
             [one] if one.is_final => {
-                match one.alternatives.as_slice() {
-                    [only] => debug!(
-                        confidence = only.confidence,
-                        "Final recognition alternative"
-                    ),
-                    _ => debug!(
-                        alternatives = ?one
-                            .alternatives
-                            .iter()
-                            .map(|a| (a.confidence, a.transcript.as_str()))
-                            .collect::<Vec<_>>(),
-                        "Final recognition alternatives"
-                    ),
-                }
-
-                let Some(alternative) = one.alternatives.first() else {
+                let [alternative] = one.alternatives.as_slice() else {
                     continue;
                 };
+                debug!(
+                    confidence = alternative.confidence,
+                    "Final recognition alternative"
+                );
 
                 // Sometimes there is whitespace at the beginning, so we trim.
                 //

@@ -78,8 +78,8 @@ impl TranscribeClient {
                     value: Some(AdaptationPhraseSetValue::InlinePhraseSet(PhraseSet {
                         phrases: vec![Phrase {
                             value: OOV_CLASS_DIGIT_SEQUENCE.to_owned(),
-                            // This was taken over from the internal project that parameterized
-                            // google via FreeSWITCH. Probably a good way to go for sure.
+                            // Maximum boost, taken over from the internal project that
+                            // parameterized Google via FreeSWITCH (see ADR 0005).
                             boost: 20.0,
                         }],
                         ..Default::default()
