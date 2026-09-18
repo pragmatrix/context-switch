@@ -226,11 +226,11 @@ impl Client {
                         output.text(true, text, None, None)?;
                     }
                 } else {
-                    // Observed with preview Gemini models: transcription events can still arrive
-                    // even when transcription is not enabled in setup.
-                    warn!(
+                    // Observed with preview Gemini models and 3.8: transcription events can still
+                    // arrive even when transcription is not enabled in setup.
+                    trace!(
                         transcript_len = text.len(),
-                        "Received input transcription event while input_audio_transcription is disabled (observed with preview model)"
+                        "Received input transcription event while input_audio_transcription is disabled"
                     );
                 }
             }
@@ -247,11 +247,11 @@ impl Client {
                         )?;
                     }
                 } else {
-                    // Observed with preview Gemini models: transcription events can still arrive
-                    // even when transcription is not enabled in setup.
-                    warn!(
+                    // Observed with preview Gemini models and 3.8: transcription events can still
+                    // arrive even when transcription is not enabled in setup.
+                    trace!(
                         transcript_len = text.len(),
-                        "Received output transcription event while output_audio_transcription is disabled (observed with preview model)"
+                        "Received output transcription event while output_audio_transcription is disabled"
                     );
                 }
             }

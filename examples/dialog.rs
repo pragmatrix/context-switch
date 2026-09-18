@@ -46,6 +46,14 @@ struct Cli {
     /// Used only with provider `google-agent-platform`.
     #[arg(long)]
     location: Option<String>,
+    /// Override whether server-side input transcription is enabled. Defaults to
+    /// off for providers that enable it by default.
+    #[arg(long)]
+    input_transcription: Option<bool>,
+    /// Override whether server-side output transcription is enabled. Defaults to
+    /// off for providers that enable it by default.
+    #[arg(long)]
+    output_transcription: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -299,6 +307,8 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
         voice: cli.voice.clone(),
         project: cli.project.clone(),
         location: cli.location.clone(),
+        input_transcription: cli.input_transcription,
+        output_transcription: cli.output_transcription,
     };
     cli.provider
         .api()

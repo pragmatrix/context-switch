@@ -42,8 +42,8 @@ impl ProviderApi for GoogleProvider {
             .as_deref()
             .map(google_dialog::parse_voice_value)
             .transpose()?;
-        params.input_audio_transcription = true;
-        params.output_audio_transcription = true;
+        params.input_audio_transcription = request.input_transcription.unwrap_or_default();
+        params.output_audio_transcription = request.output_transcription.unwrap_or_default();
         params.tools.push(get_time_tool());
 
         GoogleDialog.conversation(params, conversation).await
