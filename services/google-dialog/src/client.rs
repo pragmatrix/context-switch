@@ -1,7 +1,7 @@
 use std::mem;
 
 use anyhow::{Context, Result, anyhow, bail};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
 use gemini_live::types::{
@@ -386,6 +386,9 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
 fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfig> {
     // Gemini 3.8 introduced model-specific thinking policies: standard Live
     // omits thinking_config, while Extended Thinking accepts low/medium/high.
+    let thinking_level = params
+        .thinking_level
+        .or_else(|| model::default_thinking_level(&params.model));
     model::validate_thinking_level(params)?;
 
     let input_audio_transcription_language_codes =
@@ -436,7 +439,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
             }),
             // Only Extended Thinking sends this new configurable reasoning
             // parameter; standard Gemini 3.8 rejects thinking_config.
-            thinking_config: params.thinking_level.map(|thinking_level| ThinkingConfig {
+            thinking_config: thinking_level.map(|thinking_level| ThinkingConfig {
                 thinking_level: Some(thinking_level),
                 ..Default::default()
             }),

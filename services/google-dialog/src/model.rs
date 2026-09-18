@@ -70,6 +70,13 @@ fn model_config(model: &str) -> Option<ModelConfig> {
     }
 }
 
+pub fn default_thinking_level(model: &str) -> Option<ThinkingLevel> {
+    match model {
+        GEMINI_3_8_LIVE_EXTENDED_THINKING => Some(ThinkingLevel::Medium),
+        _ => None,
+    }
+}
+
 pub fn validate_thinking_level(params: &Params) -> Result<()> {
     let Some(config) = model_config(&params.model) else {
         return Ok(());
