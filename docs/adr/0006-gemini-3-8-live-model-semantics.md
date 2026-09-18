@@ -384,6 +384,12 @@ be checkpoint-safe:
 - If the socket is lost while state is not resumable, fail with an explicit
   possible-state-loss error instead of restoring stale state or silently
   starting a new session.
+- If `GoAway.timeLeft` expires before a valid checkpoint arrives, emit an API
+  error, close the socket, and mark the session closed. Do not attempt either a
+  resumed or fresh reconnect; callers must establish a new session explicitly.
+- Defer ordinary outbound commands after `GoAway` so they cannot be sent to a
+  session that is about to terminate. Tool responses and an explicit close
+  remain allowed while waiting for the checkpoint.
 
 ## Raw WebSocket client requirements
 
@@ -413,7 +419,8 @@ independently of any Google SDK convenience behavior:
    `resumable: false`; possession of an older handle is not proof that current
    in-flight work can be restored.
 10. Treat `GoAway.timeLeft` as a reconnect deadline while continuing to receive
-    updates needed to obtain a safe checkpoint.
+  updates needed to obtain a safe checkpoint. Expiry without a checkpoint is
+  a terminal client-visible failure, not permission to start a fresh session.
 
 ## Consequences
 
