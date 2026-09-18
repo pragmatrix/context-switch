@@ -47,6 +47,7 @@ pub struct Params {
     #[serde(default)]
     pub input_audio_transcription: bool,
     /// BCP-47 language hints for input audio transcription.
+    /// An explicit `null` is invalid; omit the field to use no language hints.
     #[serde(default)]
     pub input_audio_transcription_language_codes: Vec<String>,
     /// Transcription style for user input audio. Defaults to `VERBATIM`.
