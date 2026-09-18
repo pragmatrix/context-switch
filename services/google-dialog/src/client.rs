@@ -395,7 +395,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
     let input_audio_transcription =
         params
             .input_audio_transcription
-            .then(|| AudioTranscriptionConfig {
+            .then_some(AudioTranscriptionConfig {
                 language_codes: input_audio_transcription_language_codes,
                 custom_vocabulary: None,
                 mode: Some(params.input_audio_transcription_mode),
@@ -403,7 +403,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
     let output_audio_transcription =
         params
             .output_audio_transcription
-            .then(|| AudioTranscriptionConfig {
+            .then_some(AudioTranscriptionConfig {
                 language_codes: None,
                 custom_vocabulary: None,
                 mode: Some(params.output_audio_transcription_mode),
