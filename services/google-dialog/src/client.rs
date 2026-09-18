@@ -1,6 +1,7 @@
 use std::mem;
 
 use anyhow::{Context, Result, anyhow, bail};
+use tracing::{debug, info, trace, warn};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
 use gemini_live::types::{
@@ -10,14 +11,14 @@ use gemini_live::types::{
     UsageMetadata, VoiceConfig,
 };
 use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
-use tracing::{debug, info, trace, warn};
 
-use crate::conversation_state::ConversationState;
-use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
     ConversationInput, ConversationOutput, Input, OutputPath,
 };
+
+use crate::conversation_state::ConversationState;
+use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 
 const LEGACY_TOOL_CALL_ID: &str = "legacy-tool-call";
 
