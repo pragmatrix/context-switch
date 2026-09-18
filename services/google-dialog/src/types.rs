@@ -1,9 +1,8 @@
-use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Deserializer, Serialize};
 
-pub use gemini_live::types::TranscriptionMode;
-
-use anyhow::{Result, bail};
+pub use gemini_live::types::{FunctionBehavior, FunctionResponseScheduling, TranscriptionMode};
+use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,8 +30,11 @@ pub struct Params {
     /// Sampling temperature. Valid range: `0.0..=2.0`.
     /// If omitted, Gemini uses the model-specific default temperature.
     pub temperature: Option<f32>,
-    /// Gemini 3.1 thinking level (`minimal`, `low`, `medium`, or `high`).
-    /// In Live API, Gemini 3.1 defaults to `minimal` when omitted.
+    /// Thinking level for Gemini 3.1 and Gemini 3.8 Extended Thinking
+    /// (`minimal`, `low`, `medium`, or `high`, subject to model support).
+    /// When omitted, Google applies the model default. `gemini-3.8-live`
+    /// requires this field to remain omitted; Extended Thinking accepts
+    /// `low`, `medium`, or `high`.
     pub thinking_level: Option<ThinkingLevel>,
     /// Enabled by default to avoid context-window exhaustion during long audio sessions.
     #[serde(default = "default_context_window_compression")]
@@ -45,14 +47,25 @@ pub struct Params {
     #[serde(default)]
     pub input_audio_transcription: bool,
     /// BCP-47 language hints for input audio transcription.
-    pub input_audio_transcription_language_codes: Option<Vec<String>>,
-    /// Transcription style for user input audio.
-    pub input_audio_transcription_mode: Option<TranscriptionMode>,
+    #[serde(default)]
+    pub input_audio_transcription_language_codes: Vec<String>,
+    /// Transcription style for user input audio. Defaults to `VERBATIM`.
+    #[serde(default = "default_transcription_mode")]
+    pub input_audio_transcription_mode: TranscriptionMode,
     /// Enable server-side transcription of model output audio.
     #[serde(default)]
     pub output_audio_transcription: bool,
-    /// Transcription style for model output audio.
-    pub output_audio_transcription_mode: Option<TranscriptionMode>,
+    /// Transcription style for model output audio. Defaults to `VERBATIM`.
+    #[serde(default = "default_transcription_mode")]
+    pub output_audio_transcription_mode: TranscriptionMode,
+}
+
+fn default_context_window_compression() -> bool {
+    true
+}
+
+fn default_transcription_mode() -> TranscriptionMode {
+    TranscriptionMode::Verbatim
 }
 
 impl Params {
@@ -71,10 +84,10 @@ impl Params {
             tools: vec![],
             realtime_input_config: None,
             input_audio_transcription: false,
-            input_audio_transcription_language_codes: None,
-            input_audio_transcription_mode: None,
+            input_audio_transcription_language_codes: vec![],
+            input_audio_transcription_mode: default_transcription_mode(),
             output_audio_transcription: false,
-            output_audio_transcription_mode: None,
+            output_audio_transcription_mode: default_transcription_mode(),
         }
     }
 }
@@ -122,10 +135,6 @@ pub fn parse_voice_value(value: &str) -> Result<String> {
         let available = VOICES.join(", ");
         bail!("Invalid Gemini voice `{value}`. Available voices: {available}")
     }
-}
-
-fn default_context_window_compression() -> bool {
-    true
 }
 
 fn deserialize_tools<'de, D>(deserializer: D) -> Result<Vec<Tool>, D::Error>
@@ -196,10 +205,32 @@ pub enum ServiceInputEvent {
     FunctionCallResult {
         call_id: String,
         output: serde_json::Value,
+        /// Gemini 3.8 scheduling for a non-blocking function response.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scheduling: Option<FunctionResponseScheduling>,
+    },
+    /// Gemini 3.8 incremental conversation content sent during a live session.
+    ClientContent {
+        /// Author of the appended conversation content.
+        role: ClientContentRole,
+        /// Text for one conversation content part; empty text is allowed.
+        text: String,
+        /// Start generation after appending the content and interrupt active generation.
+        #[serde(default)]
+        turn_complete: bool,
     },
     Prompt {
         text: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientContentRole {
+    /// Content supplied as user-authored conversation context.
+    User,
+    /// Content supplied as model-authored conversation context.
+    Model,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,6 +249,8 @@ pub enum ServiceOutputEvent {
         call_id: String,
     },
     TurnComplete,
+    /// Gemini 3.8 indicates that the turn ended while the interaction continues.
+    InteractionInProgress,
 }
 
 #[cfg(test)]

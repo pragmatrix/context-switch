@@ -79,6 +79,10 @@ impl ProviderApi for GoogleAgentPlatformProvider {
                 tracing::info!("Turn complete");
                 Ok(None)
             }
+            ServiceOutputEvent::InteractionInProgress => {
+                tracing::info!("Interaction remains in progress");
+                Ok(None)
+            }
             ServiceOutputEvent::ToolCallCancellation { call_id } => {
                 tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
@@ -88,8 +92,12 @@ impl ProviderApi for GoogleAgentPlatformProvider {
 
     fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
         let output = json!({ "time": serde_json::Value::String(result) });
-        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult { call_id, output })
-            .map_err(Into::into)
+        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
+            call_id,
+            output,
+            scheduling: None,
+        })
+        .map_err(Into::into)
     }
 
     fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {

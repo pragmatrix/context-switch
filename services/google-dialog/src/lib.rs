@@ -8,12 +8,14 @@ use context_switch_core::{AudioFormat, Conversation, OutputModality, Service};
 
 mod client;
 mod conversation_state;
+mod model;
 mod types;
 
 use client::Client;
+pub use model::{GEMINI_3_8_LIVE, GEMINI_3_8_LIVE_EXTENDED_THINKING};
 pub use types::{
-    Params, ServiceInputEvent, ServiceOutputEvent, TranscriptionMode, VOICES,
-    parse_voice_value,
+    ClientContentRole, FunctionBehavior, FunctionResponseScheduling, Params, ServiceInputEvent,
+    ServiceOutputEvent, TranscriptionMode, VOICES, parse_voice_value,
 };
 
 #[derive(Debug)]

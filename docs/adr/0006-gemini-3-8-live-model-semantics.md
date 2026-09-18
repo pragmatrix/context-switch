@@ -81,6 +81,9 @@ Validate model-specific setup before opening the WebSocket:
 - `gemini-3.8-live` requires `thinking_level` to be absent.
 - `gemini-3.8-live-extended-thinking` permits an absent level or `low`,
   `medium`, or `high`, and rejects `minimal`.
+- When the level is absent for Extended Thinking, `google-dialog` delegates to
+  Google's model default; the current public model documentation does not
+  specify a fixed default level.
 - Legacy models retain their existing setup behavior.
 
 For tools, declaration behavior and result scheduling are separate concepts.
@@ -126,8 +129,9 @@ FunctionCallResult {
 },
 ```
 
-Omitting `scheduling` means no field is sent and lets Google apply its
-`WHEN_IDLE` default where scheduling is supported. The serialized forms are:
+Omitting `scheduling` means no field is sent and preserves Google's original
+function-response handling for backward compatibility. The serialized forms
+are:
 
 ```json
 {"type":"functionCallResult","callId":"call-1","output":{"ok":true}}
@@ -153,8 +157,8 @@ declaration is rejected rather than sent as an ignored field. For Extended
 Thinking, any explicit response schedule is rejected. These checks happen when
 the service event is handled because the call ID identifies the corresponding
 declaration. Omitted scheduling is valid for every model. Unknown and legacy
-models retain pass-through behavior except that response scheduling is emitted
-only on direct Gemini API connections; Agent Platform support is not inferred.
+models retain pass-through behavior, and response scheduling is supported on
+both direct Gemini API and Agent Platform connections.
 
 Expose full-session incremental context as a provider input event named
 `ClientContent` (the Google wire envelope is `clientContent`). It carries an
@@ -251,30 +255,37 @@ pub enum TranscriptionMode {
   Smart,
 }
 
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub input_audio_transcription_language_codes: Option<Vec<String>>,
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub input_audio_transcription_mode: Option<TranscriptionMode>,
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub output_audio_transcription_mode: Option<TranscriptionMode>,
+#[serde(default)]
+pub input_audio_transcription_language_codes: Vec<String>,
+#[serde(default = "default_transcription_mode")]
+/// Defaults to `VERBATIM`.
+pub input_audio_transcription_mode: TranscriptionMode,
+#[serde(default = "default_transcription_mode")]
+/// Defaults to `VERBATIM`.
+pub output_audio_transcription_mode: TranscriptionMode,
 ```
 
 The field serializes as `inputAudioTranscriptionLanguageCodes` and maps to
 Google's `inputAudioTranscription.languageCodes`. Values are BCP-47 language
 codes used as input ASR hints, not a request to force the model's native audio
-response language. `None` leaves language detection automatic and does not
-enable input transcription. A non-empty list enables input transcription and
-sends the hints; an empty list is rejected as invalid rather than being sent
-as an ambiguous configuration. The existing `input_audio_transcription:
-bool` remains valid for enabling input transcription without language hints.
+response language. The explicit `input_audio_transcription: bool` controls
+whether input transcription is enabled; language codes and mode only configure
+it when that flag is `true`. The language-code list defaults to empty, and an
+empty list means automatic language detection. Both transcription mode fields
+default to `VERBATIM`; callers select `SMART` explicitly. The output
+transcription boolean likewise controls whether output transcription is
+enabled; its mode only configures it when that flag is `true`.
 The transcription mode fields map to the corresponding configuration's `mode`:
-`inputAudioTranscription.mode` and `outputAudioTranscription.mode`. `None`
-uses Google's default, `VERBATIM`; `SMART` removes disfluencies, performs light
+`inputAudioTranscription.mode` and `outputAudioTranscription.mode`. The public
+default is `VERBATIM`; `SMART` removes disfluencies, performs light
 grammatical cleanup, applies automatic formatting, and makes minor inline
 corrections. `SMART` cannot be combined with word timestamps or diarization;
 those controls remain unexposed. Output transcription has no corresponding
 language-code parameter because native-audio output language selection is
-automatic for these models.
+automatic for these models. `google-dialog` therefore sends
+`outputAudioTranscription.languageCodes` as absent and derives the output
+transcript language from the generated audio; callers cannot use output
+transcription configuration to select or override that language.
 
 `google-dialog` re-exports the complete new surface from its crate root:
 
@@ -342,8 +353,9 @@ controls:
 
 - Response modality is audio. Text output is obtained through output-audio
   transcription; callers cannot select a text-only Gemini response modality.
-- Proactive audio is always enabled by both 3.8 models. The service exposes no
-  toggle because Google rejects attempts to disable it.
+- Proactive audio is permanently enabled by both 3.8 models. The service does
+  not send a `proactivity` override; Google documents that setting
+  `proactive_audio: false` as an error.
 - Native-audio language selection is automatic. Callers can guide language in
   the system instructions, but Google does not accept an explicit language code
   for these models.
@@ -352,9 +364,12 @@ The following Gemini capabilities are not exposed because both 3.8 Live model
 pages mark them unsupported, not because this client withholds a supported
 feature: context caching, code execution, file search, Google Maps grounding,
 image generation, structured output, and URL context. The models also do not
-support the Batch API. Affective dialog was removed from the 3.8 Live API and is
-therefore not configurable. Google Search grounding and function calling are
-supported and remain exposed; they are not part of this exclusion list.
+support the Batch API. Affective dialog is removed from both 3.8 Live model
+contracts and is therefore not configurable. The general Live capabilities
+guide currently describes affective dialog and proactive audio differently;
+the model-specific 3.8 pages are treated as authoritative here. Google Search
+grounding and function calling are supported and remain exposed; they are not
+part of this exclusion list.
 
 Keep context-window compression enabled with Google's defaults and retain
 automatic session resumption. Compression manages context growth; resumption
@@ -380,9 +395,8 @@ independently of any Google SDK convenience behavior:
 2. Omit unsupported setup fields instead of serializing null or default values.
    In particular, omit the entire thinking configuration for standard 3.8.
 3. Use audio as the response modality. Enable output-audio transcription when a
-  text transcript is required, and map input language hints to
-  `inputAudioTranscription.languageCodes` while enabling input transcription
-  when a non-empty hint list is supplied.
+  text transcript is required, and when input transcription is enabled, map
+  input language hints to `inputAudioTranscription.languageCodes`.
 4. Deserialize `interactionStatus` from `serverContent`, alongside
    `turnComplete`, and retain both values when decomposing a server message into
    semantic events.
