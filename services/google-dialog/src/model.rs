@@ -106,6 +106,12 @@ pub fn tools_for_model(model: &str, input_tools: &[Tool]) -> Result<Vec<Tool>> {
             continue;
         };
         for declaration in declarations {
+            if declaration.scheduling.is_some() {
+                bail!(
+                    "Model `{}` does not support function declaration scheduling",
+                    model
+                );
+            }
             match declaration.behavior.clone() {
                 Some(FunctionBehavior::Blocking) => bail!(
                     "Model `{}` requires non-blocking function declarations",
@@ -137,7 +143,8 @@ pub fn validate_response_scheduling(
         ),
         SchedulingPolicy::SupportedForNonBlocking
             if function_behavior(&params.tools, function_name)
-                == Some(FunctionBehavior::Blocking) =>
+                .unwrap_or(FunctionBehavior::Blocking)
+                == FunctionBehavior::Blocking =>
         {
             bail!(
                 "Function response scheduling is not valid for blocking function `{function_name}`"
