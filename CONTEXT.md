@@ -58,6 +58,21 @@ These three Microsoft offerings are distinct and must not all be called "Azure".
 
 ## Protocol terms
 
+- **Model Turn** — one contiguous segment of model output. A model turn may end
+  while the dialog interaction remains active because the provider is still
+  reasoning or waiting for asynchronous tool results.
+
+- **Dialog Interaction** — processing initiated by user input that may span
+  multiple model turns and tool calls. It completes only when the provider reports
+  that no reasoning, generation, or tool work remains.
+
+- **Interaction In Progress** — a model-turn boundary at which the dialog
+  interaction remains active. More tool calls or model output may follow without
+  new user input.
+
+- **Interaction Idle** — the terminal state of a dialog interaction. No reasoning,
+  generation, or tool work remains, and new model output requires new client input.
+
 - **Initial Start Message** — the first WebSocket message for a conversation. It
   either contains complete service parameters or declares that they will follow
   in a deferred params message.

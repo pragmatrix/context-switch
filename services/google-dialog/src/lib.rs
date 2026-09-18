@@ -8,10 +8,15 @@ use context_switch_core::{AudioFormat, Conversation, OutputModality, Service};
 
 mod client;
 mod conversation_state;
+mod model;
 mod types;
 
 use client::Client;
-pub use types::{Params, ServiceInputEvent, ServiceOutputEvent, VOICES, parse_voice_value};
+pub use model::{GEMINI_3_8_LIVE, GEMINI_3_8_LIVE_EXTENDED_THINKING};
+pub use types::{
+    ClientContentRole, FunctionBehavior, FunctionResponseScheduling, Params, ServiceInputEvent,
+    ServiceOutputEvent, TranscriptionMode, VOICES, parse_voice_value,
+};
 
 #[derive(Debug)]
 pub struct GoogleDialog;

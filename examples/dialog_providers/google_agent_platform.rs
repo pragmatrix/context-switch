@@ -57,8 +57,8 @@ impl ProviderApi for GoogleAgentPlatformProvider {
             .as_deref()
             .map(google_dialog::parse_voice_value)
             .transpose()?;
-        params.input_audio_transcription = true;
-        params.output_audio_transcription = true;
+        params.input_audio_transcription = request.input_transcription.unwrap_or_default();
+        params.output_audio_transcription = request.output_transcription.unwrap_or_default();
         params.tools.push(get_time_tool());
 
         GoogleDialog.conversation(params, conversation).await
@@ -79,6 +79,10 @@ impl ProviderApi for GoogleAgentPlatformProvider {
                 tracing::info!("Turn complete");
                 Ok(None)
             }
+            ServiceOutputEvent::InteractionInProgress => {
+                tracing::info!("Interaction remains in progress");
+                Ok(None)
+            }
             ServiceOutputEvent::ToolCallCancellation { call_id } => {
                 tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
@@ -88,8 +92,12 @@ impl ProviderApi for GoogleAgentPlatformProvider {
 
     fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
         let output = json!({ "time": serde_json::Value::String(result) });
-        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult { call_id, output })
-            .map_err(Into::into)
+        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
+            call_id,
+            output,
+            scheduling: None,
+        })
+        .map_err(Into::into)
     }
 
     fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {
