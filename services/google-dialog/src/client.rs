@@ -189,6 +189,12 @@ impl Client {
                     );
                 }
             }
+            ServerEvent::InputTranscriptionFinished => {}
+            ServerEvent::InterimInputTranscription(text) => {
+                if self.params.input_audio_transcription && text_outputs.interim {
+                    output.text(false, text, None, None)?;
+                }
+            }
             ServerEvent::OutputTranscription(text) => {
                 if self.params.output_audio_transcription {
                     state.output_transcription_buffer.push_str(&text);
@@ -338,12 +344,29 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
 }
 
 fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfig> {
-    let input_audio_transcription = params
-        .input_audio_transcription
-        .then_some(AudioTranscriptionConfig {});
-    let output_audio_transcription = params
-        .output_audio_transcription
-        .then_some(AudioTranscriptionConfig {});
+    if params
+        .input_audio_transcription_language_codes
+        .as_ref()
+        .is_some_and(Vec::is_empty)
+    {
+        bail!("input_audio_transcription_language_codes must not be empty");
+    }
+
+    let input_audio_transcription = (params.input_audio_transcription
+        || params.input_audio_transcription_language_codes.is_some()
+        || params.input_audio_transcription_mode.is_some())
+        .then(|| AudioTranscriptionConfig {
+            language_codes: params.input_audio_transcription_language_codes.clone(),
+            custom_vocabulary: None,
+            mode: params.input_audio_transcription_mode,
+        });
+    let output_audio_transcription = (params.output_audio_transcription
+        || params.output_audio_transcription_mode.is_some())
+        .then(|| AudioTranscriptionConfig {
+            language_codes: None,
+            custom_vocabulary: None,
+            mode: params.output_audio_transcription_mode,
+        });
 
     if !(text_outputs.text || text_outputs.interim)
         && (input_audio_transcription.is_some() || output_audio_transcription.is_some())

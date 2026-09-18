@@ -1,6 +1,8 @@
 use gemini_live::types::{FunctionDeclaration, RealtimeInputConfig, ThinkingLevel, Tool};
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub use gemini_live::types::TranscriptionMode;
+
 use anyhow::{Result, bail};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,9 +44,15 @@ pub struct Params {
     /// Enable server-side transcription of user input audio.
     #[serde(default)]
     pub input_audio_transcription: bool,
+    /// BCP-47 language hints for input audio transcription.
+    pub input_audio_transcription_language_codes: Option<Vec<String>>,
+    /// Transcription style for user input audio.
+    pub input_audio_transcription_mode: Option<TranscriptionMode>,
     /// Enable server-side transcription of model output audio.
     #[serde(default)]
     pub output_audio_transcription: bool,
+    /// Transcription style for model output audio.
+    pub output_audio_transcription_mode: Option<TranscriptionMode>,
 }
 
 impl Params {
@@ -63,7 +71,10 @@ impl Params {
             tools: vec![],
             realtime_input_config: None,
             input_audio_transcription: false,
+            input_audio_transcription_language_codes: None,
+            input_audio_transcription_mode: None,
             output_audio_transcription: false,
+            output_audio_transcription_mode: None,
         }
     }
 }

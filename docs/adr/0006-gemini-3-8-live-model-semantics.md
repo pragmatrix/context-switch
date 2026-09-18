@@ -246,7 +246,7 @@ Input transcription language hints are exposed on `Params`:
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AudioTranscriptionMode {
+pub enum TranscriptionMode {
   Verbatim,
   Smart,
 }
@@ -254,9 +254,9 @@ pub enum AudioTranscriptionMode {
 #[serde(default, skip_serializing_if = "Option::is_none")]
 pub input_audio_transcription_language_codes: Option<Vec<String>>,
 #[serde(default, skip_serializing_if = "Option::is_none")]
-pub input_audio_transcription_mode: Option<AudioTranscriptionMode>,
+pub input_audio_transcription_mode: Option<TranscriptionMode>,
 #[serde(default, skip_serializing_if = "Option::is_none")]
-pub output_audio_transcription_mode: Option<AudioTranscriptionMode>,
+pub output_audio_transcription_mode: Option<TranscriptionMode>,
 ```
 
 The field serializes as `inputAudioTranscriptionLanguageCodes` and maps to

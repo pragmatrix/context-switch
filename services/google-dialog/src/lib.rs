@@ -11,7 +11,10 @@ mod conversation_state;
 mod types;
 
 use client::Client;
-pub use types::{Params, ServiceInputEvent, ServiceOutputEvent, VOICES, parse_voice_value};
+pub use types::{
+    Params, ServiceInputEvent, ServiceOutputEvent, TranscriptionMode, VOICES,
+    parse_voice_value,
+};
 
 #[derive(Debug)]
 pub struct GoogleDialog;
