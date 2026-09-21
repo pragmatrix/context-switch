@@ -316,8 +316,10 @@ capabilities (verified against Google's model and Live API documentation on
 authoritative):
 
 - **Async function calling.** Non-blocking tool declarations (`behavior:
-  NON_BLOCKING`, the 3.8 default) let longer-running functions execute in the
-  background while the conversation continues. The agent can provide updates
+  NON_BLOCKING`) let longer-running functions execute in the
+  background while the conversation continues. Omitted `behavior` defaults to
+  blocking (Google's tool-use guide: a declaration without `behavior` "will
+  still pause all interactions with the model"); the agent can provide updates
   and returns results when ready, controlled by the `FunctionResponseScheduling`
   values `SILENT`, `WHEN_IDLE`, and `INTERRUPT` that `FunctionCallResult`
   forwards. Extended Thinking runs async-only and rejects scheduling. Google's
