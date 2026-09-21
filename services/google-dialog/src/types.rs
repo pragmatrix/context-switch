@@ -93,6 +93,14 @@ impl Params {
     }
 }
 
+/// The 30 prebuilt Gemini Live API output voices, kept in Google's documented
+/// order (see https://ai.google.dev/gemini-api/docs/speech-generation#voices).
+/// One flat list for every native-audio Live model: Google publishes no
+/// per-model voice subsetting for Live API (`gemini-3.8-live`,
+/// `gemini-3.8-live-extended-thinking`, and Agent Platform-routed models all
+/// take the same set). Note the `generateContent` TTS voice set is slightly
+/// different and does not apply here; this service only speaks the Live
+/// WebSocket protocol.
 pub const VOICES: &[&str] = &[
     "Zephyr",
     "Puck",
@@ -196,6 +204,17 @@ enum OpenAiToolType {
     Function,
 }
 
+/// Choice pattern for the text input variants:
+///
+/// - [`ServiceInputEvent::Prompt`]: talk to the model now, like a user speaking.
+/// - [`ServiceInputEvent::ClientContent`] with [`ClientContentRole::User`] and
+///   `turn_complete: true`: ask or instruct the model for an immediate response
+///   (interrupts active generation).
+/// - [`ServiceInputEvent::ClientContent`] with [`ClientContentRole::User`] and
+///   `turn_complete: false`: add context silently; the response comes later
+///   from the audio flow.
+/// - [`ServiceInputEvent::ClientContent`] with [`ClientContentRole::Model`]:
+///   restore or fabricate an earlier assistant turn.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -211,6 +230,13 @@ pub enum ServiceInputEvent {
         scheduling: Option<FunctionResponseScheduling>,
     },
     /// Gemini 3.8 incremental conversation content sent during a live session.
+    ///
+    /// Appends an ordered history entry via the `clientContent` wire message.
+    /// With `turn_complete: false` (the default) the content is added and
+    /// generation stays pending; `true` starts generation immediately and
+    /// intentionally interrupts active generation. Typical usage: seeding or
+    /// restoring context without audio, scripted turns, and deterministic
+    /// prompt delivery. Not a realtime input path.
     ClientContent {
         /// Author of the appended conversation content.
         role: ClientContentRole,
@@ -220,9 +246,16 @@ pub enum ServiceInputEvent {
         #[serde(default)]
         turn_complete: bool,
     },
-    Prompt {
-        text: String,
-    },
+    /// Realtime user text input sent as the `realtimeInput.text` wire message.
+    ///
+    /// Behaves like the user just said the text: the model interprets it and
+    /// responds subject to turn state, without a guaranteed interrupt of
+    /// active generation or deterministic ordering against the audio stream.
+    /// Always user-side; cannot insert model history. Typical usage: typed
+    /// live input in an audio session (including instruction-style text such
+    /// as "Say: Hello"). For exact synthesis or scripted turns use
+    /// [`ServiceInputEvent::ClientContent`] instead.
+    Prompt { text: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
