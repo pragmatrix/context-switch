@@ -302,8 +302,7 @@ async fn send_input_line(provider: Provider, input: &Sender<Input>, line: &str) 
         return Ok(());
     };
 
-    if matches!(event, ServiceEvent::ClientContent { .. })
-        && !provider.capabilities().client_content
+    if matches!(event, InputEvent::ClientContent { .. }) && !provider.capabilities().client_content
     {
         println!(
             "Provider '{}' does not support clientContent commands",
@@ -316,8 +315,8 @@ async fn send_input_line(provider: Provider, input: &Sender<Input>, line: &str) 
     }
 
     let value = match event {
-        ServiceEvent::Prompt { text } => json!({ "type": "prompt", "text": text }),
-        ServiceEvent::ClientContent {
+        InputEvent::Prompt { text } => json!({ "type": "prompt", "text": text }),
+        InputEvent::ClientContent {
             role,
             text,
             turn_complete,
@@ -334,7 +333,7 @@ async fn send_input_line(provider: Provider, input: &Sender<Input>, line: &str) 
     Ok(())
 }
 
-enum ServiceEvent {
+enum InputEvent {
     Prompt {
         text: String,
     },
@@ -357,18 +356,18 @@ enum ServiceEvent {
 ///
 /// Returns `None` for a line without text after the command word; the caller
 /// prints the usage hint.
-fn parse_input_line(line: &str) -> Option<ServiceEvent> {
+fn parse_input_line(line: &str) -> Option<InputEvent> {
     let (command, rest) = match line.split_once(' ') {
         Some((command, rest)) => (command, rest.trim()),
         None => (line, ""),
     };
 
     match command {
-        "prompt" if !rest.is_empty() => Some(ServiceEvent::Prompt { text: rest.into() }),
+        "prompt" if !rest.is_empty() => Some(InputEvent::Prompt { text: rest.into() }),
         "user" | "agent" => {
             let role = if command == "user" { "user" } else { "model" };
             let turn_complete = rest.ends_with('!');
-            Some(ServiceEvent::ClientContent {
+            Some(InputEvent::ClientContent {
                 role,
                 text: rest.strip_suffix('!').unwrap_or(rest).into(),
                 turn_complete,
