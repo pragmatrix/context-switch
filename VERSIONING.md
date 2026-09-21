@@ -19,5 +19,6 @@ root `Cargo.toml`); all member crates inherit it via `version.workspace = true`.
 
 | Version | Change |
 |---------|--------|
+| 3.9.0   | google-dialog: Gemini 3.8 Live models and interaction semantics |
 | 3.8.0   | google-transcribe: numerals support via digit-sequence class token (#99) |
 | 3.8.1   | audio-knife: startup self-test warning for `GOOGLE_APPLICATION_CREDENTIALS` (#100) |

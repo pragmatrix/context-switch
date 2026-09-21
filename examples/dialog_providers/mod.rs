@@ -17,6 +17,10 @@ pub struct StartConversationRequest {
     pub voice: Option<String>,
     pub project: Option<String>,
     pub location: Option<String>,
+    /// Command-line transcription overrides; `Ok`/`Err` explicit on/off,
+    /// `None` keeps the provider default.
+    pub input_transcription: Option<bool>,
+    pub output_transcription: Option<bool>,
 }
 
 #[async_trait(?Send)]

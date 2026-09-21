@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use gemini_live::types as gemini_types;
 use google_dialog::{
-    GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent, ServiceOutputEvent,
+    GEMINI_3_8_LIVE, GoogleDialog, ServiceInputEvent as GoogleServiceInputEvent, ServiceOutputEvent,
 };
 use reqwest::Url;
 use serde::Deserialize;
@@ -29,7 +29,7 @@ impl ProviderApi for GoogleProvider {
             .model
             .or_else(|| env::var("GEMINI_LIVE_API_MODEL").ok())
             .filter(|model| !model.trim().is_empty())
-            .unwrap_or_else(|| "gemini-3.1-flash-live-preview".to_owned());
+            .unwrap_or_else(|| GEMINI_3_8_LIVE.to_owned());
 
         let mut params = google_dialog::Params::new(model);
         params.api_key = Some(key);
@@ -42,8 +42,8 @@ impl ProviderApi for GoogleProvider {
             .as_deref()
             .map(google_dialog::parse_voice_value)
             .transpose()?;
-        params.input_audio_transcription = true;
-        params.output_audio_transcription = true;
+        params.input_audio_transcription = request.input_transcription.unwrap_or_default();
+        params.output_audio_transcription = request.output_transcription.unwrap_or_default();
         params.tools.push(get_time_tool());
 
         GoogleDialog.conversation(params, conversation).await
@@ -64,6 +64,10 @@ impl ProviderApi for GoogleProvider {
                 tracing::info!("Turn complete");
                 Ok(None)
             }
+            ServiceOutputEvent::InteractionInProgress => {
+                tracing::info!("Interaction remains in progress");
+                Ok(None)
+            }
             ServiceOutputEvent::ToolCallCancellation { call_id } => {
                 tracing::info!("Tool call cancelled: {call_id}");
                 Ok(None)
@@ -73,8 +77,12 @@ impl ProviderApi for GoogleProvider {
 
     fn function_result_event(&self, call_id: String, result: String) -> Result<serde_json::Value> {
         let output = json!({ "time": serde_json::Value::String(result) });
-        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult { call_id, output })
-            .map_err(Into::into)
+        serde_json::to_value(&GoogleServiceInputEvent::FunctionCallResult {
+            call_id,
+            output,
+            scheduling: None,
+        })
+        .map_err(Into::into)
     }
 
     fn output_format(&self, _input_format: AudioFormat) -> AudioFormat {

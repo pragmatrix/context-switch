@@ -46,6 +46,14 @@ struct Cli {
     /// Used only with provider `google-agent-platform`.
     #[arg(long)]
     location: Option<String>,
+    /// Override whether server-side input transcription is enabled. Defaults to
+    /// off for providers that enable it by default.
+    #[arg(long)]
+    input_transcription: Option<bool>,
+    /// Override whether server-side output transcription is enabled. Defaults to
+    /// off for providers that enable it by default.
+    #[arg(long)]
+    output_transcription: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -63,6 +71,26 @@ impl Provider {
     fn api(self) -> &'static dyn dialog_providers::ProviderApi {
         dialog_providers::provider_api(self)
     }
+
+    /// Text input commands supported by the provider (see `send_input_line`).
+    fn capabilities(self) -> ProviderCapabilities {
+        let mut capabilities = ProviderCapabilities::default();
+
+        match self {
+            Provider::OpenAI | Provider::AzureOpenAI => {}
+            Provider::Google | Provider::GoogleAgentPlatform => {
+                capabilities.client_content = true;
+            }
+        }
+
+        capabilities
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ProviderCapabilities {
+    /// The provider service accepts `clientContent` service input events.
+    client_content: bool,
 }
 
 #[tokio::main]
@@ -91,6 +119,7 @@ async fn main() -> Result<()> {
         .expect("Failed to get default input config");
 
     println!("Audio device input config: {input_config:?}");
+    print_usage_hint();
 
     let channels = input_config.channels();
     let sample_rate = input_config.sample_rate();
@@ -200,7 +229,7 @@ async fn main() -> Result<()> {
             line = stdin_lines.next_line(), if !stdin_closed => {
                 match line? {
                     Some(line) => {
-                        send_prompt_line(&input_sender, &line).await?;
+                        send_input_line(cli.provider, &input_sender, &line).await?;
                     }
                     None => {
                         stdin_closed = true;
@@ -261,19 +290,102 @@ fn setup_audio_input_adapter(
     sender
 }
 
-async fn send_prompt_line(input: &Sender<Input>, line: &str) -> Result<()> {
-    let prompt = line.trim();
-    if prompt.is_empty() {
+async fn send_input_line(provider: Provider, input: &Sender<Input>, line: &str) -> Result<()> {
+    let line = line.trim();
+    if line.is_empty() {
         return Ok(());
     }
 
-    input
-        .send(Input::ServiceEvent {
-            value: json!({ "type": "prompt", "text": prompt }),
-        })
-        .await?;
+    let event = parse_input_line(line);
+    let Some(event) = event else {
+        print_usage_hint();
+        return Ok(());
+    };
+
+    if matches!(event, InputEvent::ClientContent { .. }) && !provider.capabilities().client_content
+    {
+        println!(
+            "Provider '{}' does not support clientContent commands",
+            provider
+                .to_possible_value()
+                .expect("Provider has a possible value")
+                .get_name()
+        );
+        return Ok(());
+    }
+
+    let value = match event {
+        InputEvent::Prompt { text } => json!({ "type": "prompt", "text": text }),
+        InputEvent::ClientContent {
+            role,
+            text,
+            turn_complete,
+        } => json!({
+            "type": "clientContent",
+            "role": role,
+            "text": text,
+            "turnComplete": turn_complete,
+        }),
+    };
+
+    input.send(Input::ServiceEvent { value }).await?;
 
     Ok(())
+}
+
+enum InputEvent {
+    Prompt {
+        text: String,
+    },
+    ClientContent {
+        role: &'static str,
+        text: String,
+        turn_complete: bool,
+    },
+}
+
+/// Parses one stdin line into a service input event.
+///
+/// Grammar (first word decides):
+/// - `prompt <text>` — realtime prompt.
+/// - `user <text>` / `agent <text>` — clientContent for the user/model role.
+///   A single trailing `!` on the text is stripped and sets
+///   `turnComplete: true` ("respond now"); `user !` sends empty text with
+///   `turnComplete: true`. Without it, content is added silently. A bare
+///   `user`/`agent` sends empty text, silent.
+///
+/// Returns `None` for a line without text after the command word; the caller
+/// prints the usage hint.
+fn parse_input_line(line: &str) -> Option<InputEvent> {
+    let (command, rest) = match line.split_once(' ') {
+        Some((command, rest)) => (command, rest.trim()),
+        None => (line, ""),
+    };
+
+    match command {
+        "prompt" if !rest.is_empty() => Some(InputEvent::Prompt { text: rest.into() }),
+        "user" | "agent" => {
+            let role = if command == "user" { "user" } else { "model" };
+            let turn_complete = rest.ends_with('!');
+            Some(InputEvent::ClientContent {
+                role,
+                text: rest.strip_suffix('!').unwrap_or(rest).into(),
+                turn_complete,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn print_usage_hint() {
+    println!(
+        "Commands, one per line:\n\
+         prompt <text>\n\
+         user <text>[!]\n\
+         agent <text>[!]\n\
+         a single trailing ! completes the turn now, otherwise content is added silently;\n\
+         lines without a prompt/user/agent first word print this hint"
+    );
 }
 
 fn list_available_voices(provider: Provider) -> Result<()> {
@@ -299,6 +411,8 @@ async fn start_conversation(cli: &Cli, conversation: Conversation) -> Result<()>
         voice: cli.voice.clone(),
         project: cli.project.clone(),
         location: cli.location.clone(),
+        input_transcription: cli.input_transcription,
+        output_transcription: cli.output_transcription,
     };
     cli.provider
         .api()

@@ -1,6 +1,7 @@
 use std::mem;
 
 use anyhow::{Context, Result, anyhow, bail};
+use tracing::{debug, info, trace};
 
 use gemini_live::transport::{Auth, Endpoint, TransportConfig};
 use gemini_live::types::{
@@ -10,14 +11,15 @@ use gemini_live::types::{
     UsageMetadata, VoiceConfig,
 };
 use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
-use tracing::{debug, info, trace, warn};
 
-use crate::conversation_state::ConversationState;
-use crate::{Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
     ConversationInput, ConversationOutput, Input, OutputPath,
 };
+
+use crate::conversation_state::ConversationState;
+use crate::model;
+use crate::{ClientContentRole, Params, ServiceInputEvent, ServiceOutputEvent, TextOutputs};
 
 const LEGACY_TOOL_CALL_ID: &str = "legacy-tool-call";
 
@@ -106,10 +108,18 @@ impl Client {
                     .context("Sending text to Gemini Live")?;
             }
             Input::ServiceEvent { value } => match serde_json::from_value(value)? {
-                ServiceInputEvent::FunctionCallResult { call_id, output } => {
+                ServiceInputEvent::FunctionCallResult {
+                    call_id,
+                    output,
+                    scheduling,
+                } => {
                     let Some(name) = state.tool_calls.resolve(&call_id)? else {
                         return Ok(());
                     };
+
+                    // Gemini 3.8 adds scheduled responses for non-blocking tools;
+                    // Extended Thinking deliberately rejects this field.
+                    model::validate_response_scheduling(&self.params, &name, scheduling.as_ref())?;
 
                     let response = normalize_function_response(output);
                     let response_call_id = if call_id == LEGACY_TOOL_CALL_ID {
@@ -122,6 +132,7 @@ impl Client {
                         id: response_call_id,
                         name,
                         response,
+                        scheduling,
                     };
                     session
                         .send_tool_response(vec![response])
@@ -131,6 +142,31 @@ impl Client {
                 ServiceInputEvent::Prompt { text } => {
                     info!("Received prompt");
                     session.send_text(&text).await.context("Sending prompt")?;
+                }
+                ServiceInputEvent::ClientContent {
+                    role,
+                    text,
+                    turn_complete,
+                } => {
+                    // Gemini 3.8 adds full-session clientContent updates. The
+                    // same envelope is supported on direct and Agent Platform routes.
+                    let role = match role {
+                        ClientContentRole::User => "user",
+                        ClientContentRole::Model => "model",
+                    };
+                    session
+                        .send_client_content(gemini_live::types::ClientContent {
+                            turns: Some(vec![Content {
+                                role: Some(role.to_owned()),
+                                parts: vec![Part {
+                                    text: Some(text),
+                                    inline_data: None,
+                                }],
+                            }]),
+                            turn_complete: Some(turn_complete),
+                        })
+                        .await
+                        .context("Sending client content to Gemini Live")?;
                 }
             },
         }
@@ -169,10 +205,20 @@ impl Client {
                 self.finalize_output_transcription(text_outputs, output, state)?;
                 output.service_event(OutputPath::Media, ServiceOutputEvent::TurnComplete)?;
             }
+            ServerEvent::InteractionInProgress => {
+                self.finalize_output_transcription(text_outputs, output, state)?;
+                output
+                    .service_event(OutputPath::Media, ServiceOutputEvent::InteractionInProgress)?;
+            }
             ServerEvent::Interrupted => {
                 // We expect a TurnComplete afterward, so don't finalize the output transcription
                 // when interrupted.
                 output.clear_audio()?;
+            }
+            ServerEvent::InterimInputTranscription(text) => {
+                if self.params.input_audio_transcription && text_outputs.interim {
+                    output.text(false, text, None, None)?;
+                }
             }
             ServerEvent::InputTranscription(text) => {
                 if self.params.input_audio_transcription {
@@ -180,14 +226,15 @@ impl Client {
                         output.text(true, text, None, None)?;
                     }
                 } else {
-                    // Observed with preview Gemini models: transcription events can still arrive
-                    // even when transcription is not enabled in setup.
-                    warn!(
+                    // Observed with preview Gemini models and 3.8: transcription events can still
+                    // arrive even when transcription is not enabled in setup.
+                    trace!(
                         transcript_len = text.len(),
-                        "Received input transcription event while input_audio_transcription is disabled (observed with preview model)"
+                        "Received input transcription event while input_audio_transcription is disabled"
                     );
                 }
             }
+            ServerEvent::InputTranscriptionFinished => {}
             ServerEvent::OutputTranscription(text) => {
                 if self.params.output_audio_transcription {
                     state.output_transcription_buffer.push_str(&text);
@@ -200,11 +247,11 @@ impl Client {
                         )?;
                     }
                 } else {
-                    // Observed with preview Gemini models: transcription events can still arrive
-                    // even when transcription is not enabled in setup.
-                    warn!(
+                    // Observed with preview Gemini models and 3.8: transcription events can still
+                    // arrive even when transcription is not enabled in setup.
+                    trace!(
                         transcript_len = text.len(),
-                        "Received output transcription event while output_audio_transcription is disabled (observed with preview model)"
+                        "Received output transcription event while output_audio_transcription is disabled"
                     );
                 }
             }
@@ -337,12 +384,33 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
 }
 
 fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfig> {
-    let input_audio_transcription = params
-        .input_audio_transcription
-        .then_some(AudioTranscriptionConfig {});
-    let output_audio_transcription = params
-        .output_audio_transcription
-        .then_some(AudioTranscriptionConfig {});
+    // Gemini 3.8 introduced model-specific thinking policies: standard Live
+    // omits thinking_config, while Extended Thinking accepts low/medium/high.
+    let thinking_level = params
+        .thinking_level
+        .or_else(|| model::default_thinking_level(&params.model));
+    model::validate_thinking_level(params)?;
+
+    let input_audio_transcription_language_codes =
+        (!params.input_audio_transcription_language_codes.is_empty())
+            .then(|| params.input_audio_transcription_language_codes.clone());
+
+    let input_audio_transcription =
+        params
+            .input_audio_transcription
+            .then_some(AudioTranscriptionConfig {
+                language_codes: input_audio_transcription_language_codes,
+                custom_vocabulary: None,
+                mode: Some(params.input_audio_transcription_mode),
+            });
+    let output_audio_transcription =
+        params
+            .output_audio_transcription
+            .then_some(AudioTranscriptionConfig {
+                language_codes: None,
+                custom_vocabulary: None,
+                mode: Some(params.output_audio_transcription_mode),
+            });
 
     if !(text_outputs.text || text_outputs.interim)
         && (input_audio_transcription.is_some() || output_audio_transcription.is_some())
@@ -351,6 +419,12 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
             "Google dialog requires text output modality when transcription is enabled: if inputAudioTranscription or outputAudioTranscription is set, add OutputModality::Text or OutputModality::InterimText to the conversation output modalities, or set both transcription flags to false."
         );
     }
+
+    // Extended Thinking requires NON_BLOCKING declarations so reasoning and
+    // conversational fillers can continue while tools execute.
+    let tools = (!params.tools.is_empty())
+        .then(|| model::tools_for_model(&params.model, &params.tools))
+        .transpose()?;
 
     Ok(SetupConfig {
         model: model_resource_name(params)?,
@@ -363,7 +437,9 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
                     prebuilt_voice_config: PrebuiltVoiceConfig { voice_name },
                 },
             }),
-            thinking_config: params.thinking_level.map(|thinking_level| ThinkingConfig {
+            // Only Extended Thinking sends this new configurable reasoning
+            // parameter; standard Gemini 3.8 rejects thinking_config.
+            thinking_config: thinking_level.map(|thinking_level| ThinkingConfig {
                 thinking_level: Some(thinking_level),
                 ..Default::default()
             }),
@@ -371,7 +447,7 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
             ..Default::default()
         }),
         system_instruction: params.instructions.clone().map(system_instruction),
-        tools: (!params.tools.is_empty()).then(|| params.tools.clone()),
+        tools,
         realtime_input_config: params.realtime_input_config.clone(),
         // Opt in so Gemini sends resume handles. The session layer stores
         // the latest handle and patches it into reconnect setup messages,
