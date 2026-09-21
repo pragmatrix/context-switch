@@ -81,9 +81,10 @@ Validate model-specific setup before opening the WebSocket:
 - `gemini-3.8-live` requires `thinking_level` to be absent.
 - `gemini-3.8-live-extended-thinking` permits an absent level or `low`,
   `medium`, or `high`, and rejects `minimal`.
-- When the level is absent for Extended Thinking, `google-dialog` delegates to
-  Google's model default; the current public model documentation does not
-  specify a fixed default level.
+- When the level is absent for Extended Thinking, `google-dialog` sends
+  `medium` itself. Google's public model documentation does not specify a
+  fixed default level, so the service pins `medium` deterministically rather
+  than depending on an unspecified server default.
 - Legacy models retain their existing setup behavior.
 
 For tools, declaration behavior and result scheduling are separate concepts.
@@ -166,6 +167,16 @@ explicit `user` or `model` role, text content, and `turn_complete`. Keep the
 existing realtime `Prompt` input unchanged. Sending client content with
 `turn_complete: true` interrupts active generation; sending it without that flag
 appends content and waits for further input.
+
+Callers pick between these text input paths by intent:
+
+- Realtime user input (the user speaks or types now): `Prompt`.
+- An immediate, ordered response with interruption of active generation:
+  `ClientContent` with `user` role and `turn_complete: true`.
+- Silent context the model uses only when generation is next triggered:
+  `ClientContent` with `user` role and `turn_complete: false`.
+- Restoring or fabricating an earlier assistant turn: `ClientContent` with
+  `model` role.
 
 The exact public API is:
 
@@ -296,6 +307,50 @@ pub use types::{
   ServiceInputEvent, ServiceOutputEvent, VOICES, parse_voice_value,
 };
 ```
+
+## 3.8 Live feature overview
+
+Beyond the wiring documented above, the two 3.8 Live models provide these
+capabilities (verified against Google's model and Live API documentation on
+2026-09-18 and 2026-09-21, with the model-specific pages treated as
+authoritative):
+
+- **Async function calling.** Non-blocking tool declarations (`behavior:
+  NON_BLOCKING`, the 3.8 default) let longer-running functions execute in the
+  background while the conversation continues. The agent can provide updates
+  and returns results when ready, controlled by the `FunctionResponseScheduling`
+  values `SILENT`, `WHEN_IDLE`, and `INTERRUPT` that `FunctionCallResult`
+  forwards. Extended Thinking runs async-only and rejects scheduling. Google's
+  capabilities table spells the last value `INTERRUPTED`; the tool-use guide
+  and this ADR use `INTERRUPT`.
+- **Proactive audio.** The agent speaks only when relevant and can remain
+  quiet unless directly addressed, making conversations less interruptive. This
+  is enabled permanently on both 3.8 models (see the fixed-choice entry in the
+  next section).
+- **Client content for context injection.** The `clientContent` channel lets
+  callers add context without forcing a turn (`turn_complete: false`),
+  backchanneling information silently so the model stays informed without a
+  spoken response. With `turn_complete: true`, the same channel instead asks
+  the model to respond immediately, interrupting any active generation.
+- **High/background reasoning.** Extended Thinking performs frontier-level
+  reasoning in the background and supports more complex tasks while remaining
+  responsive during the ongoing conversation. Standard 3.8 keeps interleaved
+  reasoning with fixed, non-configurable depth.
+- **Native audio experience.** The background reasoning runs inside the native
+  audio pipeline, so deep processing and real-time voice interaction coexist
+  instead of trading one for the other.
+- **Responsive multitasking.** The model can work on slower complex outputs
+  while still chatting, balancing deep reasoning with fast conversational
+  response.
+- **Model capability comparison.** Standard `gemini-3.8-live` already carries
+  strong reasoning; `gemini-3.8-live-extended-thinking` favors deeper
+  performance on complex or creative tasks over minimal latency.
+- **Google Search grounding.** The only supported grounding tool on both
+  models; exposed through `Tool::GoogleSearch` (its metadata is not forwarded;
+  see the exclusion list below).
+- **Bidirectional audio transcription.** Input and output transcripts in
+  `VERBATIM` or `SMART` mode are configured through the transcription `Params`
+  fields documented above; native audio language selection stays automatic.
 
 ## Features not exposed by `google-dialog`
 
@@ -460,6 +515,8 @@ any GDPR deployment conclusion part of the software contract.
 - <https://ai.google.dev/gemini-api/docs/live-api/session-management>
 - <https://ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens>
 - <https://ai.google.dev/api/live>
-- <https://ai.google.dev/gemini-api/docs/pricing>
+- <https://ai.google.dev/gemini-api/pricing>
 - <https://ai.google.dev/gemini-api/terms>
+- <https://ai.google.dev/gemini-api/docs/changelog> — 3.8 Live GA announcement,
+  2026-09-15
 - <https://github.com/googleapis/js-genai/blob/main/src/types.ts>
