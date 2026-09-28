@@ -1,16 +1,17 @@
 use std::mem;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use tracing::{debug, info, trace};
 
-use gemini_live::transport::{Auth, Endpoint, TransportConfig};
+use gemini_live::transport::{Auth, BearerTokenProvider, Endpoint, TransportConfig};
 use gemini_live::types::{
     AudioTranscriptionConfig, Content, ContextWindowCompressionConfig, FunctionResponse,
     GenerationConfig, Modality, ModalityTokenCount, Part, PrebuiltVoiceConfig, ServerEvent,
     SessionResumptionConfig, SetupConfig, SlidingWindow, SpeechConfig, ThinkingConfig,
     UsageMetadata, VoiceConfig,
 };
-use gemini_live::{ReconnectPolicy, Session, SessionConfig, SessionError};
+use gemini_live::{ConnectError, ReconnectPolicy, Session, SessionConfig, SessionError};
 
 use context_switch_core::{
     AI_ASSISTANT_SPEAKER, AudioFormat, AudioFrame, BillingRecord, BillingSchedule,
@@ -42,8 +43,8 @@ impl Client {
     ) -> Result<()> {
         let billing_scope = self.params.model.clone();
         let mut state = ConversationState::new();
-        let mut session = match Session::connect(session_config(&self.params, text_outputs)?).await
-        {
+        let config = session_config(&self.params, text_outputs).await?;
+        let mut session = match Session::connect(config).await {
             Ok(session) => session,
             Err(error) => return Err(connect_error_with_voice_context(&self.params, error)),
         };
@@ -344,11 +345,11 @@ fn normalize_function_response(output: serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
+async fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionConfig> {
     let agent_platform = agent_platform_config(params)?;
 
     let auth = match agent_platform {
-        Some(_) => Auth::vertex_ai_application_default()?,
+        Some(_) => vertex_ai_auth().await?,
         None => {
             let api_key = params
                 .api_key
@@ -362,10 +363,9 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
     let endpoint = match params.endpoint.as_deref().and_then(trimmed_non_empty) {
         Some(endpoint) => Endpoint::Custom(endpoint.to_owned()),
         None => match agent_platform {
-            Some(config) => Endpoint::Custom(format!(
-                "wss://{}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
-                config.location
-            )),
+            Some(config) => Endpoint::VertexAi {
+                location: config.location.to_owned(),
+            },
             None => Endpoint::default(),
         },
     };
@@ -381,6 +381,22 @@ fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<SessionC
         setup: setup_config(params, text_outputs)?,
         reconnect: ReconnectPolicy::default(),
     })
+}
+
+/// Bounds the eager token fetch so a slow credential backend cannot delay the
+/// session beyond the transport's own connect timeout.
+const VERTEX_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Resolve Vertex AI credentials up front so a credential problem is reported
+/// as an auth failure instead of a WebSocket handshake failure.
+async fn vertex_ai_auth() -> Result<Auth> {
+    let provider = BearerTokenProvider::vertex_ai_application_default()
+        .context("Loading Google Cloud Application Default Credentials")?;
+    tokio::time::timeout(VERTEX_AUTH_TIMEOUT, provider.bearer_token())
+        .await
+        .context("Vertex AI credentials timed out")?
+        .context("Refreshing the Google Cloud access token")?;
+    Ok(Auth::BearerTokenProvider(provider))
 }
 
 fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfig> {
@@ -465,9 +481,28 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
     })
 }
 
+// Agent Platform routing has no API-key path, so a credential failure there is
+// always a configuration problem with a fix worth naming. Applies to the
+// initial connect only; errors from the session loop do not pass through here.
+const ADC_HINT: &str = "Vertex AI authenticates with Application Default Credentials: run \
+    `gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS to the path \
+    of a service-account key file";
+
 fn connect_error_with_voice_context(params: &Params, error: SessionError) -> anyhow::Error {
+    let is_auth_failure = matches!(
+        &error,
+        SessionError::Connect(ConnectError::Auth(_))
+            | SessionError::Connect(ConnectError::Rejected {
+                status: 401 | 403,
+                ..
+            })
+    );
     let is_setup_failed = matches!(&error, SessionError::SetupFailed(_));
     let base = anyhow!(error).context("Connecting to Gemini Live");
+
+    if is_auth_failure {
+        return base.context(ADC_HINT);
+    }
 
     if !is_setup_failed {
         return base;

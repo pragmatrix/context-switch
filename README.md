@@ -150,9 +150,9 @@ GOOGLE_AGENT_PLATFORM_LOCATION=us-central1
 ```
 
 The `google-agent-platform` dialog provider constructs the default Agent Platform WebSocket endpoint from
-`GOOGLE_AGENT_PLATFORM_LOCATION` as:
-
-`wss://{location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`
+`GOOGLE_AGENT_PLATFORM_LOCATION`: the multi-regions `us` and `eu` use `aiplatform.{location}.rep.googleapis.com`,
+`global` uses `aiplatform.googleapis.com`, and other values use `{location}-aiplatform.googleapis.com`, each with
+the path `/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`.
 
 Use `--endpoint` to override the computed endpoint.
 
