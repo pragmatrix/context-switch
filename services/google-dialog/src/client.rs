@@ -1,4 +1,5 @@
 use std::mem;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use tracing::{debug, info, trace};
@@ -362,10 +363,9 @@ async fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<Se
     let endpoint = match params.endpoint.as_deref().and_then(trimmed_non_empty) {
         Some(endpoint) => Endpoint::Custom(endpoint.to_owned()),
         None => match agent_platform {
-            Some(config) => Endpoint::Custom(format!(
-                "wss://{}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
-                config.location
-            )),
+            Some(config) => Endpoint::VertexAi {
+                location: config.location.to_owned(),
+            },
             None => Endpoint::default(),
         },
     };
@@ -383,14 +383,18 @@ async fn session_config(params: &Params, text_outputs: TextOutputs) -> Result<Se
     })
 }
 
+/// Bounds the eager token fetch so a slow credential backend cannot delay the
+/// session beyond the transport's own connect timeout.
+const VERTEX_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Resolve Vertex AI credentials up front so a credential problem is reported
 /// as an auth failure instead of a WebSocket handshake failure.
 async fn vertex_ai_auth() -> Result<Auth> {
     let provider = BearerTokenProvider::vertex_ai_application_default()
         .context("Loading Google Cloud Application Default Credentials")?;
-    provider
-        .bearer_token()
+    tokio::time::timeout(VERTEX_AUTH_TIMEOUT, provider.bearer_token())
         .await
+        .context("Vertex AI credentials timed out")?
         .context("Refreshing the Google Cloud access token")?;
     Ok(Auth::BearerTokenProvider(provider))
 }
@@ -478,7 +482,8 @@ fn setup_config(params: &Params, text_outputs: TextOutputs) -> Result<SetupConfi
 }
 
 // Agent Platform routing has no API-key path, so a credential failure there is
-// always a configuration problem with a fix worth naming.
+// always a configuration problem with a fix worth naming. Applies to the
+// initial connect only; errors from the session loop do not pass through here.
 const ADC_HINT: &str = "Vertex AI authenticates with Application Default Credentials: run \
     `gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS to the path \
     of a service-account key file";

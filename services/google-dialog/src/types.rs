@@ -20,7 +20,9 @@ pub struct Params {
     /// Optional GCP location for Agent Platform routing.
     ///
     /// When both `project` and `location` are set and no explicit endpoint is provided,
-    /// `google-dialog` uses the Agent Platform endpoint for this location.
+    /// `google-dialog` uses the Agent Platform endpoint for this location: `us` and
+    /// `eu` route to `aiplatform.{location}.rep.googleapis.com`, `global` to
+    /// `aiplatform.googleapis.com`, and other values to `{location}-aiplatform.googleapis.com`.
     pub location: Option<String>,
     #[serde(alias = "host")]
     pub endpoint: Option<String>,
